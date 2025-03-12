@@ -353,7 +353,7 @@ Stay tuned for updates and the official release of our repository. Together, let
 
 # Community Group
 
-Join our networking group on Wecgat and share your experience with other developers!
+Join our networking group on WeChat and share your experience with other developers!
 
 <div align="center" style="display: flex; gap: 20px;">
     <img src="assets/wechat-link.jpg" alt="OpenManus-RL 交流群" width="300" />
