@@ -1,7 +1,7 @@
 # OpenManus-RL
 🤗 <a href="https://huggingface.co/datasets/CharlieDreemur/OpenManus-RL" target="_blank">Dataset (OpenManus-RL)</a>
 </p>
-OpenManus-RL is an open-source initiative collaboratively led by **Ulab-UIUC** and **MetaGPT**.
+OpenManus-RL is an open-source initiative collaboratively led by 𝐔𝐥𝐚𝐛-𝐔𝐈𝐔𝐂 and 𝐌𝐞𝐭𝐚𝐆𝐏𝐓.
 
 This project is an extended version of the original [@OpenManus](https://github.com/mannaandpoem/OpenManus) initiative. Inspired by successful RL tunning for reasoning LLM such as Deepseek-R1, QwQ-32B, we will explore new paradigms for RL-based LLM agent tuning, particularly building upon foundations.
 
