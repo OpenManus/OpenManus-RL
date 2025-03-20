@@ -1,0 +1,62 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.0.3/css/font-awesome.css	">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.bundle.min.js"></script>
+    <link rel="icon" href="data:,">
+  </head>
+  <body>
+    <div class="container py-5">
+      <div class="row top-buffer">
+        <div class="col-sm-6">
+          <div id="instruction-text" class="text-center">
+            <h4>Instruction:<br>i want an xx-small sized slim fit button down shirt with long sleeves. pick something in white, and price lower than 50.00 dollars</h4>
+          </div>
+        </div>
+      </div>
+      <div class="row top-buffer">
+        <form method="post" action="/abc">
+          <button type="submit" class="btn btn-success">Back to Search</button>
+        </form>
+      </div>
+      <div class="row top-buffer">
+        <form method="post" action="/item_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%7D">
+          <button type="submit" class="btn btn-primary">&lt; Prev</button>
+        </form>
+      </div>
+      <div class="row top-buffer">
+        <div class="col-md-12">
+          <div class="row top-buffer">
+            <div class="col-sm-6" name="bulletpoints">
+              <div class="card card-body">
+                <ul>
+                  
+                  <li><p class="product-info"> Pure Running Shoe </p></li>
+                  
+                  <li><p class="product-info"> Comfort Flat Sneakers </p></li>
+                  
+                  <li><p class="product-info"> [FEATURES]: Soles with unique non-slip pattern, it has great abrasion resistant and provide protection when you walking or running. (Pure Running Shoe Mesh Walking Shoes Fashion Sneakers Slip On Sneakers Wedge Platform Loafers Modern Walking Shoes Sock Sneakers Platform Loafers Shoes Non Slip Running Shoes Athletic Tennis Shoes Blade Type Sneakers Lace-up Sneaker) sole </p></li>
+                  
+                  <li><p class="product-info"> [WIDE ANKLE DESIGN]: Perfect accord with human body engineering, green, healthy concept design make the walking shoes wear more comfortable, wide width wlking shoes. (Low Top Walking Shoes Fashion Canvas Sneakers Slip On Shoes Casual Walking Shoes Hidden Wedge Sneaker Low Top Canvas Sneakers Lace-up Classic Casual Shoes Walking Tennis Shoes Lightweight Casual Sneakers Slip on Sock Sneakers Air Cushion Platform Loafers Slip-On Mule Sneaker ) </p></li>
+                  
+                  <li><p class="product-info"> [CUSHION WITH ARCH SUPPORT]: Gives you a comfort for all day long. Wear these lightweight walking shoes, let every step of moving on a comfortable feeling. (Fashion Casual Shoes Athletic Workout Shoes Fitness Sneaker Athletic Running Shoes Air Cushion Sneakers Stylish Athletic Shoes Lace Up Canvas Shoes Slip on Walking Shoe Fashion Sneakers Low Top Classic Sneakers Comfort Fall Shoes Memory Foam Slip On Sneakers Air Cushion Sneakers Running Walking Shoes) </p></li>
+                  
+                  <li><p class="product-info"> [NON-SLIP SOLE]: Made from ultra soft and lightweight RUBBER material,with the function of shock absorbing and cushioning,offering the best durability and traction. (Wedge Sneakers Walking Tennis Shoes Slip On Running Shoes Lightweight Fashion Sneakers Fashion Travel Shoes Walking Running Shoes Non Slip Running Shoes Athletic Tennis Sneakers Sports Walking Shoes Platform Fashion Sneaker Memory Foam Tennis Sneakers Running Jogging Shoes Sock Sneakers Canvas Fashion Sneakers) </p></li>
+                  
+                  <li><p class="product-info"> [OCCASIONS]: Ultra lightweight design provides actual feelings of being barefooted and like walking on the feather, perfect for walking, hiking, bike riding, working, shopping, indoor, outdoor, casual, sports, travel, exercise, vacation, and etc. (Flat Fashion Sneakers Lightweight Walking Sneakers Platform Loafers Sport Running Shoes Casual Flat Loafers Slip-On Sneaker Casual Walking Shoes High Top Canvas Sneakers Lace up Sneakers Workout Walking Shoes Tennis Fitness Sneaker) </p></li>
+                  
+                  <li><p class="product-info"> [Customers Are Our Priority]: We follow the principle of customer first, so if you encounter any problems after buying shoes, we will try our best to solve them for you. (Breathable Air Cushion Sneakers Walking Tennis Shoes Air Athletic Running Shoes Air Cushion Shoes Mesh Sneakers Fashion Tennis Shoes Jogging Walking Sneakers Breathable Casual Sneakers Fashion Walking Shoes Athletic Running Sneakers Walking Work Shoes Air Running Shoes Slip on Sneakers Mesh Walking Shoes) </p></li>
+                  
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

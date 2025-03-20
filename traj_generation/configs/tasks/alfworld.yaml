@@ -1,0 +1,22 @@
+default:
+  module: src.server.tasks.alfworld.ALFWorld
+  docker:
+    image: longinyu/agentbench-alfworld
+    command: umask 0; [ -f /root/.setup.sh ] && bash /root/.setup.sh;
+  parameters:
+    name: alfworld-std
+    data_path: "/AgentBench/data/alfworld"
+    config_path: "src/server/tasks/alfworld/configs/base_config.yaml"
+    prompts_path: "src/server/tasks/alfworld/prompts/alfworld_multiturn_plan_first.json"
+    split: "standard"
+    max_step: 35
+
+alfworld-dev:
+  parameters:
+    name: alfworld-dev
+    split: "dev"
+
+alfworld-std:
+  parameters:
+    name: alfworld-std
+    split: "standard"

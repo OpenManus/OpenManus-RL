@@ -1,0 +1,358 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.0.3/css/font-awesome.css	">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.bundle.min.js"></script>
+    <link rel="icon" href="data:,">
+  </head>
+  <body>
+    <div class="container py-5">
+      <div class="row top-buffer">
+        <div class="col-sm-6">
+          <div id="instruction-text" class="text-center">
+            <h4>Instruction:<br>i want an xx-small sized slim fit button down shirt with long sleeves. pick something in white, and price lower than 50.00 dollars</h4>
+          </div>
+        </div>
+      </div>
+      <div class="row top-buffer">
+        <form method="post" action="/abc">
+          <button type="submit" class="btn btn-success">Back to Search</button>
+        </form>
+      </div>
+      <div class="row top-buffer">
+        <div class="col-sm-8">
+          <div class="display-4">
+            <h3>Page 1 (Total results: 50)</h3>
+          </div>
+          
+            <div class="col-sm-2">
+            </div>
+            <div class="col-sm-2">
+              <form method="post" action="/search_results/abc/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/2">
+                <button type="submit" class="btn btn-primary">Next &gt;</button>
+              </form>
+            </div>
+          
+        </div>
+      </div>
+
+      <div class="row top-buffer">
+        
+        <div class="col-lg-12 mx-auto list-group-item">
+          <div class="col-lg-4">
+            <img src="https://m.media-amazon.com/images/I/41npPuaBBYL.jpg" class="result-img">
+          </div>
+          <div class="col-lg-8">
+            <ul class="list-group shadow">
+                <div class="media align-items-lg-center flex-column flex-lg-row p-3">
+                  <div class="media-body order-2 order-lg-1 searched-product">
+                    
+                    <h4 class="mt-0 font-weight-bold mb-2 product-asin"><a class="product-link" href="/item_page/abc/B09GKFNQWT/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%7D">B09GKFNQWT</a></h5>
+                    <h4 class="mt-0 font-weight-bold mb-2 product-title">BinGoDug Men&#39;s Basketball Shoes, Men&#39;s Fashion Sneakers, Air Basketball Shoes for Men, Womens Basketball Shoes, Mens Basketball Shoes, Boys Basketball Shoes, Youth Basketball Shoes Men Women</h5>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-price">$24.49 to $39.99</h6>
+                    </div>
+<!--
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-category">fashion</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-query">men&#39;s athletic shoes</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-product_category">Clothing, Shoes &amp; Jewelry › Men › Shoes › Athletic › Team Sports › Basketball</h5>
+                    </div>
+-->
+                  </div>
+                </div>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="col-lg-12 mx-auto list-group-item">
+          <div class="col-lg-4">
+            <img src="https://m.media-amazon.com/images/I/41HjkLJxV3S.jpg" class="result-img">
+          </div>
+          <div class="col-lg-8">
+            <ul class="list-group shadow">
+                <div class="media align-items-lg-center flex-column flex-lg-row p-3">
+                  <div class="media-body order-2 order-lg-1 searched-product">
+                    
+                    <h4 class="mt-0 font-weight-bold mb-2 product-asin"><a class="product-link" href="/item_page/abc/B09BFY2R3R/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%7D">B09BFY2R3R</a></h5>
+                    <h4 class="mt-0 font-weight-bold mb-2 product-title">RQWEIN Comfortable Mesh Sneakers Men&#39;s Roading Running Shoes Tennis Shoes Casual Fashion Sneakers Outdoor Non Slip Gym Athletic Sport Shoes</h5>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-price">$1.89 to $7.58</h6>
+                    </div>
+<!--
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-category">fashion</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-query">men&#39;s outdoor shoes</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-product_category">Sports &amp; Outdoors › Fan Shop › Footwear › Sneakers</h5>
+                    </div>
+-->
+                  </div>
+                </div>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="col-lg-12 mx-auto list-group-item">
+          <div class="col-lg-4">
+            <img src="https://m.media-amazon.com/images/I/51ltvkzGhGL.jpg" class="result-img">
+          </div>
+          <div class="col-lg-8">
+            <ul class="list-group shadow">
+                <div class="media align-items-lg-center flex-column flex-lg-row p-3">
+                  <div class="media-body order-2 order-lg-1 searched-product">
+                    
+                    <h4 class="mt-0 font-weight-bold mb-2 product-asin"><a class="product-link" href="/item_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%7D">B09P87V3LZ</a></h5>
+                    <h4 class="mt-0 font-weight-bold mb-2 product-title">PMUYBHF Womens Fashion Flat Shoes Comfortable Running Shoes Sneakers Tennis Athletic Shoe Casual Walking Shoes</h5>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-price">$100.0</h6>
+                    </div>
+<!--
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-category">fashion</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-query">women&#39;s mules &amp; clogs</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-product_category">Clothing, Shoes &amp; Jewelry › Women › Shoes › Athletic › Walking</h5>
+                    </div>
+-->
+                  </div>
+                </div>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="col-lg-12 mx-auto list-group-item">
+          <div class="col-lg-4">
+            <img src="https://m.media-amazon.com/images/I/31Z+8L7hYZL.jpg" class="result-img">
+          </div>
+          <div class="col-lg-8">
+            <ul class="list-group shadow">
+                <div class="media align-items-lg-center flex-column flex-lg-row p-3">
+                  <div class="media-body order-2 order-lg-1 searched-product">
+                    
+                    <h4 class="mt-0 font-weight-bold mb-2 product-asin"><a class="product-link" href="/item_page/abc/B09N6SNKC1/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%7D">B09N6SNKC1</a></h5>
+                    <h4 class="mt-0 font-weight-bold mb-2 product-title">PMUYBHF Fashion Travel Shoes Jogging Walking Sneakers Air Cushion Platform Loafers Air Cushion Mesh Shoes Walking Dance Shoes</h5>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-price">$100.0</h6>
+                    </div>
+<!--
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-category">fashion</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-query">women&#39;s work &amp; safety footwear</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-product_category">Clothing, Shoes &amp; Jewelry › Women › Shoes › Athletic › Walking</h5>
+                    </div>
+-->
+                  </div>
+                </div>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="col-lg-12 mx-auto list-group-item">
+          <div class="col-lg-4">
+            <img src="https://m.media-amazon.com/images/I/41LL2NKngXL.jpg" class="result-img">
+          </div>
+          <div class="col-lg-8">
+            <ul class="list-group shadow">
+                <div class="media align-items-lg-center flex-column flex-lg-row p-3">
+                  <div class="media-body order-2 order-lg-1 searched-product">
+                    
+                    <h4 class="mt-0 font-weight-bold mb-2 product-asin"><a class="product-link" href="/item_page/abc/B09N6X5S74/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%7D">B09N6X5S74</a></h5>
+                    <h4 class="mt-0 font-weight-bold mb-2 product-title">PMUYBHF Women&#39;s Ballet Flats Walking Flats Shoes Dressy Work Low Wedge Arch Suport Flats Shoes Slip On Dress Shoes</h5>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-price">$100.0</h6>
+                    </div>
+<!--
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-category">fashion</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-query">women&#39;s work &amp; safety footwear</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-product_category">Clothing, Shoes &amp; Jewelry › Women › Shoes › Flats</h5>
+                    </div>
+-->
+                  </div>
+                </div>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="col-lg-12 mx-auto list-group-item">
+          <div class="col-lg-4">
+            <img src="https://m.media-amazon.com/images/I/41XBkOUgsvL.jpg" class="result-img">
+          </div>
+          <div class="col-lg-8">
+            <ul class="list-group shadow">
+                <div class="media align-items-lg-center flex-column flex-lg-row p-3">
+                  <div class="media-body order-2 order-lg-1 searched-product">
+                    
+                    <h4 class="mt-0 font-weight-bold mb-2 product-asin"><a class="product-link" href="/item_page/abc/B09MDB9V5W/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%7D">B09MDB9V5W</a></h5>
+                    <h4 class="mt-0 font-weight-bold mb-2 product-title">PWKSELW High-top Men&#39;s Basketball Shoes Outdoor Sports Shoes Cushioning Training Shoes Casual Running Shoes</h5>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-price">$100.0</h6>
+                    </div>
+<!--
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-category">fashion</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-query">men&#39;s outdoor shoes</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-product_category">Clothing, Shoes &amp; Jewelry › Men › Shoes</h5>
+                    </div>
+-->
+                  </div>
+                </div>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="col-lg-12 mx-auto list-group-item">
+          <div class="col-lg-4">
+            <img src="https://m.media-amazon.com/images/I/41T1jN8tpqL.jpg" class="result-img">
+          </div>
+          <div class="col-lg-8">
+            <ul class="list-group shadow">
+                <div class="media align-items-lg-center flex-column flex-lg-row p-3">
+                  <div class="media-body order-2 order-lg-1 searched-product">
+                    
+                    <h4 class="mt-0 font-weight-bold mb-2 product-asin"><a class="product-link" href="/item_page/abc/B09N6PDFRF/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%7D">B09N6PDFRF</a></h5>
+                    <h4 class="mt-0 font-weight-bold mb-2 product-title">Women&#39;s Flat Shoes Classic Round Toe Slip Office Black Ballet Flats Walking Flats Shoes Casual Ballet Flats</h5>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-price">$100.0</h6>
+                    </div>
+<!--
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-category">fashion</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-query">women&#39;s work &amp; safety footwear</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-product_category">Clothing, Shoes &amp; Jewelry › Women › Shoes</h5>
+                    </div>
+-->
+                  </div>
+                </div>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="col-lg-12 mx-auto list-group-item">
+          <div class="col-lg-4">
+            <img src="https://m.media-amazon.com/images/I/31T-rsVcQ6L.jpg" class="result-img">
+          </div>
+          <div class="col-lg-8">
+            <ul class="list-group shadow">
+                <div class="media align-items-lg-center flex-column flex-lg-row p-3">
+                  <div class="media-body order-2 order-lg-1 searched-product">
+                    
+                    <h4 class="mt-0 font-weight-bold mb-2 product-asin"><a class="product-link" href="/item_page/abc/B09N8ZHFNM/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%7D">B09N8ZHFNM</a></h5>
+                    <h4 class="mt-0 font-weight-bold mb-2 product-title">Women&#39;s Mid-Calf Boots Wide Calf Boots for Women Fashion Zipper Womens Shoes Pu Leather Casual Boots Womens Slip-On Womens Flat Shoes Med Heel Womens&#39; Boots Winter Snow Boot Comfy Boots(,5.5)</h5>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-price">$100.0</h6>
+                    </div>
+<!--
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-category">fashion</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-query">women&#39;s work &amp; safety footwear</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-product_category">Clothing, Shoes &amp; Jewelry › Women › Shoes › Boots › Ankle &amp; Bootie</h5>
+                    </div>
+-->
+                  </div>
+                </div>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="col-lg-12 mx-auto list-group-item">
+          <div class="col-lg-4">
+            <img src="https://m.media-amazon.com/images/I/311Kfut4w6L.jpg" class="result-img">
+          </div>
+          <div class="col-lg-8">
+            <ul class="list-group shadow">
+                <div class="media align-items-lg-center flex-column flex-lg-row p-3">
+                  <div class="media-body order-2 order-lg-1 searched-product">
+                    
+                    <h4 class="mt-0 font-weight-bold mb-2 product-asin"><a class="product-link" href="/item_page/abc/B09P87DWGR/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%7D">B09P87DWGR</a></h5>
+                    <h4 class="mt-0 font-weight-bold mb-2 product-title">PMUYBHF Womens Leisure Fitness Running Sport Warm Sneakers Shoes Slip-On Mule Sneakers Womens Mules</h5>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-price">$100.0</h6>
+                    </div>
+<!--
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-category">fashion</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-query">women&#39;s mules &amp; clogs</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-product_category">Clothing, Shoes &amp; Jewelry › Women › Shoes › Mules &amp; Clogs</h5>
+                    </div>
+-->
+                  </div>
+                </div>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="col-lg-12 mx-auto list-group-item">
+          <div class="col-lg-4">
+            <img src="https://m.media-amazon.com/images/I/41MY7d1FK0L.jpg" class="result-img">
+          </div>
+          <div class="col-lg-8">
+            <ul class="list-group shadow">
+                <div class="media align-items-lg-center flex-column flex-lg-row p-3">
+                  <div class="media-body order-2 order-lg-1 searched-product">
+                    
+                    <h4 class="mt-0 font-weight-bold mb-2 product-asin"><a class="product-link" href="/item_page/abc/B09R9MMTKR/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%7D">B09R9MMTKR</a></h5>
+                    <h4 class="mt-0 font-weight-bold mb-2 product-title">Men Dress Shoes Leather Modern Classic Business Shoes Lace Up Classic Office Shoes Business Formal Shoes for Men</h5>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-price">$100.0</h6>
+                    </div>
+<!--
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-category">fashion</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-query">men&#39;s mules &amp; clogs</h5>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-1">
+                      <h5 class="font-weight-bold my-2 product-product_category">Clothing, Shoes &amp; Jewelry › Men › Shoes › Oxfords</h5>
+                    </div>
+-->
+                  </div>
+                </div>
+            </ul>
+          </div>
+        </div>
+        
+      </div>
+    </div>
+  </body>
+</html>
