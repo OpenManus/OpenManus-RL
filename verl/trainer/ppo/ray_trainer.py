@@ -40,7 +40,7 @@ from verl.trainer.ppo import core_algos
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 
 import re
-from search_r1.llm_agent.generation import LLMGenerationManager, GenerationConfig
+from openmanus_rl.llm_agent.openmanus import OpenManusAgent, AgentConfig
 
 WorkerType = Type[Worker]
 
@@ -444,7 +444,7 @@ class RayPPOTrainer(object):
         reward_tensor_lst = []
         data_source_lst = []
 
-        gen_config = GenerationConfig(
+        gen_config = AgentConfig(
             max_turns=self.config.max_turns,
             max_start_length=self.config.data.max_start_length,
             max_prompt_length=self.config.data.max_prompt_length,
@@ -457,7 +457,7 @@ class RayPPOTrainer(object):
         )
 
         # Agent config preparation
-        generation_manager = LLMGenerationManager(
+        generation_manager = OpenManusAgent(
             tokenizer=self.tokenizer,
             actor_rollout_wg=self.actor_rollout_wg,
             config=gen_config,
@@ -675,7 +675,7 @@ class RayPPOTrainer(object):
         self.global_steps += 1
 
         # Agent config preparation
-        gen_config = GenerationConfig(
+        gen_config = AgentConfig(
             max_turns=self.config.max_turns,
             max_start_length=self.config.data.max_start_length,
             max_prompt_length=self.config.data.max_prompt_length,
@@ -687,7 +687,7 @@ class RayPPOTrainer(object):
             topk = self.config.retriever.topk,
         )
 
-        generation_manager = LLMGenerationManager(
+        generation_manager = OpenManusAgent(
             tokenizer=self.tokenizer,
             actor_rollout_wg=self.actor_rollout_wg,
             config=gen_config,
