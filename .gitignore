@@ -1,8 +1,23 @@
-__pycache__
+.env
+
+# virtual env
+venv/
+
+# MACOS system files
 .DS_Store
-.cache
-.dockerfile
-.dockerfile-cache
+
+# caches
+.cache/
+__pycache__
+
+# IDE config files
 .idea
 .vscode
-.env
+
+# log files
+*.log
+
+# docker
+.dockerfile
+.dockerfile-cache/
+
