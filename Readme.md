@@ -218,90 +218,39 @@ Then, install the required dependencies:
 
 
 ```bash
-pip install -r requirements.txt
+# install torch [or you can skip this step and let vllm to install the correct version for you]
+pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cu121
+# install vllm
+pip3 install vllm==0.6.3 # or you can install 0.5.4, 0.4.2 and 0.3.1
+
+# verl
+pip install -e .
+
+# flash attention 2
+pip3 install flash-attn --no-build-isolation
+pip install wandb
 ```
 
-Supervised Fine-Tuning (SFT)
+## Quick start
 
-Basic Usage
+Train a reasoning + search LLM on NQ dataset with e5 as the retriever and wikipedia as the corpus.
 
-To fine-tune a model on a single GPU:
+(1) Download the indexing and corpus.
 
+From https://huggingface.co/datasets/CharlieDreemur/OpenManus-RL
 
+(3) Launch a local AgentGym server.
 ```bash
-python -m openmanus_rl.sft \
-    --model_name_or_path Qwen/Qwen2.5-1.5B-Instruct \
-    --dataset_name CharlieDreemur/OpenManus-RL \
-    --learning_rate 2.0e-5 \
-    --num_train_epochs 1 \
-    --packing \
-    --max_seq_length 4096 \
-    --per_device_train_batch_size 2 \
-    --gradient_accumulation_steps 8 \
-    --gradient_checkpointing \
-    --bf16 \
-    --logging_steps 5 \
-    --output_dir data/sft-output
+todo here
 ```
 
-Distributed Training with Accelerate
-
-For multi-GPU training using Accelerate:
-
-
+(4) Run RL training (PPO) with Llama-3.2-3b-base.
 ```bash
-accelerate launch --config_file=configs/accelerate_configs/zero3.yaml openmanus_rl/sft.py \
-    --model_name_or_path Qwen/Qwen2.5-1.5B-Instruct \
-    --dataset_name CharlieDreemur/OpenManus-RL \
-    --learning_rate 2.0e-5 \
-    --num_train_epochs 1 \
-    --packing \
-    --max_seq_length 4096 \
-    --per_device_train_batch_size 2 \
-    --gradient_accumulation_steps 8 \
-    --gradient_checkpointing \
-    --bf16 \
-    --logging_steps 5 \
-    --output_dir data/sft-output
+conda activate openmanus-rl
+bash train_ppo.sh
 ```
 
-## Gradient-based Reinforcement for Policy Optimization (GRPO) for agent tunning
-Basic Usage
-To fine-tune a model using GRPO on a single GPU:
 
-```bash
-python -m openmanus_rl.grpo \
-    --model_name_or_path Qwen/Qwen2.5-1.5B-Instruct \
-    --dataset_name CharlieDreemur/OpenManus-RL-GRPO \
-    --learning_rate 2.0e-5 \
-    --num_train_epochs 1 \
-    --max_seq_length 4096 \
-    --per_device_train_batch_size 2 \
-    --gradient_accumulation_steps 8 \
-    --gradient_checkpointing \
-    --bf16 \
-    --reward_funcs accuracy format tag_count \
-    --logging_steps 5 \
-    --output_dir data/grpo-output
-```
-Distributed Training with Accelerate
-For multi-GPU training using Accelerate:
-
-```bash
-accelerate launch --config_file=configs/accelerate_configs/zero3.yaml openmanus_rl/grpo.py \
-    --model_name_or_path Qwen/Qwen2.5-1.5B-Instruct \
-    --dataset_name CharlieDreemur/OpenManus-RL-GRPO \
-    --learning_rate 2.0e-5 \
-    --num_train_epochs 1 \
-    --max_seq_length 4096 \
-    --per_device_train_batch_size 2 \
-    --gradient_accumulation_steps 8 \
-    --gradient_checkpointing \
-    --bf16 \
-    --reward_funcs accuracy format tag_count \
-    --logging_steps 5 \
-    --output_dir data/grpo-output
-```
 
 
 # Related Work
@@ -347,6 +296,9 @@ accelerate launch --config_file=configs/accelerate_configs/zero3.yaml openmanus_
 
 # Acknowledgement
 We extend our thanks to ulab-uiuc (https://ulab-uiuc.github.io/) and Openmanus (https://github.com/mannaandpoem/OpenManus)) team from MetaGPT for their support and shared knowledge. Their mission and community contributions help drive innovations like OpenManus forward.
+
+We also want to thank AgentGym(https://agentgym.github.io/) and Verl (https://github.com/volcengine/verl) for their opensource.
+
 We welcome all developers who are interested in this project can reach out to (kunlunz2@illinois.edu)
 
 Stay tuned for updates and the official release of our repository. Together, let's build a thriving open-source agent ecosystem!

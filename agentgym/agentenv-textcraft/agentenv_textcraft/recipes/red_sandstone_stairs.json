@@ -1,0 +1,25 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "#  ",
+    "## ",
+    "###"
+  ],
+  "key": {
+    "#": [
+      {
+        "item": "minecraft:red_sandstone"
+      },
+      {
+        "item": "minecraft:chiseled_red_sandstone"
+      },
+      {
+        "item": "minecraft:cut_red_sandstone"
+      }
+    ]
+  },
+  "result": {
+    "item": "minecraft:red_sandstone_stairs",
+    "count": 4
+  }
+}

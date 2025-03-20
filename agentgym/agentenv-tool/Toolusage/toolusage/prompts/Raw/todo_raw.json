@@ -1,0 +1,338 @@
+{
+    "system_message": "You can use actions to help people solve problems.",
+    "tool_set_message": [
+        {
+            "name": "get_user_current_date",
+            "description": "Get the user's current date.",
+            "parameters": {},
+            "returns": {
+                "type": "string",
+                "description": "The current date in 'YYYY-MM-DD' format."
+            }
+        },
+        {
+            "name": "get_user_current_location",
+            "description": "Get the user's current city.",
+            "parameters": {},
+            "returns": {
+                "type": "string",
+                "description": "The user's current city."
+            }
+        },
+        {
+            "name": "get_projects",
+            "description": "Get all projects in the Todoist account",
+            "parameters": {},
+            "returns": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "order": {
+                            "type": "integer"
+                        },
+                        "color": {
+                            "type": "string"
+                        },
+                        "is_favorite": {
+                            "type": "boolean"
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "name": "update_project",
+            "description": "Update a project",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "is_favorite": {
+                        "type": "string",
+                        "enum": [
+                            "True",
+                            "False"
+                        ]
+                    }
+                },
+                "required": [
+                    "project_id",
+                    "is_favorite"
+                ]
+            },
+            "returns": {
+                "type": "object",
+                "description": "Information of the updated project"
+            }
+        },
+        {
+            "name": "get_tasks",
+            "description": "Get all tasks for a given project",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_id": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "project_id"
+                ]
+            },
+            "returns": {
+                "type": "array",
+                "description": "A list of tasks",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string"
+                        },
+                        "project_id": {
+                            "type": "string"
+                        },
+                        "order": {
+                            "type": "integer"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Name of the task."
+                        },
+                        "is_completed": {
+                            "type": "boolean"
+                        },
+                        "priority": {
+                            "type": "integer",
+                            "description": "Task priority from 1 (normal) to 4 (urgent)."
+                        },
+                        "due_date": {
+                            "type": "string",
+                            "description": "The due date of the task."
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "name": "get_task_description",
+            "description": "Get the description of a specific task in the Todoist account.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "task_id"
+                ]
+            },
+            "returns": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Unique identifier of the task."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Name of the task."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Description of the task. Incluing the Place, Tips, etc."
+                    }
+                }
+            }
+        },
+        {
+            "name": "get_task_duration",
+            "description": "Get the duration of a specific task in the Todoist account.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "task_id"
+                ]
+            },
+            "returns": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Name of the task."
+                    },
+                    "duration": {
+                        "type": "string",
+                        "description": "Duration of the task in the format of 'amount(unit)'."
+                    }
+                }
+            }
+        },
+        {
+            "name": "complete_task",
+            "description": "Mark a task as completed",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "task_id"
+                ]
+            },
+            "returns": {
+                "type": "object",
+                "description": "information of the completed task"
+            }
+        },
+        {
+            "name": "update_task",
+            "description": "Update a task",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string"
+                    },
+                    "due_date": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "task_id",
+                    "due_date"
+                ]
+            },
+            "returns": {
+                "type": "object",
+                "description": "Information of the updated task"
+            }
+        },
+        {
+            "name": "delete_task",
+            "description": "Delete a specific task from the Todoist account.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "Unique identifier of the task to delete."
+                    }
+                }
+            },
+            "returns": {
+                "type": "object",
+                "description": "Information of the deleted task."
+            }
+        },
+        {
+            "name": "check_valid_actions",
+            "description": "Get supported actions for current tool.",
+            "parameters": {},
+            "returns": {
+                "type": "array",
+                "description": "Supported actions for current tool."
+            }
+        },
+        {
+            "name": "finish",
+            "description": "Call this action, when find the answer for the current task or complete essential operations.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "answer": {
+                        "type": [
+                            "string",
+                            "number",
+                            "array"
+                        ],
+                        "description": "If the task is a question answering task, this is the answer to be returned. If the task is an operation task, the answer in 'done'"
+                    }
+                }
+            }
+        }
+    ],
+    "in_context_examples": [
+        {
+            "goal": "Is Prepare for history quiz a task of School project?",
+            "react_steps": [
+                [
+                    "Think",
+                    "To check whether Prepare for history quiz is a task of School project, I should get the tasks of School project."
+                ],
+                [
+                    "Think",
+                    "But get_task requires project_id, I should first get the project id of School."
+                ],
+                [
+                    "Action",
+                    "get_projects with Action Input: {}"
+                ],
+                [
+                    "Observation",
+                    "[{'id': '12345', 'order': 0, 'color': 'charcoal', 'name': 'School', 'is_favorite': false}]"
+                ],
+                [
+                    "Action",
+                    "get_tasks with Action Input: {\"project_id\": \"12345\"}"
+                ],
+                [
+                    "Observation",
+                    "[{'id': '123451', 'order': 0, 'content': 'Prepare for history quiz', 'is_completed': false, 'priority': 1, 'due_date': '2030-10-10'}, {'id': '123452', 'order': 1, 'content': 'Prepare for math quiz', 'is_completed': false, 'priority': 1, 'due_date': '2030-11-10'}]"
+                ],
+                [
+                    "Think",
+                    "Prepare for history quiz is in the result, so it is a task of School project. I will call action: finish to terminate the conversation."
+                ],
+                [
+                    "Action",
+                    "finish with Action Input: {\"answer\": \"yes\"}"
+                ],
+                [
+                    "Observation",
+                    "yes"
+                ]
+            ],
+            "old_react_steps": [
+                {
+                    "Thought": "To check whether Prepare for history quiz is a task of School project. I should first get the project id of School.",
+                    "Action": "get_projects",
+                    "Action Input": "{}",
+                    "Observation": "[{'id': '12345', 'order': 0, 'color': 'charcoal', 'name': 'School', 'is_favorite': false}]"
+                },
+                {
+                    "Thought": "From the result, the project id of School is 12345, then I can get all tasks of this project. And check whether Prepare for history quiz is in the result.",
+                    "Action": "get_tasks",
+                    "Action Input": "{\"project_id\": \"12345\"}",
+                    "Observation": "[{'id': '123451', 'order': 0, 'content': 'Prepare for history quiz', 'is_completed': false, 'priority': 1, 'due_date': '2030-10-10'}, {'id': '123452', 'order': 1, 'content': 'Prepare for math quiz', 'is_completed': false, 'priority': 1, 'due_date': '2030-11-10'}]"
+                },
+                {
+                    "Thought": "Prepare for history quiz is in the result, so it is a task of School project. I will call action: finish to terminate the conversation.",
+                    "Action": "finish",
+                    "Action Input": "{\"answer\": \"yes\"}",
+                    "Observation": "yes"
+                }
+            ]
+        }
+    ],
+    "old_instruction": "Please refer to the format of examples above to solve the following question. Do not give up easily. Your response must contain three components: \"Thought: [your thought]\", \"Action: [your action]\",\"Action Input: [your action input]\""
+}

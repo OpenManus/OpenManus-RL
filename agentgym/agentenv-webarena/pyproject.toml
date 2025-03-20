@@ -1,0 +1,18 @@
+[project]
+name = "agentenv_webarena"
+version = "0.0.1"
+description = ""
+authors = [
+    {name = "hotdog-zz", email = "21307130044@m.fudan.edu.cn"},
+]
+dependencies = ["flask", "gunicorn"]
+requires-python = "==3.10.13"
+readme = "README.md"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[project.scripts]
+webarena = "agentenv_webarena:launch"

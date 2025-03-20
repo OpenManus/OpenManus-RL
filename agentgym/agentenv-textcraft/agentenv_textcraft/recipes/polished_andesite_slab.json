@@ -1,0 +1,15 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "###"
+  ],
+  "key": {
+    "#": {
+      "item": "minecraft:polished_andesite"
+    }
+  },
+  "result": {
+    "item": "minecraft:polished_andesite_slab",
+    "count": 6
+  }
+}

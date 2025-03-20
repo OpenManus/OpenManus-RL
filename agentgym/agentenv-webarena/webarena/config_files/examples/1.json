@@ -1,0 +1,31 @@
+{
+    "sites": ["reddit"],
+    "task_id": 1,
+    "require_login": true,
+    "storage_state": "./.auth/reddit_state.json",
+    "start_url": "http://metis.lti.cs.cmu.edu:9999/",
+    "geolocation": null,
+    "intent_template": "tell me all subreddits starting with character '{{character}}'",
+    "instantiation_dict": {"character": "a"},
+    "intent": "tell me all subreddits starting with character 'a'",
+    "require_reset": false,
+    "eval": {
+        "eval_types": ["string_match"],
+        "reference_answers": ["announcements Art AskReddit askscience aww"],
+        "reference_url": "",
+        "program_html": [
+            {
+                "url": "",
+                "required_contents": []
+            }
+        ]
+    },
+    "reference_action_sequence": {
+        "action_set_tag": "playwright",
+        "action_sequence": [
+            "page.get_by_role(\"link\", name=\"Forums\").click()",
+            "page.get_by_role(\"link\", name=\"Alphabetical\").click()",
+            "page.stop(\"announcements Art AskReddit askscience aww\")"
+        ]
+    }
+}

@@ -1,0 +1,31 @@
+{
+    "sites": ["misc"],
+    "task_id": 3,
+    "require_login": false,
+    "storage_state": null,
+    "start_url": "https://russmaxdesign.github.io/exercise",
+    "geolocation": null,
+    "intent_template": "",
+    "instantiation_dict": {},
+    "intent": "Tell me who provide a collection of concise, detailed information for mammal classification in 2005",
+    "require_reset": false,
+    "eval": {
+        "eval_types": ["string_match"],
+        "reference_answers": ["Wilson and Reader"],
+        "reference_url": "",
+        "program_html": [
+            {
+                "url": "",
+                "required_contents": []
+            }
+        ]
+    },
+    "reference_action_sequence": {
+        "action_set_tag": "id_accessibility_tree",
+        "action_sequence": [
+            "type [13] [xyz@gmail.com] [0]",
+            "click [65]",
+            "stop [Wilson and Reader]"
+        ]
+    }
+}

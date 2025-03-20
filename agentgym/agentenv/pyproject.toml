@@ -1,0 +1,20 @@
+[project]
+name = "agentenv"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "KYLN24", email = "hlguo20@fudan.edu.cn"},
+]
+dependencies = [
+    "torch>=2.0.0",
+    "transformers>=4.35.2",
+    "trl>=0.8.6",
+    "scipy>=1.11.4",
+    "accelerate>=0.23.0",
+    "jsonlines>=4.0.0",
+    "wandb>=0.16.4"
+]
+requires-python = ">=3.11"
+readme = "README.md"
+license = {text = "MIT"}
+

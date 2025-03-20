@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:smelting",
+  "ingredient": {
+    "tag": "minecraft:sand"
+  },
+  "result": "minecraft:glass",
+  "experience": 0.1,
+  "cookingtime": 200
+}

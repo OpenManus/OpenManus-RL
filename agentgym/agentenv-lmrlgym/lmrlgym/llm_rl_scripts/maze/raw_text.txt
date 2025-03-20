@@ -1,0 +1,21 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "{\"thought\": \"I know the goal is at position 8, 6 and my current position is at position 2, 3. I also know that there are walls to my right and to my left. A good action to try might therefore be \"move up\", since it is in the list of possible actions, and it will get me closer to the goal.\", \"action\": \"move up\"}",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1697919516,
+  "id": "chatcmpl-8CCiaiOZIy94VvhSxEdW9GzZd4pUS",
+  "model": "gpt-4-0613",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 83,
+    "prompt_tokens": 463,
+    "total_tokens": 546
+  }
+}

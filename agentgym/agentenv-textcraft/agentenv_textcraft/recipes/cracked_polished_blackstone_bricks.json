@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:smelting",
+  "ingredient": {
+    "item": "minecraft:polished_blackstone_bricks"
+  },
+  "result": "minecraft:cracked_polished_blackstone_bricks",
+  "experience": 0.1,
+  "cookingtime": 200
+}

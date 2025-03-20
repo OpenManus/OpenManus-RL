@@ -1,0 +1,31 @@
+{
+    "sites": ["reddit"],
+    "task_id": 4,
+    "require_login": true,
+    "storage_state": "./.auth/reddit_state.json",
+    "start_url": "http://metis.lti.cs.cmu.edu:9999/",
+    "geolocation": null,
+    "intent_template": "list all subreddits in alphabetical order",
+    "instantiation_dict": {},
+    "intent": "list all subreddits in alphabetical order",
+    "require_reset": false,
+    "eval": {
+        "eval_types": ["url_match"],
+        "reference_answers": null,
+        "reference_url": "http://metis.lti.cs.cmu.edu:9999/forums/all",
+        "program_html": [
+            {
+                "url": "",
+                "required_contents": []
+            }
+        ]
+    },
+    "reference_action_sequence": {
+        "action_set_tag": "playwright",
+        "action_sequence": [
+            "page.get_by_role(\"link\", name=\"Forums\").click()",
+            "page.get_by_role(\"link\", name=\"Alphabetical\").click()",
+            "page.stop()"
+        ]
+    }
+}

@@ -1,0 +1,304 @@
+{
+    "system_message": "You can use actions to help people solve problems.\n",
+    "tool_set_message": [
+        {
+            "name": "loadPaperNet",
+            "description": "Load PaperNet. In this net, nodes are papers and edges are citation relationships between papers.",
+            "parameters": {}
+        },
+        {
+            "name": "loadAuthorNet",
+            "description": "Load AuthorNet. In this net, nodes are authors and edges are collaboration relationships between authors.",
+            "parameters": {}
+        },
+        {
+            "name": "neighbourCheck",
+            "description": "List the first-order neighbors connect to the node. In paperNet, neigbours are cited papers of the paper. In authorNet, neigbours are collaborators of the author.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "graph": {
+                        "type": "string",
+                        "enum": [
+                            "PaperNet",
+                            "AuthorNet"
+                        ],
+                        "description": "The name of the graph to check"
+                    },
+                    "node": {
+                        "type": "string",
+                        "description": "The node for which neighbors will be listed"
+                    }
+                },
+                "required": [
+                    "graph",
+                    "node"
+                ]
+            },
+            "returns": {
+                "type": "object",
+                "properties": {
+                    "neighbors": {
+                        "type": "array"
+                    }
+                }
+            }
+        },
+        {
+            "name": "paperNodeCheck",
+            "description": "Return detailed attribute information of a specified paper in PaperNet",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node": {
+                        "type": "string",
+                        "description": "Name of the paper."
+                    }
+                },
+                "required": [
+                    "node"
+                ]
+            },
+            "returns": {
+                "type": "object",
+                "properties": {
+                    "authors": {
+                        "description": "The authors of the paper"
+                    },
+                    "year": {
+                        "description": "The puslished year of the paper"
+                    },
+                    "venue": {
+                        "description": "The published venue of the paper"
+                    },
+                    "n_citation": {
+                        "description": "The number of citations of the paper"
+                    },
+                    "keywords": {
+                        "description": "The keywords of the paper"
+                    },
+                    "doc_type": {
+                        "description": "The document type of the paper"
+                    }
+                }
+            }
+        },
+        {
+            "name": "authorNodeCheck",
+            "description": "Return detailed attribute information of a specified author in AuthorNet",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node": {
+                        "type": "string",
+                        "description": "name of the author."
+                    }
+                },
+                "required": [
+                    "node"
+                ]
+            },
+            "returns": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "description": "The name of the author"
+                    },
+                    "org": {
+                        "description": "The organization of the author"
+                    }
+                }
+            }
+        },
+        {
+            "name": "authorEdgeCheck",
+            "description": "Return detailed attribute information of the edge between two specified nodes in a AuthorNet.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node1": {
+                        "type": "string",
+                        "description": "The first node of the edge"
+                    },
+                    "node2": {
+                        "type": "string",
+                        "description": "The second node of the edge"
+                    }
+                },
+                "required": [
+                    "node1",
+                    "node2"
+                ]
+            },
+            "returns": {
+                "type": "object",
+                "properties": {
+                    "papers": {
+                        "description": "All papers that the two authors have co-authored"
+                    }
+                }
+            }
+        },
+        {
+            "name": "paperEdgeCheck",
+            "description": "Return detailed attribute information of the edge between two specified nodes in a PaperNet.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node1": {
+                        "type": "string",
+                        "description": "The first node of the edge"
+                    },
+                    "node2": {
+                        "type": "string",
+                        "description": "The second node of the edge"
+                    }
+                },
+                "required": [
+                    "node1",
+                    "node2"
+                ]
+            },
+            "returns": {
+                "type": "object",
+                "properties":{}
+            }
+        },
+        {
+            "name": "check_valid_actions",
+            "description": "Get supported actions for current tool.",
+            "parameters": {},
+            "returns": {
+                "type": "object",
+                "properties": {
+                    "actions": {
+                        "type": "array",
+                        "description": "Supported actions for current tool."
+                    }
+                }
+            }
+        },
+        {
+            "name": "finish",
+            "description": "Return an answer and finish the task",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "answer": {
+                        "type": [
+                            "string",
+                            "number",
+                            "array"
+                        ],
+                        "description": "The answer to be returned"
+                    }
+                },
+                "required": [
+                    "answer"
+                ]
+            }
+        }
+    ],
+    "in_context_examples": [
+        {
+            "goal": "When was the paper Learning the Principle of Least Action with Reinforcement Learning. published?",
+            "react_steps": [
+                [
+                    "Action",
+                    "loadPaperNet with Action Input: {}"
+                ],
+                [
+                    "Observation",
+                    "PaperNet is loaded."
+                ],
+                [
+                    "Think",
+                    "The question is asking the published date of a paper, I should use paperNodeCheck to check the node from the PaperNet in DBLP graph."
+                ],
+                [
+                    "Think",
+                    "The paper node is Learning the Principle of Least Action with Reinforcement Learning."
+                ],
+                [
+                    "Action",
+                    "paperNodeCheck with Action Input: {\"node\":\"Learning the Principle of Least Action with Reinforcement Learning.\"}"
+                ],
+                [
+                    "Observation",
+                    "{'year': 2021, 'venue': 'AAAI Spring Symposium - MLPS', 'n_citation': 0, 'keywords': [], 'doc_type': 'Conference'}"
+                ],
+                [
+                    "Think",
+                    "The published date of the paper is 2021. I can finish this goal"
+                ],
+                [
+                    "Action",
+                    "finish with Action Input: {\"answer\": \"2021\"}"
+                ],
+                [
+                    "Observation",
+                    "2021"
+                ]
+            ],
+            "react_steps_w_grounding": [
+                [
+                    "Action",
+                    "loadPaperNet with Action Input: {}"
+                ],
+                [
+                    "Observation",
+                    "PaperNet is loaded.\nChoose an action from these valid actions: ['paperNodeCheck', 'authorNodeCheck', 'check_valid_actions', 'finish']"
+                ],
+                [
+                    "Think",
+                    "The question is asking the published date of a paper, I should use paperNodeCheck to check the node from the PaperNet in DBLP graph."
+                ],
+                [
+                    "Think",
+                    "The paper node is Learning the Principle of Least Action with Reinforcement Learning."
+                ],
+                [
+                    "Action",
+                    "paperNodeCheck with Action Input: {\"node\":\"Learning the Principle of Least Action with Reinforcement Learning.\"}"
+                ],
+                [
+                    "Observation",
+                    "{'year': 2021, 'venue': 'AAAI Spring Symposium - MLPS', 'n_citation': 0, 'keywords': [], 'doc_type': 'Conference'}\nChoose an action from these valid actions: ['loadPaperNet', 'loadAuthorNet', 'neighbourCheck', 'paperNodeCheck', 'authorNodeCheck', 'authorEdgeCheck', 'paperEdgeCheck', 'check_valid_actions', 'finish']"
+                ],
+                [
+                    "Think",
+                    "The published date of the paper is 2021. I can finish this goal"
+                ],
+                [
+                    "Action",
+                    "finish with Action Input: {\"answer\": \"2021\"}"
+                ],
+                [
+                    "Observation",
+                    "2021"
+                ]
+            ],
+            "old_react_steps": [
+                {
+                    "Think": "The question is asking some basic information of a dblp paper. I need to load the DBLP graph.",
+                    "Action": "loadGraphData",
+                    "Action Input": "{\"dataName\":\"DBLP\"}",
+                    "Observation": "DBLP data is loaded, including two sub-graphs: AuthorNet and PaperNet."
+                },
+                {
+                    "Think": "The question is asking the published date of a paper, we need to check the node from the PaperNet in DBLP graph.",
+                    "Action": "paperNodeCheck",
+                    "Action Input": "{\"node\":\"Learning the Principle of Least Action with Reinforcement Learning.\"}",
+                    "Observation": "{'year': 2021, 'venue': 'AAAI Spring Symposium - MLPS', 'n_citation': 0, 'keywords': [], 'doc_type': 'Conference'}"
+                },
+                {
+                    "Think": "The published date of the paper is 2021.",
+                    "Action": "finish",
+                    "Action Input": "{\"answer\": \"2021\"}",
+                    "Observation": "2021"
+                }
+            ]
+        }
+    ],
+    "old_instruction": "Please refer to the format of examples above to solve the following question. Your response must contain three components: \"Thought: [your thought]\", \"Action: [your action]\",\"Action Input: [your action input]\""
+}

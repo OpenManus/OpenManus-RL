@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:campfire_cooking",
+  "ingredient": {
+    "item": "minecraft:beef"
+  },
+  "result": "minecraft:cooked_beef",
+  "experience": 0.35,
+  "cookingtime": 600
+}

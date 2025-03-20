@@ -1,0 +1,33 @@
+{
+    "sites": [
+        "shopping"
+    ],
+    "task_id": 0,
+    "require_login": true,
+    "storage_state": "./.auth/gitlab_state.json",
+    "start_url": null,
+    "geolocation": null,
+    "intent_template": "",
+    "instantiation_dict": {},
+    "intent": "",
+    "require_reset": false,
+    "eval": {
+        "eval_types": [
+            "program_html"
+        ],
+        "reference_answers": [],
+        "reference_url": "",
+        "program_html": [
+            {
+                "url": "__GITLAB__/primer/design/-/project_members",
+                "locator": "func:gitlab_get_project_memeber_role(__page__, 'byteblaze')",
+                "required_contents": {"must_include": ["Developer"]}
+            },
+            {
+                "url": "__GITLAB__/primer/design/-/project_members",
+                "locator": "func:gitlab_get_project_memeber_role(__page__, 'primer')",
+                "required_contents": {"must_include": ["Owner"]}
+            }
+        ]
+    }
+}

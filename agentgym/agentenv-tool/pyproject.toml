@@ -1,0 +1,22 @@
+[project]
+name = "agentenv_tool"
+version = "0.0.1"
+description = ""
+authors = [
+    {name = "hotdog-zz", email = "21307130044@m.fudan.edu.cn"},
+]
+dependencies = []
+requires-python = "==3.8.13"
+readme = "README.md"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[project.scripts]
+weather = "agentenv_weather:launch"
+movie = "agentenv_movie:launch"
+academia = "agentenv_academia:launch"
+todo = "agentenv_todo:launch"
+sheet = "agentenv_sheet:launch"

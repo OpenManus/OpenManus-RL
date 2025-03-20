@@ -1,0 +1,606 @@
+{
+  "system_message": "You can use actions to help people solve problems.\n",
+  "tool_set_message": [
+    {
+      "name": "get_user_current_date",
+      "description": "Get the user's current date.",
+      "parameters": {},
+      "returns": {
+        "type": "string",
+        "description": "The current date in 'YYYY-MM-DD' format."
+      }
+    },
+    {
+      "name": "get_user_current_location",
+      "description": "Get the user's current city.",
+      "parameters": {},
+      "returns": {
+        "type": "string",
+        "description": "The user's current city."
+      }
+    },
+    {
+      "name": "get_historical_temp",
+      "description": "Get historical temperature data for a specified location and date range.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "The latitude of the location."
+          },
+          "longitude": {
+            "type": "number",
+            "description": "The longitude of the location."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "The start date of the historical data (YYYY-MM-DD)."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "The end date of the historical data (YYYY-MM-DD)."
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Historical temperature data."
+      }
+    },
+    {
+      "name": "get_historical_rain",
+      "description": "Get historical rainfall data for a specified location and date range.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "The latitude of the location."
+          },
+          "longitude": {
+            "type": "number",
+            "description": "The longitude of the location."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "The start date of the historical data (YYYY-MM-DD)."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "The end date of the historical data (YYYY-MM-DD)."
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Historical rainfall data."
+      }
+    },
+    {
+      "name": "get_historical_snow",
+      "description": "Get historical snowfall data for a specified location and date range.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "The latitude of the location."
+          },
+          "longitude": {
+            "type": "number",
+            "description": "The longitude of the location."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "The start date of the historical data (YYYY-MM-DD)."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "The end date of the historical data (YYYY-MM-DD)."
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Historical snowfall data."
+      }
+    },
+    {
+      "name": "get_snow_forecast",
+      "description": "Get snowfall forecast data for a specified location and date range.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "The latitude of the location."
+          },
+          "longitude": {
+            "type": "number",
+            "description": "The longitude of the location."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "The start date of the forecast (YYYY-MM-DD)."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "The end date of the forecast (YYYY-MM-DD)."
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Snowfall forecast data."
+      }
+    },
+    {
+      "name": "get_current_snow",
+      "description": "Get current snowfall data for a specified location and date.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "The latitude of the location."
+          },
+          "longitude": {
+            "type": "number",
+            "description": "The longitude of the location."
+          },
+          "current_date": {
+            "type": "string",
+            "description": "The current date to retrieve snowfall data (YYYY-MM-DD)."
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Current snowfall data."
+      }
+    },
+    {
+      "name": "get_current_temp",
+      "description": "Get current temperature data for a specified location and date.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "The latitude of the location."
+          },
+          "longitude": {
+            "type": "number",
+            "description": "The longitude of the location."
+          },
+          "current_date": {
+            "type": "string",
+            "description": "The current date to retrieve temperature data (YYYY-MM-DD)."
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Current temperature data."
+      }
+    },
+    {
+      "name": "get_latitude_longitude",
+      "description": "Get latitude and longitude information for a specified location name.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name of the location. (e.g., city name)"
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "latitude and longitude information for the specified location."
+      }
+    },
+    {
+      "name": "get_elevation",
+      "description": "Get elevation data for a specified location.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "The latitude of the location."
+          },
+          "longitude": {
+            "type": "number",
+            "description": "The longitude of the location."
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Elevation data for the specified location."
+      }
+    },
+    {
+      "name": "get_temp_forecast",
+      "description": "Get temperature forecast data for a specified location and date range.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "The latitude of the location."
+          },
+          "longitude": {
+            "type": "number",
+            "description": "The longitude of the location."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "The start date of the forecast (YYYY-MM-DD)."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "The end date of the forecast (YYYY-MM-DD)."
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Temperature forecast data."
+      }
+    },
+    {
+      "name": "get_rain_forecast",
+      "description": "Get rainfall forecast data for a specified location and date range.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "The latitude of the location."
+          },
+          "longitude": {
+            "type": "number",
+            "description": "The longitude of the location."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "The start date of the forecast (YYYY-MM-DD)."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "The end date of the forecast (YYYY-MM-DD)."
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Rainfall forecast data."
+      }
+    },
+    {
+      "name": "get_current_rain",
+      "description": "Get current rainfall data for a specified location and date.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "The latitude of the location."
+          },
+          "longitude": {
+            "type": "number",
+            "description": "The longitude of the location."
+          },
+          "current_date": {
+            "type": "string",
+            "description": "The current date to retrieve rainfall data (YYYY-MM-DD)."
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Current rainfall data."
+      }
+    },
+    {
+      "name": "get_distance",
+      "description": "Calculate the distance between two sets of latitude and longitude coordinates.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude1": {
+            "type": "number",
+            "description": "The latitude of the first location."
+          },
+          "longitude1": {
+            "type": "number",
+            "description": "The longitude of the first location."
+          },
+          "latitude2": {
+            "type": "number",
+            "description": "The latitude of the second location."
+          },
+          "longitude2": {
+            "type": "number",
+            "description": "The longitude of the second location."
+          }
+        }
+      },
+      "returns": {
+        "type": "number",
+        "description": "The distance between the two sets of coordinates in kilometers."
+      }
+    },
+    {
+      "name": "get_historical_air_quality_index",
+      "description": "Get historical air quality index data for a specified location and date range.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "The latitude of the location."
+          },
+          "longitude": {
+            "type": "number",
+            "description": "The longitude of the location."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "The start date of the historical data (YYYY-MM-DD)."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "The end date of the historical data (YYYY-MM-DD)."
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Historical air quality index (PM2.5) data."
+      }
+    },
+    {
+      "name": "get_current_air_quality_index",
+      "description": "Get current air quality index data for a specified location and date.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "The latitude of the location."
+          },
+          "longitude": {
+            "type": "number",
+            "description": "The longitude of the location."
+          },
+          "current_date": {
+            "type": "string",
+            "description": "The current date to retrieve air quality index data (YYYY-MM-DD)."
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Current air quality index (PM2.5) data."
+      }
+    },
+    {
+      "name": "get_air_quality_level",
+      "description": "Determine the air quality level based on the air quality index (AQI).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "air_quality_index": {
+            "type": "number",
+            "description": "The air quality index (AQI) value."
+          }
+        }
+      },
+      "returns": {
+        "type": "string",
+        "description": "The air quality level, which can be 'good', 'fair', 'moderate', 'poor', 'very poor', or 'extremely poor'."
+      }
+    },
+    {
+      "name": "check_valid_actions",
+      "description": "Get supported actions for current tool.",
+      "parameters": {},
+      "returns": {
+        "type": "object",
+        "properties": {
+          "actions": {
+            "type": "array",
+            "description": "Supported actions for current tool."
+          }
+        }
+      }
+    },
+    {
+      "name": "finish",
+      "description": "Return an answer and finish the task",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": [
+              "string",
+              "number",
+              "array"
+            ],
+            "description": "The answer to be returned"
+          }
+        },
+        "required": [
+          "answer"
+        ]
+      }
+    }
+  ],
+  "in_context_examples": [
+    {
+      "goal": "What is the lowest temperature yesterday?",
+      "react_steps": [
+        [
+          "Think",
+          "This question is about the lowest temperature yesterday."
+        ],
+        [
+          "Think",
+          "I should get the latitude and longitude information of user's current location first."
+        ],
+        [
+          "Action",
+          "get_user_current_location with Action Input: {}"
+        ],
+        [
+          "Observation",
+          "Shanghai"
+        ],
+        [
+          "Action",
+          "get_latitude_longitude with Action Input: {\"name\": \"Shanghai\"}"
+        ],
+        [
+          "Observation",
+          "{'results': [{'name': 'Shanghai', 'latitude': 31.22222, 'longitude': 121.45806, 'country_code': 'CN'}, {'name': 'Shanghai', 'latitude': 34.85009, 'longitude': -87.08501, 'country_code': 'US'}, {'name': 'Cornelia', 'latitude': 38.64363, 'longitude': -93.73938, 'country_code': 'US'}]}"
+        ],
+        [
+          "Think",
+          "I have got the latitude and longitude information of Shanghai, I should get the current date to get the date of yesterday."
+        ],
+        [
+          "Action",
+          "get_user_current_date with Action Input: {}"
+        ],
+        [
+          "Observation",
+          "2015-01-02"
+        ],
+        [
+          "Think",
+          "Current date in 2015-01-02, so yesterday is 2015-01-01. Now, I can get the temperature data of Shanghai in 2015-01-01."
+        ],
+        [
+          "Action",
+          "get_historical_temp with Action Input: {\"latitude\": 31.22222, \"longitude\": 121.45806, \"start_date\": \"2015-01-01\", \"end_date\": \"2015-01-01\"}"
+        ],
+        [
+          "Observation",
+          "{'latitude': 31.200005, 'longitude': 121.5, 'daily_units': {'time': 'iso8601', 'temperature_2m_max': '°C', 'temperature_2m_min': '°C', 'temperature_2m_mean': '°C'}, 'daily': {'time': ['2015-01-01'], 'temperature_2m_max': [4.3], 'temperature_2m_min': [-3.6], 'temperature_2m_mean': [-0.1]}}"
+        ],
+        [
+          "Think",
+          "The observation mentions that 'temperature_2m_mean': [-0.1]',so the average temperature is -0.1. I will call finish to end the goal."
+        ],
+        [
+          "Action",
+          "finish with Action Input: {\"answer\": -0.1}"
+        ],
+        [
+          "Observation",
+          -0.1
+        ]
+      ],
+      "react_steps_w_grounding": [
+        [
+          "Think",
+          "This question is about the lowest temperature yesterday."
+        ],
+        [
+          "Think",
+          "I should get the latitude and longitude information of user's current location first."
+        ],
+        [
+          "Action",
+          "get_user_current_location with Action Input: {}"
+        ],
+        [
+          "Observation",
+          "Shanghai"
+        ],
+        [
+          "Action",
+          "get_latitude_longitude with Action Input: {\"name\": \"Shanghai\"}"
+        ],
+        [
+          "Observation",
+          "{'results': [{'name': 'Shanghai', 'latitude': 31.22222, 'longitude': 121.45806, 'country_code': 'CN'}, {'name': 'Shanghai', 'latitude': 34.85009, 'longitude': -87.08501, 'country_code': 'US'}, {'name': 'Cornelia', 'latitude': 38.64363, 'longitude': -93.73938, 'country_code': 'US'}]} \nChoose an action from these valid actions: ['get_user_current_location', 'get_historical_snow', 'get_user_current_date', 'check_valid_actions', 'finish']"
+        ],
+        [
+          "Think",
+          "I have got the latitude and longitude information of Shanghai, I should get the current date to get the date of yesterday."
+        ],
+        [
+          "Action",
+          "get_user_current_date with Action Input: {}"
+        ],
+        [
+          "Observation",
+          "2015-01-02"
+        ],
+        [
+          "Think",
+          "Current date in 2015-01-02, so yesterday is 2015-01-01. Now, I can get the temperature data of Shanghai in 2015-01-01."
+        ],
+        [
+          "Action",
+          "get_historical_temp with Action Input: {\"latitude\": 31.22222, \"longitude\": 121.45806, \"start_date\": \"2015-01-01\", \"end_date\": \"2015-01-01\"}"
+        ],
+        [
+          "Observation",
+          "{'latitude': 31.200005, 'longitude': 121.5, 'daily_units': {'time': 'iso8601', 'temperature_2m_max': '°C', 'temperature_2m_min': '°C', 'temperature_2m_mean': '°C'}, 'daily': {'time': ['2015-01-01'], 'temperature_2m_max': [4.3], 'temperature_2m_min': [-3.6], 'temperature_2m_mean': [-0.1]}} \nChoose an action from these valid actions: ['get_user_current_date', 'get_current_snow',  'get_latitude_longitude', 'get_temp_forecast', 'get_air_quality_level', 'check_valid_actions', 'finish']"
+        ],
+        [
+          "Think",
+          "The observation mentions that 'temperature_2m_mean': [-0.1]',so the average temperature is -0.1. I will call finish to end the goal."
+        ],
+        [
+          "Action",
+          "finish with Action Input: {\"answer\": -0.1}"
+        ],
+        [
+          "Observation",
+          -0.1
+        ]
+      ],
+      "old_react_steps": [
+        {
+          "Thought": "This question is about the lowest temperature yesterday, I should first get the location information of the user",
+          "Action": "get_user_current_location",
+          "Action Input": "{}",
+          "Observation": "Shanghai"
+        },
+        {
+          "Thought": "The user is currently in Shanghai. I should first get the latitude and longitude information of Shanghai",
+          "Action": "get_latitude_longitude",
+          "Action Input": "{\"name\": \"Shanghai\"}",
+          "Observation": "{'results': [{'name': 'Shanghai', 'latitude': 31.22222, 'longitude': 121.45806, 'country_code': 'CN'}, {'name': 'Shanghai', 'latitude': 34.85009, 'longitude': -87.08501, 'country_code': 'US'}, {'name': 'Cornelia', 'latitude': 38.64363, 'longitude': -93.73938, 'country_code': 'US'}]}"
+        },
+        {
+          "Thought": "I have got the latitude and longitude information of Shanghai, I should get the current date to get the date of yesterday.",
+          "Action": "get_user_current_date",
+          "Action Input": "{}",
+          "Observation": "2015-01-02"
+        },
+        {
+          "Thought": "Current date in 2015-01-02, so yesterday is 2015-01-01. Now, I can get the temperature data of Shanghai in 2015-01-01",
+          "Action": "get_historical_temp",
+          "Action Input": "{\"latitude\": 31.22222, \"longitude\": 121.45806, \"start_date\": \"2015-01-01\", \"end_date\": \"2015-01-01\"}",
+          "Observation": "{'latitude': 31.200005, 'longitude': 121.5, 'daily_units': {'time': 'iso8601', 'temperature_2m_max': '°C', 'temperature_2m_min': '°C', 'temperature_2m_mean': '°C'}, 'daily': {'time': ['2015-01-01'], 'temperature_2m_max': [4.3], 'temperature_2m_min': [-3.6], 'temperature_2m_mean': [-0.1]}}"
+        },
+        {
+          "Thought": "The average temperature is -0.1, I will call finish to end the task. ",
+          "Action": "finish",
+          "Action Input": "{\"answer\": -0.1}",
+          "Observation": -0.1
+        }
+      ]
+    }
+  ],
+  "old_instruction": "Please refer to the format of examples above to solve the following question. Your response must contain three components: \"Thought: [your thought]\", \"Action: [your action]\",\"Action Input: [your action input]\""
+}

@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "# ",
+    " X"
+  ],
+  "key": {
+    "#": {
+      "item": "minecraft:fishing_rod"
+    },
+    "X": {
+      "item": "minecraft:carrot"
+    }
+  },
+  "result": {
+    "item": "minecraft:carrot_on_a_stick"
+  }
+}

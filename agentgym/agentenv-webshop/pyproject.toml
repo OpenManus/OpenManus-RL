@@ -1,0 +1,18 @@
+[project]
+name = "agentenv_webshop"
+version = "0.0.1"
+description = ""
+authors = [
+    {name = "KYLN24", email = "hlguo20@fudan.edu.cn"},
+]
+dependencies = []
+requires-python = "==3.8.13"
+readme = "README.md"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[project.scripts]
+webshop = "agentenv_webshop:launch"

@@ -1,0 +1,20 @@
+[project]
+name = "agentenv_babyai"
+version = "0.0.1"
+description = ""
+authors = [
+    {name = "Andy15", email = "1413924962@qq.com"},
+]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "gym",
+    "gymnasium<1.0.0",
+    "matplotlib",
+    "minigrid<2.5.0"
+]
+readme = "README.md"
+license = {text = "MIT"}
+
+[project.scripts]
+babyai = "agentenv_babyai:launch"

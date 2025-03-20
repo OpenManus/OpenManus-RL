@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "group": "bark",
+  "pattern": [
+    "##",
+    "##"
+  ],
+  "key": {
+    "#": {
+      "item": "minecraft:birch_log"
+    }
+  },
+  "result": {
+    "item": "minecraft:birch_wood",
+    "count": 3
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:smelting",
+  "ingredient": {
+    "item": "minecraft:salmon"
+  },
+  "result": "minecraft:cooked_salmon",
+  "experience": 0.35,
+  "cookingtime": 200
+}
