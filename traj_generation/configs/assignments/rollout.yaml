@@ -1,0 +1,20 @@
+import: definition.yaml
+
+concurrency:
+  task:
+    # dbbench-std: 5
+    os-std: 5
+
+  agent:
+    #gpt-4o: 5
+    qwq-32b: 5
+
+assignments: # List[Assignment] | Assignment
+  - agent: # "task": List[str] | str ,  "agent": List[str] | str
+      #- gpt-4o
+      - qwq-32b
+    task:
+      # - dbbench-std
+      - os-std
+
+output: "outputs/rollout_{TIMESTAMP}"
