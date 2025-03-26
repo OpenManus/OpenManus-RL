@@ -2,7 +2,7 @@ import os
 import argparse
 from datasets import Dataset, load_dataset
 from tqdm import tqdm
-
+from pprint import pprint
 
 def make_map_fn(split):
     def process_fn(example, idx):
@@ -36,5 +36,8 @@ if __name__ == '__main__':
     # Apply mapping to Verl format
     dataset = dataset.map(function=make_map_fn(args.split), with_indices=True)
 
+    # Pretty preview the first sample 
     os.makedirs(args.output_dir, exist_ok=True)
     dataset.to_parquet(os.path.join(args.output_dir, f"{args.split}.parquet"))
+
+    pprint(dataset[0])
