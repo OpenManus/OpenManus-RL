@@ -11,7 +11,7 @@ python = ">=3.10, <3.12"
 accelerate = "1.4.0"
 bitsandbytes = ">=0.43.0"
 datasets = ">=3.2.0"
-deepspeed = "0.15.4"
+deepspeed = "0.16.5"
 distilabel = { version = ">=1.5.2", extras = ["vllm", "ray", "openai"] }
 e2b-code-interpreter = ">=1.0.5"
 einops = ">=0.8.0"
