@@ -3,7 +3,7 @@
 
 OpenManus-RL is an open-source initiative collaboratively led by __Ulab-UIUC__ and __MetaGPT__ .
 
-This project is an extended version of the original [@OpenManus](https://github.com/mannaandpoem/OpenManus) initiative. Inspired by successful RL tunning for reasoning LLM such as Deepseek-R1, QwQ-32B, we will explore new paradigms for RL-based LLM agent tuning, particularly building upon foundations.
+This project is an extended version of the original [@OpenManus](https://github.com/mannaandpoem/OpenManus) initiative. Inspired by successful RL tuning for reasoning LLM such as Deepseek-R1, QwQ-32B, we will explore new paradigms for RL-based LLM agent tuning, particularly building upon foundations.
 
 We are committed to regularly updating our exploration directions and results in a dynamic, live-streaming fashion. All progress, including rigorous testing on agent benchmarks such as GAIA, AgentBench, WebShop, and OSWorld, and tuned models, will be openly shared and continuously updated.
 
@@ -34,7 +34,7 @@ Code and dataset coming soon! Stay tuned!
     - [Action Space Awareness and Strategic Exploration](#action-space-awareness-and-strategic-exploration)
     - [Integration with RL Tuning Frameworks](#integration-with-rl-tuning-frameworks)
   - [Dataset](#dataset)
-    - [Dataset Overbiew](#dataset-overview)
+    - [Dataset Overview](#dataset-overview)
     - [Data Instances](#data-instances)
 - [Running](#Running)
 - [Related Work](#related-work)
@@ -277,7 +277,7 @@ bash train_ppo.sh
 ## RL tuning
 
 1. **Training Language Models to Follow Instructions with Human Feedback**. [[paper](https://arxiv.org/pdf/2305.18438)]
-2. **Deepseekmath: Pushing the Limits of Mathematical Reasoning in Open Language Models**. [[paper](https://proceedings.neurips.cc/paper_files/paper/2022/file/b1efde53be364a73914f58805a001731-Paper-Conference.pdf)]
+2. **Deepseekmath: Pushing the Limits of Mathematical Reasoning in Open Language Models**. [[paper](https://arxiv.org/pdf/2402.03300)]
 3. **DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning**. [[paper](https://arxiv.org/pdf/2501.12948)]
 
 ## **Benchmark:**
