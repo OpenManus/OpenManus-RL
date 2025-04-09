@@ -79,7 +79,7 @@ Setting up LLM agent environment for online RL tunning.
 Connect to specialized reasoning models such as deepseek-r1, QwQ-32B for more complex inference tasks to collect comprehensive agent trajectories.
 
 3. RL-Tuning Model Paradigm
-Provide an RL fine-tuning approach for customizing the agent’s behavior in our agent environment.
+Provide an RL fine-tuning approach for customizing the agent's behavior in our agent environment.
 
 4. Test on Agent Benchmarks
 Evaluate our framework on agentic benchmark such as Webshop, GAIA, OSWorld, AgentBench
@@ -210,20 +210,21 @@ We are still laboriously developing this part, welcome feedback.
 First, create a conda environment and activate it:
 
 ```bash
+# Create a new conda environment
 conda create -n openmanus-rl python=3.11 -y
 conda activate openmanus-rl
 ```
 
 Then, install the required dependencies:
 
-
 ```bash
-# install torch [or you can skip this step and let vllm to install the correct version for you]
+# Install PyTorch with CUDA support
 pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cu121
-# install vllm
-pip3 install vllm==0.6.3 # or you can install 0.5.4, 0.4.2 and 0.3.1
 
-# verl
+# Install vllm for efficient inference
+pip3 install vllm==0.6.3
+
+# Install the main package
 pip install -e .
 
 # flash attention 2
@@ -237,6 +238,38 @@ cd agentenv
 pip install -e .
 ```
 
+## Environment Setup
+
+### WebShop Environment Setup as an example, more environment could be found on the agentgym
+
+To set up the WebShop environment for evaluation:
+
+```bash
+# Change to the agentenv-webshop directory
+cd agentenv-webshop
+
+# Create a new conda environment for WebShop
+conda env create -n webshop -f environment.yml
+conda activate webshop
+
+# Setup the environment
+bash ./setup.sh
+```
+
+### Launching the WebShop Server
+
+After setting up the environment, you can launch the WebShop server:
+
+```bash
+# Make sure the webshop conda environment is activated
+conda activate webshop
+
+# Launch the server (default port: 36001)
+webshop --port 36001
+```
+
+Note: The WebShop environment requires specific versions of Python, PyTorch, Faiss, and Java. The setup script will handle these dependencies automatically.
+
 ## Quick start
 
 Train a reasoning + search LLM on NQ dataset with e5 as the retriever and wikipedia as the corpus.
@@ -246,9 +279,6 @@ Train a reasoning + search LLM on NQ dataset with e5 as the retriever and wikipe
 From https://huggingface.co/datasets/CharlieDreemur/OpenManus-RL
 
 (3) Launch a local AgentGym server.
-```bash
-todo here
-```
 
 (4) Run RL training (PPO) with Llama-3.2-3b-base.
 ```bash
