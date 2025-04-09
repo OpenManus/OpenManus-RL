@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: agentenv
+Version: 0.1.0
+Author-email: KYLN24 <hlguo20@fudan.edu.cn>
+License: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: torch>=2.0.0
+Requires-Dist: transformers>=4.35.2
+Requires-Dist: trl>=0.8.6
+Requires-Dist: scipy>=1.11.4
+Requires-Dist: accelerate>=0.23.0
+Requires-Dist: jsonlines>=4.0.0
+Requires-Dist: wandb>=0.16.4

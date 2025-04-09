@@ -210,7 +210,7 @@ We are still laboriously developing this part, welcome feedback.
 First, create a conda environment and activate it:
 
 ```bash
-conda create -n openmanus-rl python=3.10
+conda create -n openmanus-rl python=3.11 -y
 conda activate openmanus-rl
 ```
 
@@ -229,6 +229,12 @@ pip install -e .
 # flash attention 2
 pip3 install flash-attn --no-build-isolation
 pip install wandb
+pip install agentenv
+
+cd openmanus_rl
+cd agentgym
+cd agentenv
+pip install -e .
 ```
 
 ## Quick start
