@@ -19,7 +19,7 @@ hf_transfer = "*"
 huggingface-hub = { version = ">=0.19.2,<1.0", extras = ["cli"] }
 langdetect = "*"
 latex2sympy2_extended = ">=1.0.6"
-liger_kernel = "0.5.3"
+liger_kernel = "0.5.8"
 lighteval = { git = "https://github.com/huggingface/lighteval.git", rev = "ed084813e0bd12d82a06d9f913291fdbee774905" }
 math-verify = "0.5.2"
 packaging = ">=23.0"
