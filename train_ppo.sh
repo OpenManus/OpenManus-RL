@@ -202,6 +202,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     critic.model.fsdp_config.optimizer_offload=true \
     algorithm.kl_ctrl.kl_coef=0.001 \
     algorithm.no_think_rl=false \
+    algorithm.reward_score_fn=agentgym \
     trainer.critic_warmup=0 \
     trainer.logger=['wandb'] \
     +trainer.val_only=false \

@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from .tensor_helper import TensorHelper, TensorConfig
 from verl import DataProto
 from transformers import GenerationConfig
+import importlib # Added import
+import traceback # For error logging
+from concurrent.futures import ThreadPoolExecutor, as_completed # For parallel rollout
 
 @dataclass
 class AgentConfig:
@@ -42,9 +45,9 @@ class AgentConfig:
     env_port: int
     env_server_base: str
     env_data_len: int = 200 # Default, might need adjustment
-    rollout_strategy: str = "StandardReAct"
-    storage_backend: str = "mongodb" # Or None if not saving via controller
-    max_workers: int = 10
+    rollout_strategy: str = "StandardReAct" # Strategy is now internal logic
+    # storage_backend: str = "mongodb" # Storage handled elsewhere or not needed here
+    max_workers: int = 10 # For parallelizing rollouts within the agent
 
 def create_react_prompt(task_description, tool_manager):
     """
@@ -74,9 +77,9 @@ class OpenManusAgent:
     def __init__(
         self,
         tokenizer,
-        actor_rollout_wg,
+        actor_rollout_wg, # This is the Verl component for generation
         config: AgentConfig,
-        tool_manager,
+        tool_manager, # Keep for potential parsing, but execution is via env
         is_validation: bool = False,
     ):
         """
@@ -95,9 +98,6 @@ class OpenManusAgent:
         self.tool_manager = tool_manager
         self.is_validation = is_validation
 
-        # Initialize rollout controller to connect to external AgentGym service
-        self._init_rollout_controller()
-
         self.tensor_fn = TensorHelper(TensorConfig(
             pad_token_id=tokenizer.pad_token_id,
             max_prompt_length=config.max_prompt_length,
@@ -105,18 +105,17 @@ class OpenManusAgent:
             max_start_length=config.max_start_length
         ))
 
-    def _init_rollout_controller(self):
+        # Initialize the environment client directly
+        self.client = self._init_env_client()
+        # Initialize thread pool for parallel rollouts
+        self.executor = ThreadPoolExecutor(max_workers=self.config.max_workers)
+
+    def _init_env_client(self):
         """
-        Initialize the rollout controller to connect to the external AgentGym service.
-        Dynamically loads the correct Task based on self.config.env_name.
+        Initialize and return the specific AgentGym environment client based on config.
         """
-        import importlib
-        from agentenv.rollout.rollout_controller import RolloutController
-        from agentenv.rollout.rollout_strategy import StandardReActStrategy, ToTStrategy, MCTSStrategy
-        from agentenv.rollout.rollout_db import MongoDBTrajectoryStorage, FileTrajectoryStorage
-        
         # Mapping from env_name (lowercase) to Task class name
-        # Ensure these names match the classes imported in agentenv.envs.__init__.py
+        # We need the Task class to potentially get the right client or initial setup
         ENV_TO_TASK_CLASS = {
             "academia": "AcademiaTask",
             "alfworld": "AlfWorldTask",
@@ -139,7 +138,7 @@ class OpenManusAgent:
             raise ValueError(f"Unsupported environment name: {self.config.env_name}. Supported: {list(ENV_TO_TASK_CLASS.keys())}")
 
         task_class_name = ENV_TO_TASK_CLASS[env_name_lower]
-        print(f"Initializing RolloutController for env: {self.config.env_name} using Task: {task_class_name}")
+        print(f"Initializing Env Client for: {self.config.env_name} (via Task: {task_class_name})")
         print(f"Connecting to AgentGym server at: {self.config.env_server_base}:{self.config.env_port}")
 
         # Dynamically import the Task class
@@ -149,46 +148,28 @@ class OpenManusAgent:
         except (ImportError, AttributeError) as e:
             raise ImportError(f"Could not import Task class {task_class_name} from agentenv.envs: {e}")
 
-        # Create environment task connected to the external server
-        # client_args might need adjustment for specific environments, but start with common ones.
-        # Especially lmrlgym (maze/wordle) might need the path in env_server_base adjusted (handled in train_ppo.sh now)
         client_args={
             "env_server_base": f"{self.config.env_server_base}:{self.config.env_port}",
-            "data_len": self.config.env_data_len, # Ensure the server is initialized with enough data
+            "data_len": self.config.env_data_len, 
             "timeout": 300, 
         }
-        task = TaskClass(
-            client_args=client_args,
-            n_clients=1 # Assuming one client connection per agent instance for now
-        )
-
-        # Select rollout strategy based on config
-        if self.config.rollout_strategy == "StandardReAct":
-            strategy = StandardReActStrategy()
-        elif self.config.rollout_strategy == "ToT":
-            strategy = ToTStrategy(num_branches=3, depth=2)
-        elif self.config.rollout_strategy == "MCTS":
-            strategy = MCTSStrategy(num_simulations=50, exploration_weight=1.0)
-        else:
-            raise ValueError(f"Unknown strategy: {self.config.rollout_strategy}")
-
-        # Configure storage backend (Optional, might be handled by trainer elsewhere)
-        storage = None # Disable controller's storage by default
-        if self.config.storage_backend == "mongodb":
-            storage = MongoDBTrajectoryStorage()
-        elif self.config.storage_backend == "file":
-            storage = FileTrajectoryStorage()
-        # else: storage remains None
-
-        # Initialize controller
-        self.rollout_controller = RolloutController(
-            agent=self, # Pass self as the agent
-            tasks=[task],
-            strategy=strategy,
-            storage=storage, # Pass configured storage
-            max_workers=self.config.max_workers
-        )
-        print("RolloutController initialized successfully.")
+        
+        # Instantiate the task to get the client. 
+        # Assuming Task object creates and holds the client(s) in a list `clients`.
+        # This might need adjustment based on actual Task implementation.
+        try:
+            # We only need one client instance per agent worker typically.
+            task_instance = TaskClass(client_args=client_args, n_clients=1)
+            if hasattr(task_instance, 'clients') and task_instance.clients:
+                client = task_instance.clients[0] 
+                print(f"Successfully obtained client: {type(client)}")
+                return client
+            else:
+                raise ValueError(f"Task class {task_class_name} did not provide a client in 'clients' attribute.")
+        except Exception as e:
+             print(f"Error initializing Task or getting client for {task_class_name}: {e}")
+             print(traceback.format_exc()) # Print detailed traceback
+             raise
 
     def _batch_tokenize(self, responses: List[str]) -> torch.Tensor:
         """Tokenize a batch of responses."""
@@ -359,170 +340,242 @@ class OpenManusAgent:
         padded_output.batch = trimmed_batch
         return padded_output
 
-    def run_llm_loop(self, gen_batch: DataProto) -> DataProto:
+    def _run_single_rollout(self, initial_prompt_ids: torch.Tensor, task_idx: int) -> Dict[str, Any]:
         """
-        Run the LLM generation loop using the configured RolloutController.
-
-        This method orchestrates the interaction with the AgentGym environment 
-        via the RolloutController, collects the trajectories, and formats them 
-        into a DataProto suitable for PPO training.
+        Runs the interaction loop for a single environment instance.
 
         Args:
-            gen_batch: Batch containing initial prompts and metadata.
-                       Expects gen_batch.meta_info['idx'] to contain task indices.
+            initial_prompt_ids: Token IDs for the initial prompt/observation.
+            task_idx: The index for resetting the environment.
 
         Returns:
-            DataProto containing the full rollout trajectories and associated info.
+            A dictionary containing the trajectory, final reward, turns, final env score,
+            and original task index.
+            e.g., {'trajectory': [...], 'reward': r, 'turns': N, 'env_score': s, 'task_idx': idx}
         """
-        print(f"[Agent.run_llm_loop] Starting rollout for batch size: {gen_batch.batch['input_ids'].shape[0]}")
-        
-        # --- 1. Configure Generation --- 
-        # Create a basic GenerationConfig. Specific strategies might override this.
-        # Ensure EOS token is correctly set for the model.
-        generation_config = GenerationConfig(
-            max_new_tokens=self.config.max_response_length, # Use max_new_tokens
-            eos_token_id=self.tokenizer.eos_token_id,
-            pad_token_id=self.tokenizer.pad_token_id,
-            # Add other relevant generation parameters if needed (e.g., temperature, top_k)
-            temperature=1.0, # Example: Add temperature if needed by strategy
-            do_sample=True   # Example: Enable sampling if needed
-        )
+        trajectory = []
+        final_reward = 0.0 # Accumulate reward? Or just final step reward?
+        final_env_score = 0.0 # Capture the score from the environment info dict
+        done = False
+        turns = 0
+        current_input_ids = None # Initialize here
 
-        # --- 2. Extract Task Indices --- 
-        # Assume indices are passed via gen_batch meta_info
-        # If not present, fallback or raise error
-        if 'idx' not in gen_batch.meta_info:
-            # Fallback: Use range if indices not provided (might not be correct)
-            print("[Agent.run_llm_loop] WARNING: 'idx' not found in gen_batch.meta_info. Using range(batch_size). This might be incorrect.")
-            task_idxs = list(range(gen_batch.batch['input_ids'].shape[0]))
-        else:
+        try:
+            # 1. Reset environment and get initial observation
+            # print(f"[Agent._run_single_rollout][{task_idx}] Resetting environment...") # Debug
+            self.client.reset(task_idx) # Use the provided task index
+            initial_obs_text = self.client.observe()
+            # print(f"[Agent._run_single_rollout][{task_idx}] Initial Obs: {initial_obs_text[:100]}...") # Debug
+            
+            if not initial_obs_text:
+                 print(f"[Agent._run_single_rollout][{task_idx}] Warning: Received empty initial observation. Using initial prompt from batch.")
+                 initial_prompt_text = self.tokenizer.decode(initial_prompt_ids[0], skip_special_tokens=True)
+                 trajectory.append({"from": "human", "value": initial_prompt_text})
+                 current_input_ids = initial_prompt_ids
+            else:
+                trajectory.append({"from": "human", "value": initial_obs_text})
+                current_input_ids = self.tokenizer(initial_obs_text, return_tensors='pt', add_special_tokens=False)['input_ids']
+            
+            # --- Interaction Loop --- 
+            for t in range(self.config.max_turns):
+                turns = t + 1
+                if current_input_ids is None: # Should not happen after initialization
+                    print(f"[Agent._run_single_rollout][{task_idx}] Error: current_input_ids is None before generation.")
+                    break 
+                    
+                if current_input_ids.shape[1] > self.config.max_prompt_length:
+                    current_input_ids = current_input_ids[:, -self.config.max_prompt_length:]
+                    print(f"[Agent._run_single_rollout][{task_idx}] Warning: Truncating input {current_input_ids.shape} > {self.config.max_prompt_length}.")
+
+                # 2. Prepare input DataProto for generation
+                current_attention_mask = self.tensor_fn.create_attention_mask(current_input_ids)
+                current_position_ids = self.tensor_fn.create_position_ids(current_attention_mask)
+                gen_input_proto = DataProto.from_dict({
+                    'input_ids': current_input_ids.to(self.actor_rollout_wg.device), # Ensure device match
+                    'attention_mask': current_attention_mask.to(self.actor_rollout_wg.device),
+                    'position_ids': current_position_ids.to(self.actor_rollout_wg.device)
+                })
+                
+                # 3. Generate response using actor_rollout_wg
+                generation_config = GenerationConfig(
+                    max_new_tokens=self.config.max_response_length,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    temperature=1.0, 
+                    do_sample=True   
+                )
+                gen_output_proto = self.actor_rollout_wg.generate_sequences(gen_input_proto, generation_config=generation_config)
+                response_ids = gen_output_proto.batch['response_ids'] 
+                response_text = self.tokenizer.decode(response_ids[0], skip_special_tokens=True)
+                trajectory.append({"from": "gpt", "value": response_text})
+
+                # 4. Postprocess response to get action
+                action_types, action_contents = self.postprocess_predictions([response_text])
+                action_text = action_contents[0] 
+                
+                # 5. Step the environment
+                if action_text is None: action_text = "" # Ensure action is not None
+                # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Action: {action_text[:100]}...") # Debug
+                next_obs_text, reward, done, info = self.client.step(action_text)
+                # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Reward: {reward}, Done: {done}, Info: {info}") # Debug
+                
+                final_reward = reward # Store the reward from the last step
+                final_env_score = info.get('score', 0.0) # Get score from info dict
+
+                if not done:
+                    trajectory.append({"from": "human", "value": next_obs_text})
+                    next_obs_ids = self.tokenizer(next_obs_text, return_tensors='pt', add_special_tokens=False)['input_ids']
+                    # Ensure response_ids has the same device as current_input_ids before cat
+                    current_input_ids = torch.cat([current_input_ids, response_ids.to(current_input_ids.device), next_obs_ids.to(current_input_ids.device)], dim=1)
+                else:
+                    break 
+
+            # --- End of Loop --- 
+            # print(f"[Agent._run_single_rollout][{task_idx}] Episode finished. Turns: {turns}, Reward: {final_reward}, Env Score: {final_env_score}") # Debug
+            
+        except Exception as e:
+            print(f"[Agent._run_single_rollout][{task_idx}] Error during rollout: {e}")
+            print(traceback.format_exc())
+            final_reward = 0.0 
+            final_env_score = 0.0 # Score is 0 if error occurred
+            done = True
+
+        return {
+            'trajectory': trajectory, 
+            'reward': final_reward, 
+            'turns': turns, 
+            'env_score': final_env_score, # Include env score
+            'task_idx': task_idx
+            }
+
+    def run_llm_loop(self, gen_batch: DataProto) -> DataProto:
+        """
+        Run the LLM interaction loop for a batch of initial prompts using a ThreadPoolExecutor.
+        Replaces the logic that previously used RolloutController.
+        """
+        initial_prompts_ids = gen_batch.batch['input_ids']
+        batch_size = initial_prompts_ids.shape[0]
+        print(f"[Agent.run_llm_loop] Starting parallel rollout for batch size: {batch_size}")
+
+        # --- Extract Task Indices --- 
+        # Use original indices from the batch if available
+        if 'idx' in gen_batch.meta_info:
             task_idxs = gen_batch.meta_info['idx']
             if isinstance(task_idxs, torch.Tensor):
                 task_idxs = task_idxs.tolist()
-            print(f"[Agent.run_llm_loop] Using task indices: {task_idxs}")
-            
-        # --- 3. Execute Rollout --- 
-        # Call the controller's rollout method
-        # Pass necessary arguments like indices, generation config, max turns.
-        try:
-            rollout_results: List[ExperienceOutput] = self.rollout_controller.rollout(
-                generation_config=generation_config,
-                max_rounds=self.config.max_turns,
-                idxs=task_idxs, 
-                save_to_storage=False, # Saving handled by trainer/elsewhere if needed
-                parallel=True, # Use parallel execution
-                batch_size=self.config.max_workers, # Adjust batch size based on workers
-                metadata={
-                    # "model_name": self.actor_rollout_wg.model_name, # Get model name if available
-                    "validation": self.is_validation,
-                    "prompt_source": "gen_batch" # Indicate source of initial prompt
-                }
-            )
-            print(f"[Agent.run_llm_loop] Rollout completed. Received {len(rollout_results)} trajectories.")
-        except Exception as e:
-            print(f"[Agent.run_llm_loop] Error during rollout: {e}")
-            # Handle error appropriately, maybe return an empty DataProto or re-raise
-            return DataProto.from_dict({}) # Return empty
-            
-        # Check if results match expected size
-        if len(rollout_results) != len(task_idxs):
-            print(f"[Agent.run_llm_loop] WARNING: Rollout returned {len(rollout_results)} results, but expected {len(task_idxs)}.")
-            # Decide how to handle mismatch - pad, filter, or error
+            if len(task_idxs) != batch_size:
+                 print(f"[Agent.run_llm_loop] Warning: Mismatch between batch size ({batch_size}) and provided indices ({len(task_idxs)}). Using range(batch_size)." )
+                 task_idxs = list(range(batch_size))
+        else:
+            print("[Agent.run_llm_loop] Warning: 'idx' not found in gen_batch.meta_info. Using range(batch_size)." )
+            task_idxs = list(range(batch_size))
 
-        # --- 4. Process Results --- 
-        # Convert the list of ExperienceOutput trajectories into a DataProto
-        processed_data = self._convert_rollout_results_to_dataproto(rollout_results, gen_batch)
+        # --- Parallel Rollout Execution --- 
+        futures = {}
+        rollout_results_list = [None] * batch_size # Preallocate list to store results in order
+
+        for i in range(batch_size):
+            task_idx = task_idxs[i]
+            initial_prompt = initial_prompts_ids[i:i+1] # Keep batch dim
+            future = self.executor.submit(self._run_single_rollout, initial_prompt, task_idx)
+            futures[future] = i # Store original index
+
+        for future in as_completed(futures):
+            original_index = futures[future]
+            try:
+                result_dict = future.result()
+                rollout_results_list[original_index] = result_dict
+            except Exception as e:
+                print(f"[Agent.run_llm_loop] Error collecting result for index {original_index}: {e}")
+                # Store a placeholder or error indicator if needed
+                rollout_results_list[original_index] = {'trajectory': [], 'reward': 0.0, 'turns': 0, 'env_score': 0.0, 'task_idx': task_idxs[original_index], 'error': str(e)}
+
+        print(f"[Agent.run_llm_loop] Collected results from {len(futures)} rollouts.")
+        
+        # Filter out potential None entries if some tasks failed critically before returning dict
+        valid_results = [res for res in rollout_results_list if res is not None]
+        
+        if not valid_results:
+            print("[Agent.run_llm_loop] Error: No valid rollout results collected.")
+            return DataProto.from_dict({}) # Return empty DataProto
+            
+        # --- Format Results into DataProto --- 
+        # Reuse the conversion logic, passing the collected trajectories and rewards
+        processed_data = self._convert_rollout_results_to_dataproto(valid_results, gen_batch)
         
         print(f"[Agent.run_llm_loop] Finished processing rollout results.")
         return processed_data
 
-    def _convert_rollout_results_to_dataproto(self, results: List[ExperienceOutput], original_batch: DataProto) -> DataProto:
+    def _convert_rollout_results_to_dataproto(self, results: List[Dict], original_batch: DataProto) -> DataProto:
         """
-        Convert the list of ExperienceOutput from rollout into a DataProto 
-        suitable for PPO training.
-
-        This involves concatenating the conversation history (prompt, response, obs)
-        into sequences and creating corresponding masks and metadata.
-
-        Args:
-            results: List of ExperienceOutput objects from RolloutController.rollout.
-            original_batch: The initial batch passed to run_llm_loop, used for reference.
-
-        Returns:
-            A DataProto object containing the processed trajectories.
+        Convert the list of dictionaries (each containing trajectory, reward, env_score)
+        from the internal rollout loop into a DataProto suitable for PPO training.
         """
         batch_input_ids = []
         batch_attention_mask = []
         batch_position_ids = []
-        batch_info_mask = [] # Mask for value function (masks out observations/prompts)
+        batch_info_mask = [] 
         batch_rewards = []
         batch_meta_info = defaultdict(list)
 
-        # Assuming original_batch contains initial prompts in 'input_ids'
-        initial_prompts_ids = original_batch.batch['input_ids']
-        initial_prompts_attn = original_batch.batch['attention_mask']
-        
-        # Map result index back to original batch index if necessary (assuming order is preserved for now)
-        # If rollout results might be out of order or filtered, need a mapping based on task_idx
-        
-        print(f"[Agent._convert_rollout] Processing {len(results)} trajectories.")
-        for i, result in enumerate(results):
-            # --- Concatenate Conversation --- 
-            # Start with the initial prompt from the original batch
-            # Note: RolloutController might have its own way of getting the initial prompt,
-            # ensure consistency. Here we assume original_batch has the correct initial prompt.
-            # We need the original index `orig_idx` if results are not in order. Assume order for now.
-            orig_idx = i # Assuming results are ordered same as task_idxs
-            current_input_ids = initial_prompts_ids[orig_idx:orig_idx+1] # Get the specific prompt
-            current_info_mask_parts = [torch.ones_like(current_input_ids)] # Prompt is part of value input
-            
-            conversation_ids = [current_input_ids]
-            
-            turns = 0
-            valid_actions = 0
-            tool_uses = 0
+        # Need to map results back to original batch indices if results list is filtered/shorter
+        # Use 'task_idx' from result dict and find corresponding index in original_batch.meta_info['idx']
+        original_indices_map = {idx_val: i for i, idx_val in enumerate(original_batch.meta_info.get('idx', list(range(original_batch.batch['input_ids'].shape[0]))).tolist())}
 
-            if result and result.conversation: # Check if result and conversation exist
-                for turn_idx, msg in enumerate(result.conversation):
+        print(f"[Agent._convert_rollout] Formatting {len(results)} trajectories.")
+        for result_dict in results:
+            trajectory = result_dict.get('trajectory', [])
+            reward = result_dict.get('reward', 0.0)
+            turns = result_dict.get('turns', 0)
+            env_score = result_dict.get('env_score', 0.0)
+            task_idx = result_dict.get('task_idx', -1)
+            
+            # Find corresponding index in the original batch
+            original_batch_idx = original_indices_map.get(task_idx, -1)
+            if original_batch_idx == -1:
+                print(f"[Agent._convert_rollout] Warning: Could not map task_idx {task_idx} back to original batch index. Skipping.")
+                continue
+                
+            # --- Concatenate Conversation --- 
+            conversation_ids = []
+            info_mask_parts = []
+            valid_actions = 0
+            tool_uses = 0 # Need logic to determine tool use if required
+
+            if not trajectory:
+                print(f"[Agent._convert_rollout] Warning: Empty trajectory for task_idx {task_idx}. Using initial prompt only.")
+                # Use initial prompt from original batch
+                initial_prompt_ids = original_batch.batch['input_ids'][original_batch_idx:original_batch_idx+1]
+                conversation_ids.append(initial_prompt_ids)
+                info_mask_parts.append(torch.ones_like(initial_prompt_ids))
+            else:
+                for turn_idx, msg in enumerate(trajectory):
                     msg_text = msg.get("value", "")
                     msg_from = msg.get("from", "")
-                    is_loss_turn = msg.get("loss", False) # Used by some strategies
 
-                    if not msg_text: # Skip empty messages
+                    if not msg_text:
                         continue
                         
-                    # Tokenize the message
-                    # Use add_special_tokens=False for intermediate parts
                     msg_ids = self.tokenizer(msg_text, add_special_tokens=False, return_tensors='pt')['input_ids']
-                    
-                    # Add to the sequence
                     conversation_ids.append(msg_ids)
                     
-                    # Update info mask: mask out observations (from env/user), keep prompts/responses
-                    if msg_from == "user" or msg_from == "system" or msg_from == "env": # Typically observations or new instructions
-                        current_info_mask_parts.append(torch.zeros_like(msg_ids)) # Mask out
-                    else: # Agent's response/action
-                        current_info_mask_parts.append(torch.ones_like(msg_ids)) # Keep
-                        if msg_from == "gpt": # Count agent turns
-                            valid_actions += 1
-                            if is_loss_turn: # Check if it was a tool use based on loss flag
-                                tool_uses += 1
-                turns = len(result.conversation) // 2 # Approximate turns
-            else:
-                 print(f"[Agent._convert_rollout] Warning: Empty or invalid trajectory for index {i}")
-                 # Handle empty trajectory: skip or add placeholder? Add placeholder for now
-                 pass # Fallback to just the initial prompt below
-
-            # Concatenate all parts for this trajectory
-            full_input_ids = torch.cat(conversation_ids, dim=1)
-            full_info_mask = torch.cat(current_info_mask_parts, dim=1)
-
-            # --- Pad and Truncate --- 
-            # Pad to max_prompt_length (or another suitable length)
-            # Truncate from the left if too long
-            seq_len = full_input_ids.shape[1]
-            target_len = self.config.max_prompt_length # Use max_prompt_length for combined sequence
+                    # Simplified info mask: Keep human prompts and gpt responses, mask others?
+                    # Or align with PPO: Keep everything that influences value function.
+                    # Let's keep prompt and response by default.
+                    if msg_from == "gpt":
+                        info_mask_parts.append(torch.ones_like(msg_ids)) 
+                        valid_actions +=1 
+                        # Add tool use detection logic here if needed based on response content
+                        # actions, _ = self.postprocess_predictions([msg_text])
+                        # if actions[0] == 'action': tool_uses += 1
+                    else: # human, system, env
+                         info_mask_parts.append(torch.ones_like(msg_ids)) # Also keep observations/prompts for value? Check PPO logic.
             
+            # Concatenate, Pad, Truncate (same logic as before)
+            full_input_ids = torch.cat(conversation_ids, dim=1)
+            full_info_mask = torch.cat(info_mask_parts, dim=1)
+            seq_len = full_input_ids.shape[1]
+            target_len = self.config.max_prompt_length 
             if seq_len > target_len:
                 full_input_ids = full_input_ids[:, -target_len:]
                 full_info_mask = full_info_mask[:, -target_len:]
@@ -530,61 +583,71 @@ class OpenManusAgent:
                 padding_len = target_len - seq_len
                 pad_tensor = torch.full((1, padding_len), self.tokenizer.pad_token_id, dtype=torch.long, device=full_input_ids.device)
                 full_input_ids = torch.cat([pad_tensor, full_input_ids], dim=1) # Pad left
-                info_pad = torch.zeros_like(pad_tensor) # Padding is masked out in info mask
+                info_pad = torch.zeros_like(pad_tensor) # Padding is masked
                 full_info_mask = torch.cat([info_pad, full_info_mask], dim=1)
             
-            # --- Create Attention Mask and Position IDs --- 
             full_attention_mask = self.tensor_fn.create_attention_mask(full_input_ids)
             full_position_ids = self.tensor_fn.create_position_ids(full_attention_mask)
 
-            # --- Store Processed Data --- 
             batch_input_ids.append(full_input_ids)
             batch_attention_mask.append(full_attention_mask)
             batch_position_ids.append(full_position_ids)
             batch_info_mask.append(full_info_mask)
-            batch_rewards.append(result.reward if result else 0.0) # Add reward
+            batch_rewards.append(reward)
             
             # Add metadata
+            batch_meta_info["task_idx"].append(task_idx)
             batch_meta_info["turns_stats"].append(turns)
             batch_meta_info["valid_action_stats"].append(valid_actions)
-            batch_meta_info["tool_use_stats"].append(tool_uses)
-            batch_meta_info["reward"].append(result.reward if result else 0.0)
-            # Copy relevant meta info from original batch if needed
+            batch_meta_info["reward"].append(reward)
+            batch_meta_info["env_score"].append(env_score)
+            
+            # --- >>> Add reward_model info <<< ---
+            if 'reward_model' in original_batch.meta_info and isinstance(original_batch.meta_info['reward_model'], list) and len(original_batch.meta_info['reward_model']) > original_batch_idx:
+                # Assuming reward_model was a list in the batched meta_info
+                batch_meta_info["reward_model"].append(original_batch.meta_info['reward_model'][original_batch_idx])
+            elif 'reward_model' in original_batch.meta_info and isinstance(original_batch.meta_info['reward_model'], dict):
+                 # If reward_model was somehow passed as a single dict for the whole batch (less likely)
+                 if original_batch_idx == 0: # Add only once
+                     batch_meta_info["reward_model"] = original_batch.meta_info['reward_model']
+            # else: reward_model info not found or in unexpected format
+                
+            # Copy other relevant meta info from original batch
             for key, value in original_batch.meta_info.items():
-                if key != 'idx' and isinstance(value, list) and len(value) > orig_idx:
-                     batch_meta_info[key].append(value[orig_idx])
-                elif key != 'idx': # Keep non-list meta info as is for all
-                     if i == 0: # Add only once
-                         batch_meta_info[key] = value 
-                         
-        # --- Stack Tensors --- 
-        if not batch_input_ids: # Handle case with no valid results
-             print("[Agent._convert_rollout] No valid trajectories processed. Returning empty DataProto.")
+                # Avoid duplicating keys already handled (idx, reward, reward_model)
+                if key not in ['idx', 'reward', 'reward_model']:
+                    if isinstance(value, list) and len(value) > original_batch_idx:
+                         batch_meta_info[key].append(value[original_batch_idx])
+                    elif not isinstance(value, list): # Keep non-list meta info (add only once)
+                        if original_batch_idx == 0: # Add only once
+                            batch_meta_info[key] = value 
+
+        # --- Stack Tensors --- (same logic as before)
+        if not batch_input_ids: 
+             print("[Agent._convert_rollout] No valid trajectories formatted. Returning empty DataProto.")
              return DataProto.from_dict({}) 
-             
         final_batch = {
             "input_ids": torch.cat(batch_input_ids, dim=0),
             "attention_mask": torch.cat(batch_attention_mask, dim=0),
             "position_ids": torch.cat(batch_position_ids, dim=0),
             "info_mask": torch.cat(batch_info_mask, dim=0), 
-            # Note: 'prompts' and 'responses' fields from old format are not directly created here.
-            # The full sequence is in 'input_ids'. The trainer needs to handle this.
         }
-
-        # --- Create Final DataProto --- 
         data_proto = DataProto.from_dict(final_batch)
-        # Convert lists in meta_info to tensors if appropriate, keep as lists otherwise
         for key, value in batch_meta_info.items():
             try:
-                # Attempt to convert to tensor if items are numerical
                 data_proto.meta_info[key] = torch.tensor(value)
             except (ValueError, TypeError):
-                # Keep as list if conversion fails
                 data_proto.meta_info[key] = value 
-                
-        # Add rewards tensor explicitly if needed by trainer
         data_proto.meta_info["rewards"] = torch.tensor(batch_rewards, dtype=torch.float32)
         
+        # Add specific tensors explicitly if needed by trainer (rewards already handled)
+        if "env_score" in batch_meta_info:
+             try:
+                 data_proto.meta_info["env_scores"] = torch.tensor(batch_meta_info["env_score"], dtype=torch.float32)
+             except (ValueError, TypeError):
+                 print("[Agent._convert_rollout] Could not convert env_scores to tensor, keeping as list.")
+                 data_proto.meta_info["env_scores"] = batch_meta_info["env_score"]
+                 
         print(f"[Agent._convert_rollout] Final batch shapes: input_ids={final_batch['input_ids'].shape}")
         return data_proto
 
