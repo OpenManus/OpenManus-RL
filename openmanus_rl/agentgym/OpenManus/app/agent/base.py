@@ -9,7 +9,7 @@ from app.llm import LLM
 from app.logger import logger
 from app.sandbox.client import SANDBOX_CLIENT
 from app.schema import ROLE_TYPE, AgentState, Memory, Message
-from agentenv.rollout.trajectory_manager import TrajectoryManager
+from openmanus_rl.agentgym.agentenv.agentenv.rollout.trajectory_manager import TrajectoryManager
 
 
 class BaseAgent(BaseModel, ABC):
