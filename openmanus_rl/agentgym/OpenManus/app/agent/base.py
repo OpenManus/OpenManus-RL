@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import List, Optional, Dict
+from datetime import datetime
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -8,6 +9,7 @@ from app.llm import LLM
 from app.logger import logger
 from app.sandbox.client import SANDBOX_CLIENT
 from app.schema import ROLE_TYPE, AgentState, Memory, Message
+from agentenv.rollout.trajectory_manager import TrajectoryManager
 
 
 class BaseAgent(BaseModel, ABC):
@@ -35,6 +37,10 @@ class BaseAgent(BaseModel, ABC):
     state: AgentState = Field(
         default=AgentState.IDLE, description="Current agent state"
     )
+    trajectory_manager: TrajectoryManager = Field(
+        default_factory=lambda: TrajectoryManager(storage_backend='memory'),
+        description="Manager for agent trajectories"
+    )
 
     # Execution control
     max_steps: int = Field(default=10, description="Maximum steps before termination")
@@ -53,6 +59,8 @@ class BaseAgent(BaseModel, ABC):
             self.llm = LLM(config_name=self.name.lower())
         if not isinstance(self.memory, Memory):
             self.memory = Memory()
+        if not isinstance(self.trajectory_manager, TrajectoryManager):
+            self.trajectory_manager = TrajectoryManager(storage_backend='memory')
         return self
 
     @asynccontextmanager
@@ -114,16 +122,13 @@ class BaseAgent(BaseModel, ABC):
         self.memory.add_message(message_map[role](content, **kwargs))
 
     async def run(self, request: Optional[str] = None) -> str:
-        """Execute the agent's main loop asynchronously.
+        """Execute the agent's main loop.
 
         Args:
-            request: Optional initial user request to process.
+            request: Optional initial request to process.
 
         Returns:
-            A string summarizing the execution results.
-
-        Raises:
-            RuntimeError: If the agent is not in IDLE state at start.
+            str: Final response or state message.
         """
         if self.state != AgentState.IDLE:
             raise RuntimeError(f"Cannot run agent from state: {self.state}")
@@ -138,7 +143,31 @@ class BaseAgent(BaseModel, ABC):
             ):
                 self.current_step += 1
                 logger.info(f"Executing step {self.current_step}/{self.max_steps}")
+                
+                # Record pre-step state
+                step_data = {
+                    "step": self.current_step,
+                    "state": self.state,
+                    "memory": [msg.dict() for msg in self.messages],
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                # Execute step
                 step_result = await self.step()
+                
+                # Record post-step state
+                step_data["result"] = step_result
+                
+                # Save trajectory
+                self.trajectory_manager.save_trajectory(
+                    env_name=self.name,
+                    task_id=self.current_step,
+                    trajectory={
+                        "conversation": [msg.dict() for msg in self.messages],
+                        "reward": 0.0,  # You may want to add reward calculation
+                        "metadata": step_data
+                    }
+                )
 
                 # Check for stuck state
                 if self.is_stuck():
@@ -150,6 +179,7 @@ class BaseAgent(BaseModel, ABC):
                 self.current_step = 0
                 self.state = AgentState.IDLE
                 results.append(f"Terminated: Reached max steps ({self.max_steps})")
+        
         await SANDBOX_CLIENT.cleanup()
         return "\n".join(results) if results else "No steps executed"
 
@@ -159,6 +189,7 @@ class BaseAgent(BaseModel, ABC):
 
         Must be implemented by subclasses to define specific behavior.
         """
+        pass
 
     def handle_stuck_state(self):
         """Handle stuck state by adding a prompt to change strategy"""
