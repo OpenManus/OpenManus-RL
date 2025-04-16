@@ -117,7 +117,7 @@ if __name__ == '__main__':
             remaining_ratio = 1.0 - args.train_ratio
             val_test_ratio = max(0.5, args.val_ratio / remaining_ratio)  # Ensure ratio is valid
             test_val_split = splits["test"].train_test_split(
-                test_size=0.01,  # Split remaining data equally between val and test
+                test_size=0.5,  # Split remaining data equally between val and test
                 seed=42
             )
             splits = {

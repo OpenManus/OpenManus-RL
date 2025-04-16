@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
 from .tensor_helper import TensorHelper, TensorConfig
 from verl import DataProto
+from transformers import GenerationConfig
 
 @dataclass
 class AgentConfig:
@@ -23,6 +24,7 @@ class AgentConfig:
         env_name: Name of the environment (e.g., "webshop")
         env_port: Port number for environment server
         env_server_base: Base URL for environment server
+        env_data_len: Number of data samples in the environment (used for client init)
         rollout_strategy: Strategy to use for rollout (StandardReAct/ToT/MCTS)
         storage_backend: Backend for storing trajectories (mongodb/file)
         max_workers: Maximum number of worker threads
@@ -35,12 +37,13 @@ class AgentConfig:
     num_gpus: int
     react_format: bool = True
     
-    # Environment configuration
-    env_name: str = "webshop"
-    env_port: int = 36001
-    env_server_base: str = "http://127.0.0.1"
+    # Environment configuration (Now passed from trainer)
+    env_name: str 
+    env_port: int
+    env_server_base: str
+    env_data_len: int = 200 # Default, might need adjustment
     rollout_strategy: str = "StandardReAct"
-    storage_backend: str = "mongodb"
+    storage_backend: str = "mongodb" # Or None if not saving via controller
     max_workers: int = 10
 
 def create_react_prompt(task_description, tool_manager):
@@ -82,8 +85,8 @@ class OpenManusAgent:
         Args:
             tokenizer: Tokenizer for text processing
             actor_rollout_wg: Actor rollout wrapper for generation
-            config: Agent configuration
-            tool_manager: Manager for tool operations
+            config: Agent configuration including env details
+            tool_manager: Manager for tool operations (potentially unused)
             is_validation: Whether in validation mode
         """
         self.tokenizer = tokenizer
@@ -92,7 +95,7 @@ class OpenManusAgent:
         self.tool_manager = tool_manager
         self.is_validation = is_validation
 
-        # Initialize rollout controller
+        # Initialize rollout controller to connect to external AgentGym service
         self._init_rollout_controller()
 
         self.tensor_fn = TensorHelper(TensorConfig(
@@ -104,27 +107,59 @@ class OpenManusAgent:
 
     def _init_rollout_controller(self):
         """
-        Initialize the rollout controller with specified strategy and storage.
-        
-        This method:
-        1. Creates environment task
-        2. Selects rollout strategy
-        3. Configures storage backend
-        4. Initializes the controller
+        Initialize the rollout controller to connect to the external AgentGym service.
+        Dynamically loads the correct Task based on self.config.env_name.
         """
+        import importlib
         from agentenv.rollout.rollout_controller import RolloutController
         from agentenv.rollout.rollout_strategy import StandardReActStrategy, ToTStrategy, MCTSStrategy
         from agentenv.rollout.rollout_db import MongoDBTrajectoryStorage, FileTrajectoryStorage
-        from agentenv.envs import WebshopTask
+        
+        # Mapping from env_name (lowercase) to Task class name
+        # Ensure these names match the classes imported in agentenv.envs.__init__.py
+        ENV_TO_TASK_CLASS = {
+            "academia": "AcademiaTask",
+            "alfworld": "AlfWorldTask",
+            "babyai": "BabyAITask",
+            "maze": "MazeTask", 
+            "wordle": "WordleTask",
+            "movie": "MovieTask",
+            "sciworld": "SciworldTask",
+            "sheet": "SheetTask",
+            "sqlgym": "SqlGymTask",
+            "textcraft": "TextCraftTask",
+            "todo": "TodoTask",
+            "weather": "WeatherTask",
+            "webarena": "WebarenaTask",
+            "webshop": "WebshopTask",
+        }
+        
+        env_name_lower = self.config.env_name.lower()
+        if env_name_lower not in ENV_TO_TASK_CLASS:
+            raise ValueError(f"Unsupported environment name: {self.config.env_name}. Supported: {list(ENV_TO_TASK_CLASS.keys())}")
 
-        # Create environment task
-        task = WebshopTask(
-            client_args={
-                "env_server_base": f"{self.config.env_server_base}:{self.config.env_port}",
-                "data_len": 200,
-                "timeout": 300,
-            },
-            n_clients=1
+        task_class_name = ENV_TO_TASK_CLASS[env_name_lower]
+        print(f"Initializing RolloutController for env: {self.config.env_name} using Task: {task_class_name}")
+        print(f"Connecting to AgentGym server at: {self.config.env_server_base}:{self.config.env_port}")
+
+        # Dynamically import the Task class
+        try:
+            envs_module = importlib.import_module("agentenv.envs")
+            TaskClass = getattr(envs_module, task_class_name)
+        except (ImportError, AttributeError) as e:
+            raise ImportError(f"Could not import Task class {task_class_name} from agentenv.envs: {e}")
+
+        # Create environment task connected to the external server
+        # client_args might need adjustment for specific environments, but start with common ones.
+        # Especially lmrlgym (maze/wordle) might need the path in env_server_base adjusted (handled in train_ppo.sh now)
+        client_args={
+            "env_server_base": f"{self.config.env_server_base}:{self.config.env_port}",
+            "data_len": self.config.env_data_len, # Ensure the server is initialized with enough data
+            "timeout": 300, 
+        }
+        task = TaskClass(
+            client_args=client_args,
+            n_clients=1 # Assuming one client connection per agent instance for now
         )
 
         # Select rollout strategy based on config
@@ -137,22 +172,23 @@ class OpenManusAgent:
         else:
             raise ValueError(f"Unknown strategy: {self.config.rollout_strategy}")
 
-        # Configure storage backend
+        # Configure storage backend (Optional, might be handled by trainer elsewhere)
+        storage = None # Disable controller's storage by default
         if self.config.storage_backend == "mongodb":
             storage = MongoDBTrajectoryStorage()
         elif self.config.storage_backend == "file":
             storage = FileTrajectoryStorage()
-        else:
-            raise ValueError(f"Unknown storage backend: {self.config.storage_backend}")
+        # else: storage remains None
 
         # Initialize controller
         self.rollout_controller = RolloutController(
-            agent=self,
+            agent=self, # Pass self as the agent
             tasks=[task],
             strategy=strategy,
-            storage=storage,
+            storage=storage, # Pass configured storage
             max_workers=self.config.max_workers
         )
+        print("RolloutController initialized successfully.")
 
     def _batch_tokenize(self, responses: List[str]) -> torch.Tensor:
         """Tokenize a batch of responses."""
@@ -323,143 +359,276 @@ class OpenManusAgent:
         padded_output.batch = trimmed_batch
         return padded_output
 
-    def run_llm_loop(self, gen_batch, initial_input_ids: torch.Tensor) -> Tuple[Dict, Dict]:
+    def run_llm_loop(self, gen_batch: DataProto) -> DataProto:
         """
-        Run the LLM generation loop using rollout controller.
-        
-        This method:
-        1. Configures generation parameters
-        2. Executes rollout using controller
-        3. Processes and returns results
-        
+        Run the LLM generation loop using the configured RolloutController.
+
+        This method orchestrates the interaction with the AgentGym environment 
+        via the RolloutController, collects the trajectories, and formats them 
+        into a DataProto suitable for PPO training.
+
         Args:
-            gen_batch: Batch of generation inputs
-            initial_input_ids: Initial input token IDs
-            
+            gen_batch: Batch containing initial prompts and metadata.
+                       Expects gen_batch.meta_info['idx'] to contain task indices.
+
         Returns:
-            Tuple containing final output and metadata
+            DataProto containing the full rollout trajectories and associated info.
         """
-        # Configure generation parameters
-        generation_config = GenerationConfig(
-            max_length=self.config.max_response_length,
-            eos_token_id=self.tokenizer.eos_token_id,
-            pad_token_id=self.tokenizer.pad_token_id
-        )
-
-        # Execute rollout using controller
-        results = self.rollout_controller.rollout(
-            generation_config=generation_config,
-            max_rounds=self.config.max_turns,
-            idxs=list(range(gen_batch.batch['input_ids'].shape[0])),
-            save_to_storage=True,
-            parallel=True,
-            batch_size=1,
-            metadata={
-                "model_name": self.actor_rollout_wg.model_name,
-                "validation": self.is_validation
-            }
-        )
-
-        # Process results
-        active_mask = torch.ones(len(results), dtype=torch.bool)
-        turns_stats = torch.ones(len(results), dtype=torch.int)
-        valid_action_stats = torch.zeros(len(results), dtype=torch.int)
-        tool_use_stats = torch.zeros(len(results), dtype=torch.int)
+        print(f"[Agent.run_llm_loop] Starting rollout for batch size: {gen_batch.batch['input_ids'].shape[0]}")
         
-        # Collect statistics
-        for i, result in enumerate(results):
-            turns_stats[i] = len(result.conversation) // 2
-            valid_action_stats[i] = sum(1 for msg in result.conversation if msg["from"] == "gpt")
-            tool_use_stats[i] = sum(1 for msg in result.conversation if msg.get("loss") is True)
+        # --- 1. Configure Generation --- 
+        # Create a basic GenerationConfig. Specific strategies might override this.
+        # Ensure EOS token is correctly set for the model.
+        generation_config = GenerationConfig(
+            max_new_tokens=self.config.max_response_length, # Use max_new_tokens
+            eos_token_id=self.tokenizer.eos_token_id,
+            pad_token_id=self.tokenizer.pad_token_id,
+            # Add other relevant generation parameters if needed (e.g., temperature, top_k)
+            temperature=1.0, # Example: Add temperature if needed by strategy
+            do_sample=True   # Example: Enable sampling if needed
+        )
 
-        # Build final output
-        meta_info = {
-            "turns_stats": turns_stats.tolist(),
-            "active_mask": active_mask.tolist(),
-            "valid_action_stats": valid_action_stats.tolist(),
-            "tool_use_stats": tool_use_stats.tolist()
+        # --- 2. Extract Task Indices --- 
+        # Assume indices are passed via gen_batch meta_info
+        # If not present, fallback or raise error
+        if 'idx' not in gen_batch.meta_info:
+            # Fallback: Use range if indices not provided (might not be correct)
+            print("[Agent.run_llm_loop] WARNING: 'idx' not found in gen_batch.meta_info. Using range(batch_size). This might be incorrect.")
+            task_idxs = list(range(gen_batch.batch['input_ids'].shape[0]))
+        else:
+            task_idxs = gen_batch.meta_info['idx']
+            if isinstance(task_idxs, torch.Tensor):
+                task_idxs = task_idxs.tolist()
+            print(f"[Agent.run_llm_loop] Using task indices: {task_idxs}")
+            
+        # --- 3. Execute Rollout --- 
+        # Call the controller's rollout method
+        # Pass necessary arguments like indices, generation config, max turns.
+        try:
+            rollout_results: List[ExperienceOutput] = self.rollout_controller.rollout(
+                generation_config=generation_config,
+                max_rounds=self.config.max_turns,
+                idxs=task_idxs, 
+                save_to_storage=False, # Saving handled by trainer/elsewhere if needed
+                parallel=True, # Use parallel execution
+                batch_size=self.config.max_workers, # Adjust batch size based on workers
+                metadata={
+                    # "model_name": self.actor_rollout_wg.model_name, # Get model name if available
+                    "validation": self.is_validation,
+                    "prompt_source": "gen_batch" # Indicate source of initial prompt
+                }
+            )
+            print(f"[Agent.run_llm_loop] Rollout completed. Received {len(rollout_results)} trajectories.")
+        except Exception as e:
+            print(f"[Agent.run_llm_loop] Error during rollout: {e}")
+            # Handle error appropriately, maybe return an empty DataProto or re-raise
+            return DataProto.from_dict({}) # Return empty
+            
+        # Check if results match expected size
+        if len(rollout_results) != len(task_idxs):
+            print(f"[Agent.run_llm_loop] WARNING: Rollout returned {len(rollout_results)} results, but expected {len(task_idxs)}.")
+            # Decide how to handle mismatch - pad, filter, or error
+
+        # --- 4. Process Results --- 
+        # Convert the list of ExperienceOutput trajectories into a DataProto
+        processed_data = self._convert_rollout_results_to_dataproto(rollout_results, gen_batch)
+        
+        print(f"[Agent.run_llm_loop] Finished processing rollout results.")
+        return processed_data
+
+    def _convert_rollout_results_to_dataproto(self, results: List[ExperienceOutput], original_batch: DataProto) -> DataProto:
+        """
+        Convert the list of ExperienceOutput from rollout into a DataProto 
+        suitable for PPO training.
+
+        This involves concatenating the conversation history (prompt, response, obs)
+        into sequences and creating corresponding masks and metadata.
+
+        Args:
+            results: List of ExperienceOutput objects from RolloutController.rollout.
+            original_batch: The initial batch passed to run_llm_loop, used for reference.
+
+        Returns:
+            A DataProto object containing the processed trajectories.
+        """
+        batch_input_ids = []
+        batch_attention_mask = []
+        batch_position_ids = []
+        batch_info_mask = [] # Mask for value function (masks out observations/prompts)
+        batch_rewards = []
+        batch_meta_info = defaultdict(list)
+
+        # Assuming original_batch contains initial prompts in 'input_ids'
+        initial_prompts_ids = original_batch.batch['input_ids']
+        initial_prompts_attn = original_batch.batch['attention_mask']
+        
+        # Map result index back to original batch index if necessary (assuming order is preserved for now)
+        # If rollout results might be out of order or filtered, need a mapping based on task_idx
+        
+        print(f"[Agent._convert_rollout] Processing {len(results)} trajectories.")
+        for i, result in enumerate(results):
+            # --- Concatenate Conversation --- 
+            # Start with the initial prompt from the original batch
+            # Note: RolloutController might have its own way of getting the initial prompt,
+            # ensure consistency. Here we assume original_batch has the correct initial prompt.
+            # We need the original index `orig_idx` if results are not in order. Assume order for now.
+            orig_idx = i # Assuming results are ordered same as task_idxs
+            current_input_ids = initial_prompts_ids[orig_idx:orig_idx+1] # Get the specific prompt
+            current_info_mask_parts = [torch.ones_like(current_input_ids)] # Prompt is part of value input
+            
+            conversation_ids = [current_input_ids]
+            
+            turns = 0
+            valid_actions = 0
+            tool_uses = 0
+
+            if result and result.conversation: # Check if result and conversation exist
+                for turn_idx, msg in enumerate(result.conversation):
+                    msg_text = msg.get("value", "")
+                    msg_from = msg.get("from", "")
+                    is_loss_turn = msg.get("loss", False) # Used by some strategies
+
+                    if not msg_text: # Skip empty messages
+                        continue
+                        
+                    # Tokenize the message
+                    # Use add_special_tokens=False for intermediate parts
+                    msg_ids = self.tokenizer(msg_text, add_special_tokens=False, return_tensors='pt')['input_ids']
+                    
+                    # Add to the sequence
+                    conversation_ids.append(msg_ids)
+                    
+                    # Update info mask: mask out observations (from env/user), keep prompts/responses
+                    if msg_from == "user" or msg_from == "system" or msg_from == "env": # Typically observations or new instructions
+                        current_info_mask_parts.append(torch.zeros_like(msg_ids)) # Mask out
+                    else: # Agent's response/action
+                        current_info_mask_parts.append(torch.ones_like(msg_ids)) # Keep
+                        if msg_from == "gpt": # Count agent turns
+                            valid_actions += 1
+                            if is_loss_turn: # Check if it was a tool use based on loss flag
+                                tool_uses += 1
+                turns = len(result.conversation) // 2 # Approximate turns
+            else:
+                 print(f"[Agent._convert_rollout] Warning: Empty or invalid trajectory for index {i}")
+                 # Handle empty trajectory: skip or add placeholder? Add placeholder for now
+                 pass # Fallback to just the initial prompt below
+
+            # Concatenate all parts for this trajectory
+            full_input_ids = torch.cat(conversation_ids, dim=1)
+            full_info_mask = torch.cat(current_info_mask_parts, dim=1)
+
+            # --- Pad and Truncate --- 
+            # Pad to max_prompt_length (or another suitable length)
+            # Truncate from the left if too long
+            seq_len = full_input_ids.shape[1]
+            target_len = self.config.max_prompt_length # Use max_prompt_length for combined sequence
+            
+            if seq_len > target_len:
+                full_input_ids = full_input_ids[:, -target_len:]
+                full_info_mask = full_info_mask[:, -target_len:]
+            elif seq_len < target_len:
+                padding_len = target_len - seq_len
+                pad_tensor = torch.full((1, padding_len), self.tokenizer.pad_token_id, dtype=torch.long, device=full_input_ids.device)
+                full_input_ids = torch.cat([pad_tensor, full_input_ids], dim=1) # Pad left
+                info_pad = torch.zeros_like(pad_tensor) # Padding is masked out in info mask
+                full_info_mask = torch.cat([info_pad, full_info_mask], dim=1)
+            
+            # --- Create Attention Mask and Position IDs --- 
+            full_attention_mask = self.tensor_fn.create_attention_mask(full_input_ids)
+            full_position_ids = self.tensor_fn.create_position_ids(full_attention_mask)
+
+            # --- Store Processed Data --- 
+            batch_input_ids.append(full_input_ids)
+            batch_attention_mask.append(full_attention_mask)
+            batch_position_ids.append(full_position_ids)
+            batch_info_mask.append(full_info_mask)
+            batch_rewards.append(result.reward if result else 0.0) # Add reward
+            
+            # Add metadata
+            batch_meta_info["turns_stats"].append(turns)
+            batch_meta_info["valid_action_stats"].append(valid_actions)
+            batch_meta_info["tool_use_stats"].append(tool_uses)
+            batch_meta_info["reward"].append(result.reward if result else 0.0)
+            # Copy relevant meta info from original batch if needed
+            for key, value in original_batch.meta_info.items():
+                if key != 'idx' and isinstance(value, list) and len(value) > orig_idx:
+                     batch_meta_info[key].append(value[orig_idx])
+                elif key != 'idx': # Keep non-list meta info as is for all
+                     if i == 0: # Add only once
+                         batch_meta_info[key] = value 
+                         
+        # --- Stack Tensors --- 
+        if not batch_input_ids: # Handle case with no valid results
+             print("[Agent._convert_rollout] No valid trajectories processed. Returning empty DataProto.")
+             return DataProto.from_dict({}) 
+             
+        final_batch = {
+            "input_ids": torch.cat(batch_input_ids, dim=0),
+            "attention_mask": torch.cat(batch_attention_mask, dim=0),
+            "position_ids": torch.cat(batch_position_ids, dim=0),
+            "info_mask": torch.cat(batch_info_mask, dim=0), 
+            # Note: 'prompts' and 'responses' fields from old format are not directly created here.
+            # The full sequence is in 'input_ids'. The trainer needs to handle this.
         }
 
-        # Convert results to DataProto format
-        final_output = self._compose_final_output(
-            {"input_ids": initial_input_ids},
-            {"responses": self._batch_tokenize([r.text for r in results])},
-            meta_info
-        )
-
-        return final_output
-
-    def _compose_final_output(self, left_side: Dict,
-                            right_side: Dict,
-                            meta_info: Dict) -> DataProto:
-        """Compose final generation output."""
-        final_output = right_side.copy()
-        final_output['prompts'] = left_side['input_ids']
+        # --- Create Final DataProto --- 
+        data_proto = DataProto.from_dict(final_batch)
+        # Convert lists in meta_info to tensors if appropriate, keep as lists otherwise
+        for key, value in batch_meta_info.items():
+            try:
+                # Attempt to convert to tensor if items are numerical
+                data_proto.meta_info[key] = torch.tensor(value)
+            except (ValueError, TypeError):
+                # Keep as list if conversion fails
+                data_proto.meta_info[key] = value 
+                
+        # Add rewards tensor explicitly if needed by trainer
+        data_proto.meta_info["rewards"] = torch.tensor(batch_rewards, dtype=torch.float32)
         
-        # Combine input IDs
-        final_output['input_ids'] = torch.cat([
-            left_side['input_ids'],
-            right_side['responses']
-        ], dim=1)
-        
-        # Create attention mask and position ids
-        final_output['attention_mask'] = torch.cat([
-            self.tensor_fn.create_attention_mask(left_side['input_ids']),
-            self.tensor_fn.create_attention_mask(final_output['responses'])
-        ], dim=1)
-        final_output['info_mask'] = torch.cat([
-            self.tensor_fn.create_attention_mask(left_side['input_ids']),
-            self.tensor_fn.create_attention_mask(final_output['responses_with_info_mask'])
-        ], dim=1)
-        
-        final_output['position_ids'] = self.tensor_fn.create_position_ids(
-            final_output['attention_mask']
-        )
-        
-        final_output = DataProto.from_dict(final_output)
-        final_output.meta_info.update(meta_info)
-        
-        return final_output
+        print(f"[Agent._convert_rollout] Final batch shapes: input_ids={final_batch['input_ids'].shape}")
+        return data_proto
 
     def execute_predictions(self, predictions: List[str], pad_token: str, active_mask=None, execute_tools=True) -> Tuple[List[str], List[bool], List[bool], List[bool]]:
         """
-        Execute predictions using rollout controller.
+        Execute predictions (Placeholder - Actual execution handled by AgentGym Task via controller).
+        
+        This method is likely called by the RolloutController's strategy.
+        In the AgentGym setup, the controller gets the prediction string from the agent 
+        (via model generation) and passes it to the task's step function.
+        This method here might only be needed for parsing or returning flags, not execution.
         
         Args:
-            predictions: List of action predictions
+            predictions: List of action predictions (strings from model)
             pad_token: Padding token
             active_mask: Mask for active sequences
-            execute_tools: Whether to execute tools
+            execute_tools: Whether to execute tools (Likely ignored)
             
         Returns:
-            Tuple of (next observations, done flags, valid action flags, tool use flags)
+            Placeholder tuple. The actual next_obs, dones, etc., come from the Task's step method.
         """
-        if not execute_tools:
-            return super().execute_predictions(predictions, pad_token, active_mask, execute_tools)
+        # The original implementation had a recursive call to rollout_controller._rollout_one, which is incorrect.
+        # The RolloutController orchestrates the flow: agent predicts -> controller passes prediction to task.step -> task executes -> task returns obs/done.
+        # Therefore, this method in the agent should likely *not* execute tools or interact with the environment directly.
+        
+        # For now, return placeholder values. The actual values are determined by the Task environment.
+        # We need to understand how the chosen Strategy uses this method, if at all.
+        num_preds = len(predictions)
+        dummy_obs = ["" for _ in range(num_preds)]
+        dummy_dones = [False for _ in range(num_preds)] # Assume not done unless Task says otherwise
+        dummy_valid = [True for _ in range(num_preds)] # Assume valid unless parsing fails
+        dummy_tool_use = [False for _ in range(num_preds)] # Determine based on prediction parsing
+        
+        # Basic check if prediction looks like a tool call based on common patterns
+        actions, _ = self.postprocess_predictions(predictions)
+        for i, action_type in enumerate(actions):
+            if action_type == 'action':
+                dummy_tool_use[i] = True
+                
+        # If not using tools (e.g., final response), these flags might be different.
+        # This part might need refinement based on how the strategy/trainer uses these return values.
 
-        # Execute tool calls using rollout controller
-        results = self.rollout_controller._rollout_one(
-            task=self.rollout_controller.tasks[0],
-            idx=0,
-            generation_config=None,
-            max_rounds=1,
-            save_to_storage=False,
-            metadata=None
-        )
-
-        # Process results
-        next_obs = []
-        dones = []
-        valid_action = []
-        is_tool_use = []
-
-        for result in results:
-            next_obs.append(result.conversation[-1]["value"] if result.conversation else "")
-            dones.append(True)
-            valid_action.append(True)
-            is_tool_use.append(True)
-
-        return next_obs, dones, valid_action, is_tool_use
+        print(f"[Agent.execute_predictions] Received {num_preds} predictions. Returning placeholder env state.")
+        return dummy_obs, dummy_dones, dummy_valid, dummy_tool_use
 
     def postprocess_predictions(self, predictions: List[Any]) -> Tuple[List[str], List[str]]:
         """
