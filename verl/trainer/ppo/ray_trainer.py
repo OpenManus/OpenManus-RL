@@ -41,9 +41,16 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 
 import re
 from openmanus_rl.llm_agent.openmanus import OpenManusAgent, AgentConfig
+from verl.utils.reward_score import SUPPORTED_REWARD_SCORE_FNS
 
 WorkerType = Type[Worker]
 
+# Define known AgentGym envs centrally here
+KNOWN_AGENTGYM_ENVS = [
+    "webshop", "webarena", "maze", "wordle", "alfworld", 
+    "sciworld", "babyai", "textcraft", "weather", "movie", 
+    "academia", "todo", "sheet", "sqlgym"
+]
 
 class Role(Enum):
     """
@@ -437,41 +444,77 @@ class RayPPOTrainer(object):
 
     def _validate(self):
         """
-        The training loop of PPO with global metric computation.
-        Accumulates metrics across all batches before computing final statistics.
+        Validation loop.
         """
         import torch
-        reward_tensor_lst = []
-        data_source_lst = []
+        all_metrics = defaultdict(list) 
+        all_calculated_scores = [] # Store scores calculated by score_fn
 
+        # --- Determine Score Function --- 
+        score_fn = None
+        score_fn_name = self.config.algorithm.get('reward_score_fn')
+        if score_fn_name and score_fn_name in SUPPORTED_REWARD_SCORE_FNS:
+            score_fn = SUPPORTED_REWARD_SCORE_FNS[score_fn_name]
+            print(f"[Trainer._validate] Using reward score function: {score_fn_name}")
+        else:
+            print(f"[Trainer._validate] No valid reward_score_fn configured ('{score_fn_name}'). Using val_reward_fn if available.")
+            score_fn = self.val_reward_fn # Fallback to RewardManager if passed
+            if score_fn:
+                 print(f"[Trainer._validate] Using val_reward_fn (likely RewardManager).")
+            else:
+                 print(f"[Trainer._validate] No score_fn or val_reward_fn available.")
+
+        # Determine if this is an AgentGym run
+        is_agentgym_run = self.config.data.env_name in KNOWN_AGENTGYM_ENVS
+
+        # Agent config preparation (remains the same)
         gen_config = AgentConfig(
             max_turns=self.config.max_turns,
             max_start_length=self.config.data.max_start_length,
             max_prompt_length=self.config.data.max_prompt_length,
             max_response_length=self.config.data.max_response_length,
             max_obs_length=self.config.data.max_obs_length,
-            num_gpus=self.config.trainer.n_gpus_per_node,
-            no_think_rl=self.config.algorithm.no_think_rl,
-            search_url = self.config.retriever.url,
-            topk = self.config.retriever.topk,
+            num_gpus=self.config.trainer.n_gpus_per_node, 
+            env_name=self.config.data.env_name, 
+            env_port=self.config.data.env_port,
+            env_server_base=self.config.data.env_server_base,
+            env_data_len=self.config.data.get('env_data_len', 200),
+            max_workers=self.config.actor_rollout_ref.rollout.get('max_workers', 10),
         )
-
-        # Agent config preparation
         generation_manager = OpenManusAgent(
             tokenizer=self.tokenizer,
             actor_rollout_wg=self.actor_rollout_wg,
             config=gen_config,
+            tool_manager=None, 
             is_validation = True,
         )
 
-        if not self.config.do_search:
-            for test_data in self.val_dataloader:
-                test_batch = DataProto.from_single_dict(test_data)
+        # --- Run Validation Loop --- 
+        for batch_dict in self.val_dataloader:
+            timing_raw = {}
+            test_batch: DataProto = DataProto.from_single_dict(batch_dict)
+            
+            final_batch_output = None # To store results from rollout/generation
+            
+            # --- Rollout/Generation --- 
+            if is_agentgym_run:
+                # print("[Trainer._validate] Running AgentGym/do_search path.") # Debug
+                test_gen_batch = test_batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
+                if 'idx' not in test_gen_batch.meta_info:
+                     batch_size = test_gen_batch.batch['input_ids'].shape[0]
+                     test_gen_batch.meta_info['idx'] = torch.arange(batch_size)
+                if 'reward_model' not in test_gen_batch.meta_info:
+                     batch_size = test_gen_batch.batch['input_ids'].shape[0]
+                     test_gen_batch.meta_info['reward_model'] = [{} for _ in range(batch_size)] 
 
-                # we only do validation on rule-based rm
-                if self.config.reward_model.enable and test_batch[0].non_tensor_batch['reward_model']['style'] == 'model':
-                    return {}
-
+                with _timer('step', timing_raw):
+                    final_batch_output = generation_manager.run_llm_loop(gen_batch=test_gen_batch)
+                    
+            else: # Original Path (Not AgentGym)
+                # print("[Trainer._validate] Running original/non-AgentGym path.") # Debug
+                # Check reward model style if needed (original logic)
+                # if self.config.reward_model.enable and test_batch[0].non_tensor_batch['reward_model']['style'] == 'model':
+                #    continue 
                 test_gen_batch = test_batch.pop(['input_ids', 'attention_mask', 'position_ids'])
                 test_gen_batch.meta_info = {
                     'eos_token_id': self.tokenizer.eos_token_id,
@@ -480,74 +523,77 @@ class RayPPOTrainer(object):
                     'do_sample': False,
                     'validate': True,
                 }
-
-                # pad to be divisible by dp_size
                 test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
                 test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
-                # unpad
-                test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
-                print('validation generation end')
-
-                test_batch = test_batch.union(test_output_gen_batch)
-
-                # evaluate using reward_function
-                # for certain reward function (e.g. sandbox), the generation can overlap with reward
-                reward_tensor = self.val_reward_fn(test_batch)
-
-                reward_tensor_lst.append(reward_tensor)
-                data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
-        else:
-            for batch_dict in self.val_dataloader:
-                timing_raw = {}
-                test_batch: DataProto = DataProto.from_single_dict(batch_dict)
-                # test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n_agent, interleave=True)
+                final_batch_output = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
+            
+            # --- Score Calculation (using results in final_batch_output) --- 
+            if final_batch_output and score_fn:
+                current_batch_size = final_batch_output.batch['input_ids'].shape[0]
+                env_name = self.config.data.env_name
                 
-                test_gen_batch = test_batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
-                test_gen_batch.meta_info = {
-                    'eos_token_id': self.tokenizer.eos_token_id,
-                    'pad_token_id': self.tokenizer.pad_token_id,
-                    'recompute_log_prob': False,
-                    'do_sample': False,
-                    'validate': True,
-                }
-                with _timer('step', timing_raw):
-                    first_input_ids = test_gen_batch.batch['input_ids'][:, -gen_config.max_start_length:].clone()
-                    with _timer('gen', timing_raw):
-                        generation_manager.timing_raw = timing_raw
-                        final_gen_batch_output = generation_manager.run_llm_loop(
-                            gen_batch=test_gen_batch,
-                            initial_input_ids=first_input_ids,
-                        )
-                    
-                    test_batch = test_batch.union(final_gen_batch_output)
-                    
-                    for key in test_batch.batch.keys():
-                        test_batch.batch[key] = test_batch.batch[key].long()
-                    
-                    # evaluate using reward_function
-                    # for certain reward function (e.g. sandbox), the generation can overlap with reward
-                    reward_tensor = self.val_reward_fn(test_batch)
+                # Prepare data needed by the score function
+                trajectories = final_batch_output.meta_info.get('rollout_trajectory', [[]] * current_batch_size)
+                reward_models = final_batch_output.meta_info.get('reward_model', [{}] * current_batch_size)
+                env_scores_from_rollout = final_batch_output.meta_info.get('env_scores', None) # Direct scores from env
+                
+                batch_scores = []
+                for i in range(current_batch_size):
+                    # --- Call the selected score function --- 
+                    # Check if score_fn is the agentgym one by name (or reference)
+                    if score_fn_name == 'agentgym': 
+                        # Pass trajectory and reward_model info
+                        score_kwargs = {
+                            'trajectory': trajectories[i] if i < len(trajectories) else [],
+                            'reward_model_info': reward_models[i] if i < len(reward_models) else {}
+                        }
+                        try:
+                            score = score_fn(env_name=env_name, **score_kwargs)
+                            batch_scores.append(score)
+                        except Exception as e:
+                            print(f"[Trainer._validate] Error calling score function {score_fn_name} for sample {i}: {e}")
+                            batch_scores.append(0.0)
+                    elif score_fn == self.val_reward_fn: # Check if it's the RewardManager
+                        # RewardManager expects the full batch DataProto
+                        # Reconstruct a single item DataProto for RewardManager
+                        single_item_batch = test_batch[i].union(final_batch_output[i])
+                        try:
+                             # RewardManager.__call__ returns a tensor, get the score
+                             reward_tensor = score_fn(single_item_batch) 
+                             # Assume score is sum or last non-zero value
+                             score = reward_tensor.sum().item() # Or other logic based on RewardManager output
+                             batch_scores.append(score)
+                        except Exception as e:
+                            print(f"[Trainer._validate] Error calling val_reward_fn (RewardManager) for sample {i}: {e}")
+                            batch_scores.append(0.0)
+                    else:
+                        # Handle other potential score functions if needed
+                        print(f"[Trainer._validate] Warning: Handling for score function {score_fn_name} not implemented. Skipping.")
+                        batch_scores.append(0.0)
+                        
+                all_calculated_scores.extend(batch_scores)
+                # print(f"[Trainer._validate] Calculated Batch Scores: {batch_scores}") # Debug
+            elif not score_fn:
+                 print("[Trainer._validate] No score function available to calculate scores.")
+                 
+            # Collect timing or other common metrics if needed
+            # ...
 
-                    reward_tensor_lst.append(reward_tensor)
-                    data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
+        # --- Aggregate and Log Metrics --- 
+        final_metrics = {}
+        if all_calculated_scores:
+            mean_score = np.mean(all_calculated_scores)
+            log_key = f'val/{score_fn_name}/mean' if score_fn_name else 'val/calculated_score/mean'
+            final_metrics[log_key] = mean_score
+            print(f"[Trainer._validate] Final Mean Score ({log_key}): {mean_score}")
+        else:
+             print("[Trainer._validate] No validation scores collected to report.")
+             # ... (Fallback logging if needed) ...
 
-        reward_tensor = torch.cat([rw.sum(-1) for rw in reward_tensor_lst], dim=0).cpu()  # (batch_size,)
-        # reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
-        data_sources = np.concatenate(data_source_lst, axis=0)
-        # evaluate test_score based on data source
-        data_source_reward = {}
-        for i in range(reward_tensor.shape[0]):
-            data_source = data_sources[i]
-            if data_source not in data_source_reward:
-                data_source_reward[data_source] = []
-            data_source_reward[data_source].append(reward_tensor[i].item())
+        # Aggregate other metrics if collected
+        # ... 
 
-        metric_dict = {}
-        for data_source, rewards in data_source_reward.items():
-            metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
-
-        return metric_dict
-
+        return final_metrics
 
     def init_workers(self):
         """Init resource pool and worker group"""
@@ -656,42 +702,52 @@ class RayPPOTrainer(object):
     def fit(self):
         """
         The training loop of PPO.
-        The driver process only need to call the compute functions of the worker group through RPC to construct the PPO dataflow.
-        The light-weight advantage computation is done on the driver process.
         """
-
         logger = self.logger
         self.global_steps = 0
+        
+        # Determine if this is an AgentGym run upfront
+        self.is_agentgym_run = self.config.data.env_name in KNOWN_AGENTGYM_ENVS
+        print(f"[Trainer.fit] Is AgentGym run: {self.is_agentgym_run}")
+
         # perform validation before training
-        # currently, we only support validation using the reward_function.
-        if self.val_reward_fn is not None and self.config.trainer.get('val_before_train', True):
-            val_metrics = self._validate()
-            pprint(f'Initial validation metrics: {val_metrics}')
-            logger.log(data=val_metrics, step=self.global_steps)
-            if self.config.trainer.get('val_only', False):
-                return
+        if self.val_reward_fn is not None or self.config.algorithm.get('reward_score_fn') == 'agentgym': # Check if validation is possible
+             if self.config.trainer.get('val_before_train', True):
+                val_metrics = self._validate()
+                pprint(f'Initial validation metrics: {val_metrics}')
+                logger.log(data=val_metrics, step=self.global_steps)
+                if self.config.trainer.get('val_only', False):
+                    return
+        else:
+             print("[Trainer.fit] Skipping initial validation as no val_reward_fn or agentgym score fn is configured.")
 
         # we start from step 1
         self.global_steps += 1
 
-        # Agent config preparation
-        gen_config = AgentConfig(
-            max_turns=self.config.max_turns,
-            max_start_length=self.config.data.max_start_length,
-            max_prompt_length=self.config.data.max_prompt_length,
-            max_response_length=self.config.data.max_response_length,
-            max_obs_length=self.config.data.max_obs_length,
-            num_gpus=self.config.trainer.n_gpus_per_node,
-            no_think_rl=self.config.algorithm.no_think_rl,
-            search_url = self.config.retriever.url,
-            topk = self.config.retriever.topk,
-        )
-
-        generation_manager = OpenManusAgent(
-            tokenizer=self.tokenizer,
-            actor_rollout_wg=self.actor_rollout_wg,
-            config=gen_config,
-        )
+        # Agent config preparation (Only needed if AgentGym run)
+        generation_manager = None
+        if self.is_agentgym_run:
+            gen_config = AgentConfig(
+                 # ... (ensure all necessary AgentGym params are passed from self.config.data)
+                max_turns=self.config.max_turns,
+                max_start_length=self.config.data.max_start_length,
+                max_prompt_length=self.config.data.max_prompt_length,
+                max_response_length=self.config.data.max_response_length,
+                max_obs_length=self.config.data.max_obs_length,
+                num_gpus=self.config.trainer.n_gpus_per_node, 
+                env_name=self.config.data.env_name, 
+                env_port=self.config.data.env_port,
+                env_server_base=self.config.data.env_server_base,
+                env_data_len=self.config.data.get('env_data_len', 200),
+                max_workers=self.config.actor_rollout_ref.rollout.get('max_workers', 10),
+            )
+            generation_manager = OpenManusAgent(
+                tokenizer=self.tokenizer,
+                actor_rollout_wg=self.actor_rollout_wg,
+                config=gen_config,
+                tool_manager=None, # Tool manager likely not needed
+                # is_validation = False # Default
+            )
 
         # start training loop
         for epoch in range(self.config.trainer.total_epochs):
@@ -701,105 +757,123 @@ class RayPPOTrainer(object):
                 timing_raw = {}
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
-                batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n_agent, interleave=True)
+                # Do NOT repeat batch here initially, repeat happens after rollout/generation if needed
+                # batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n_agent, interleave=True)
 
-                # pop those keys for generation
+                # pop those keys for generation / initial prompt
                 gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
+                if 'idx' not in gen_batch.meta_info: # Add index if missing
+                     gen_batch.meta_info['idx'] = torch.arange(gen_batch.batch['input_ids'].shape[0])
+                if 'reward_model' not in gen_batch.meta_info: # Add placeholder
+                     gen_batch.meta_info['reward_model'] = [{} for _ in range(gen_batch.batch['input_ids'].shape[0])] 
 
                 ####################
-                # original code here
-
+                # Rollout / Generation Step
+                ####################
                 with _timer('step', timing_raw):
-                    if not self.config.do_search:
-                        gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                    if self.is_agentgym_run:
+                        # --- AgentGym Path --- 
+                        with _timer('gen', timing_raw):
+                            final_gen_batch_output = generation_manager.run_llm_loop(gen_batch=gen_batch)
+                            
+                        # Check if final_gen_batch_output is empty (e.g., error during rollout)
+                        if not final_gen_batch_output.batch: 
+                             print("[Trainer.fit] Warning: AgentGym rollout returned empty batch. Skipping step.")
+                             continue # Skip to next training batch
+                             
+                        # Add log probs (needed for PPO loss)
+                        with torch.no_grad():
+                            output_logp = self.actor_rollout_wg.compute_log_prob(final_gen_batch_output)
+                            final_gen_batch_output = final_gen_batch_output.union(output_logp)
+                            
+                        # Merge rollout results back with original batch info (like index)
+                        batch = batch.union(final_gen_batch_output)
+                        # Assign UID (can use index)
+                        if 'index' in batch.non_tensor_batch:
+                            batch.non_tensor_batch['uid'] = batch.non_tensor_batch['index'].copy()
+                        else: # Fallback UID
+                             batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
 
-                        batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
-                                                                dtype=object)
-                        # repeat to align with repeated responses in rollout
-                        batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    else:
+                        # --- Original Path --- 
+                        # Generate sequences
+                        with _timer('gen', timing_raw):
+                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                        # Add log probs
+                        with torch.no_grad():
+                             output_logp = self.actor_rollout_wg.compute_log_prob(gen_batch_output)
+                             gen_batch_output = gen_batch_output.union(output_logp)
+                             
+                        # Assign UID
+                        batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+                        # Merge generated results
                         batch = batch.union(gen_batch_output)
 
-                ####################
-                # Below is aLL about agents - the "LLM + forloop"
-                ####################
-                # with _timer('step', timing_raw):
-                    else:
-                        first_input_ids = gen_batch.batch['input_ids'][:, -gen_config.max_start_length:].clone().long()
-
-                        with _timer('gen', timing_raw):
-                            generation_manager.timing_raw = timing_raw
-                            final_gen_batch_output = generation_manager.run_llm_loop(
-                                gen_batch=gen_batch,
-                                initial_input_ids=first_input_ids,
-                            )
-
-                        # final_gen_batch_output.batch.apply(lambda x: x.long(), inplace=True)
-                        for key in final_gen_batch_output.batch.keys():
-                            final_gen_batch_output.batch[key] = final_gen_batch_output.batch[key].long()
-
-                        with torch.no_grad():
-                            output = self.actor_rollout_wg.compute_log_prob(final_gen_batch_output)
-                            final_gen_batch_output = final_gen_batch_output.union(output)
-
-                        # batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
-                        #                                         dtype=object)
-                        batch.non_tensor_batch['uid'] = batch.non_tensor_batch['index'].copy()
-                                            
-                        # repeat to align with repeated responses in rollout
+                    # Apply batch repetition if configured (AFTER generation/rollout)
+                    if self.config.actor_rollout_ref.rollout.n > 1:
                         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                        batch = batch.union(final_gen_batch_output)
-
+                        
                     ####################
+                    # Post-Rollout Processing
                     ####################
-
-                    # balance the number of valid tokens on each dp rank.
-                    # Note that this breaks the order of data inside the batch.
-                    # Please take care when you implement group based adv computation such as GRPO and rloo
                     self._balance_batch(batch, metrics=metrics)
-
-                    # compute global_valid tokens
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
-                    # batch.batch.apply(lambda x, key: x.long() if key != "old_log_probs" else x, inplace=True, key=True)
+                    # Ensure correct dtypes (mostly long, except log_probs)
                     for key in batch.batch.keys():
-                        if key != 'old_log_probs':
-                            batch.batch[key] = batch.batch[key].long()
+                        if key != 'old_log_probs' and 'log_prob' not in key and 'rewards' not in key and 'scores' not in key: # Keep floats for rewards/scores/logprobs
+                            if torch.is_tensor(batch.batch[key]):
+                                 batch.batch[key] = batch.batch[key].long()
 
+                    # --- Compute Ref Log Probs --- 
                     if self.use_reference_policy:
-                        # compute reference log_prob
                         with _timer('ref', timing_raw):
                             ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
                             batch = batch.union(ref_log_prob)
 
-                    # compute values
+                    # --- Compute Critic Values --- 
                     if self.use_critic:
                         with _timer('values', timing_raw):
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
-
+                    
+                    # --- Compute Rewards & Advantages --- 
                     with _timer('adv', timing_raw):
-                        # compute scores. Support both model and function-based.
-                        # We first compute the scores using reward model. Then, we call reward_fn to combine
-                        # the results from reward model and rule-based results.
-                        if self.use_rm:
-                            # we first compute reward model score
-                            reward_tensor = self.rm_wg.compute_rm_score(batch)
-                            batch = batch.union(reward_tensor)
-
-                        # we combine with rule-based rm
-                        reward_tensor = self.reward_fn(batch)
-                        batch.batch['token_level_scores'] = reward_tensor
-
-                        # compute rewards. apply_kl_penalty if available
-                        if not self.config.actor_rollout_ref.actor.use_kl_loss:
-                            batch, kl_metrics = apply_kl_penalty(batch,
-                                                                 kl_ctrl=self.kl_ctrl,
-                                                                 kl_penalty=self.config.algorithm.kl_penalty)
-                            metrics.update(kl_metrics)
+                        # Use RM model if configured (and not AgentGym? Check logic)
+                        if self.use_rm and not self.is_agentgym_run: # Only use RM model if NOT agentgym?
+                            reward_tensor_rm = self.rm_wg.compute_rm_score(batch)
+                            batch = batch.union(reward_tensor_rm)
+                            if 'token_level_scores' not in batch.batch:
+                                batch.batch['token_level_scores'] = reward_tensor_rm.get('rm_scores', torch.zeros_like(batch.batch['input_ids'], dtype=torch.float32))
+                        
+                        # --- Get Token Level Scores/Rewards --- 
+                        if self.is_agentgym_run and 'token_level_rewards' in batch.batch:
+                            # Trust rewards from agentgym rollout
+                            print("[Trainer.fit] Using token_level_rewards directly from AgentGym rollout.")
+                            if 'token_level_scores' not in batch.batch: # Need scores for KL penalty
+                                batch.batch['token_level_scores'] = batch.batch['token_level_rewards'].clone()
+                            # token_level_rewards is already set 
+                            
+                        elif not self.is_agentgym_run and self.reward_fn: 
+                            # Use RewardManager for non-agentgym runs
+                            print("[Trainer.fit] Using self.reward_fn (RewardManager) to compute scores.")
+                            reward_tensor = self.reward_fn(batch)
+                            batch.batch['token_level_scores'] = reward_tensor
+                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores'].clone()
                         else:
-                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
+                            # Fallback: No rewards available
+                            print(f"[Trainer.fit] Warning: No reward source found (AgentGym: {self.is_agentgym_run}, reward_fn: {self.reward_fn is not None}). Using zeros.")
+                            if 'token_level_scores' not in batch.batch:
+                                 batch.batch['token_level_scores'] = torch.zeros_like(batch.batch['input_ids'], dtype=torch.float32)
+                            if 'token_level_rewards' not in batch.batch:
+                                 batch.batch['token_level_rewards'] = torch.zeros_like(batch.batch['input_ids'], dtype=torch.float32)
 
-                        # compute advantages, executed on the driver process
+                        # Apply KL penalty (modifies token_level_rewards)
+                        if not self.config.actor_rollout_ref.actor.use_kl_loss and self.use_reference_policy:
+                            batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl, kl_penalty=self.config.algorithm.kl_penalty)
+                            metrics.update(kl_metrics)
+                        
+                        # Compute advantages using the final token_level_rewards
                         batch = compute_advantage(batch,
                                                   adv_estimator=self.config.algorithm.adv_estimator,
                                                   gamma=self.config.algorithm.gamma,
@@ -817,19 +891,23 @@ class RayPPOTrainer(object):
                     if self.config.trainer.critic_warmup <= self.global_steps:
                         # update actor
                         with _timer('update_actor', timing_raw):
-                            if self.config.do_search and self.config.actor_rollout_ref.actor.state_masking:
+                            # Apply state masking only for agentgym runs if configured
+                            if self.is_agentgym_run and self.config.actor_rollout_ref.actor.state_masking:
                                 batch, metrics = self._create_loss_mask(batch, metrics)
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)
 
                     # validate
-                    if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and \
+                    # Check if validation is possible
+                    can_validate = self.config.algorithm.get('reward_score_fn') or self.val_reward_fn is not None
+                    if can_validate and self.config.trainer.test_freq > 0 and \
                         self.global_steps % self.config.trainer.test_freq == 0:
                         with _timer('testing', timing_raw):
                             val_metrics: dict = self._validate()
                         metrics.update(val_metrics)
 
+                    # ... (save checkpoint) ...
                     if self.config.trainer.save_freq > 0 and \
                             self.global_steps % self.config.trainer.save_freq == 0:
                         with _timer('save_checkpoint', timing_raw):
@@ -839,15 +917,13 @@ class RayPPOTrainer(object):
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
 
-                # TODO: make a canonical logger that supports various backend
+                # Log metrics
                 logger.log(data=metrics, step=self.global_steps)
-
                 self.global_steps += 1
 
                 if self.global_steps >= self.total_training_steps:
-
-                    # perform validation after training
-                    if self.val_reward_fn is not None:
+                    # perform final validation if possible
+                    if can_validate:
                         val_metrics = self._validate()
                         pprint(f'Final validation metrics: {val_metrics}')
                         logger.log(data=val_metrics, step=self.global_steps)

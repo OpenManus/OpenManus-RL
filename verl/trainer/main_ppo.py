@@ -18,12 +18,24 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 from verl import DataProto
 import torch
 from verl.utils.reward_score import qa_em
+from verl.utils.reward_score import agentgym
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 import re
 import numpy as np
 
 def _select_rm_score_fn(data_source):
-    if data_source in ['nq', 'triviaqa', 'popqa', 'hotpotqa', '2wikimultihopqa', 'musique', 'bamboogle']:
+    # 定义已知的AgentGym环境列表
+    KNOWN_AGENTGYM_ENVS = [
+        "webshop", "webarena", "maze", "wordle", "alfworld", 
+        "sciworld", "babyai", "textcraft", "weather", "movie", 
+        "academia", "todo", "sheet", "sqlgym"
+    ]
+    
+    # 检查数据源是否为AgentGym环境
+    if data_source in KNOWN_AGENTGYM_ENVS:
+        from verl.utils.reward_score import agentgym_compute_score
+        return agentgym_compute_score
+    elif data_source in ['nq', 'triviaqa', 'popqa', 'hotpotqa', '2wikimultihopqa', 'musique', 'bamboogle']:
         return qa_em.compute_score_em
     else:
         raise NotImplementedError
@@ -164,35 +176,55 @@ def main_task(config):
         Role.RefPolicy: global_pool_id,
     }
 
-    # we should adopt a multi-source reward function here
-    # - for rule-based rm, we directly call a reward score
-    # - for model-based rm, we call a model
-    # - for code related prompt, we send to a sandbox if there are test cases
-    # - finally, we combine all the rewards together
-    # - The reward type depends on the tag of the data
-    if config.reward_model.enable:
-        if config.reward_model.strategy == 'fsdp':
-            from verl.workers.fsdp_workers import RewardModelWorker
-        elif config.reward_model.strategy == 'megatron':
-            from verl.workers.megatron_workers import RewardModelWorker
-        else:
-            raise NotImplementedError
-        role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
-        mapping[Role.RewardModel] = global_pool_id
+    # --- Conditionally Define Reward Functions --- 
+    reward_fn = None
+    val_reward_fn = None
 
-    reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0)
+    # Define known AgentGym environments (mirroring agentgym.py or train_ppo.sh)
+    KNOWN_AGENTGYM_ENVS = [
+        "webshop", "webarena", "maze", "wordle", "alfworld", 
+        "sciworld", "babyai", "textcraft", "weather", "movie", 
+        "academia", "todo", "sheet", "sqlgym"
+    ]
+    is_agentgym_run = config.data.env_name in KNOWN_AGENTGYM_ENVS
+    
+    if not is_agentgym_run:
+        print("[main_task] Initializing RewardManager for non-AgentGym run.")
+        # Initialize RewardManager only for non-AgentGym runs
+        # Make sure RewardManager class definition exists above
+        try:
+            reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0, format_score=config.get('format_score', 0.))
+            val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=1, format_score=config.get('format_score', 0.))
+        except NameError:
+             print("[main_task] Error: RewardManager class not defined. Cannot initialize reward functions.")
+             # Decide how to proceed - exit or continue without reward_fn?
+             # For now, let reward_fn remain None
+             pass
 
-    # Note that we always use function-based RM for validation
-    val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=1)
+        # Setup RewardModel worker only if reward_model is enabled AND it's NOT AgentGym
+        if config.reward_model.enable:
+            print("[main_task] Setting up RewardModel worker.")
+            if config.reward_model.strategy == 'fsdp':
+                from verl.workers.fsdp_workers import RewardModelWorker
+            elif config.reward_model.strategy == 'megatron':
+                from verl.workers.megatron_workers import RewardModelWorker
+            else:
+                raise NotImplementedError
+            role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+            mapping[Role.RewardModel] = global_pool_id
+    else:
+        print(f"[main_task] AgentGym run ({config.data.env_name}) detected. Skipping RewardManager initialization.")
+        pass 
 
+    # --- Initialize Trainer --- 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
     trainer = RayPPOTrainer(config=config,
                             tokenizer=tokenizer,
                             role_worker_mapping=role_worker_mapping,
                             resource_pool_manager=resource_pool_manager,
                             ray_worker_group_cls=ray_worker_group_cls,
-                            reward_fn=reward_fn,
-                            val_reward_fn=val_reward_fn,
+                            reward_fn=reward_fn, # Pass potentially None
+                            val_reward_fn=val_reward_fn, # Pass potentially None
                             )
     trainer.init_workers()
     trainer.fit()
