@@ -136,3 +136,18 @@ def compute_score_subem(solution_str, ground_truth, method='strict', format_scor
             return score
         else:
             return format_score
+
+# Define the main compute_score function that's being imported
+def compute_score(solution_str, ground_truth, method='strict', format_score=0., score=1.):
+    """The main scoring function for exact match (EM).
+    
+    This is a wrapper around compute_score_em which is the default implementation.
+    
+    Args:
+        solution_str: the solution text
+        ground_truth: the ground truth
+        method: the method to extract the solution, choices are 'strict' and 'flexible'
+        format_score: the score for the format
+        score: the score for the correct answer
+    """
+    return compute_score_em(solution_str, ground_truth, method, format_score, score)
