@@ -21,3 +21,9 @@ __pycache__
 .dockerfile
 .dockerfile-cache/
 
+# data
+
+data/output_env_groups/
+data/output_txt_files/
+
+
