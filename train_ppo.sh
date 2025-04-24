@@ -55,10 +55,15 @@ BASE_CONDA_ENV=${CONDA_DEFAULT_ENV:-openmanus-rl}
 echo "[Info] Detected base conda environment: $BASE_CONDA_ENV"
 echo "[Info] Verl trainer will run in this environment."
 
+
 # --- Environment Specific Setup (Determine LAUNCH_CMD, DEFAULT_BASE_PORT, URL_PATH) ---
+
 LAUNCH_CMD=""
 DEFAULT_BASE_PORT="" # Renamed from DEFAULT_PORT
 URL_PATH=""
+# MODULE_LAUNCH_NAME=""
+
+AGENTGYM_HOST=${AGENTGYM_HOST:-'0.0.0.0'}
 
 case $AGENTGYM_ENV_NAME in
     webshop)
@@ -178,6 +183,7 @@ trap "echo '[Cleanup] Stopping AgentGym servers (PIDs: ${AGENTGYM_PIDS[*]})...';
 export DATA_DIR=${DATA_DIR_OVERRIDE:-"data/$AGENTGYM_ENV_NAME"} # Default data dir based on env name
 export EXPERIMENT_NAME="OpenManus-rl-ppo-${BASE_MODEL##*/}-${AGENTGYM_ENV_NAME}${EXP_NAME_SUFFIX}"
 
+
 # --- Run PPO Training in Base Environment ---
 echo -e "\\n[Trainer] Running PPO training in base environment '$BASE_CONDA_ENV'..."
 export VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND:-XFORMERS}
@@ -189,6 +195,7 @@ AGENTGYM_PORTS_STR=$(IFS=,; echo "${AGENTGYM_PORTS[*]}")
 
 echo "[Trainer] Using Data Directory: $DATA_DIR"
 echo "[Trainer] Experiment Name: $EXPERIMENT_NAME"
+
 echo "[Trainer] AgentGym Base URL: $AGENTGYM_SERVER_BASE"
 echo "[Trainer] AgentGym Ports: $AGENTGYM_PORTS_STR" # Pass list of ports
 
@@ -292,5 +299,6 @@ TRAINER_EXIT_CODE=$?
 echo "PPO training finished with exit code $TRAINER_EXIT_CODE."
 
 # Cleanup is handled by the trap
+
 
 exit $TRAINER_EXIT_CODE
