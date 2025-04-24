@@ -30,7 +30,7 @@ class AgentConfig:
         num_gpus: Number of GPUs to use
         react_format: Whether to use ReAct format
         env_name: Name of the environment (e.g., "webshop")
-        env_port: Port number for environment server
+        env_ports: List of ports for parallel servers
         env_server_base: Base URL for environment server
         env_data_len: Number of data samples in the environment (used for client init)
         rollout_strategy: Strategy to use for rollout (StandardReAct/ToT/MCTS)
@@ -48,7 +48,7 @@ class AgentConfig:
     
     # Environment configuration (Now passed from trainer)
     env_name: str 
-    env_port: int
+    env_ports: List[int] # List of ports for parallel servers
     env_server_base: str
     env_data_len: int = 200 # Default, might need adjustment
     rollout_strategy: str = "StandardReAct" # Strategy is now internal logic
@@ -117,41 +117,39 @@ class OpenManusAgent:
             max_start_length=config.max_start_length
         ))
 
-        # Initialize the environment client directly
-        self.client = self._init_env_client()
-        # Initialize thread pool for parallel rollouts
-        self.executor = ThreadPoolExecutor(max_workers=self.config.max_workers)
+        # Initialize multiple environment clients
+        self.clients = self._init_env_clients() # Changed method name
 
-    def _init_env_client(self):
+        # Adjust thread pool size based on number of clients, up to max_workers
+        num_clients = len(self.clients)
+        actual_workers = min(num_clients, self.config.max_workers)
+        if actual_workers < num_clients:
+             print(f"[Warning] Number of clients ({num_clients}) exceeds max_workers ({self.config.max_workers}). Using {actual_workers} workers.")
+        print(f"[Info] Initializing ThreadPoolExecutor with {actual_workers} workers for {num_clients} clients.")
+        self.executor = ThreadPoolExecutor(max_workers=actual_workers)
+
+    def _init_env_clients(self) -> List[Any]: # Renamed and return type changed
         """
-        Initialize and return the specific AgentGym environment client based on config.
+        Initialize and return a list of specific AgentGym environment clients
+        based on the ports provided in the config.
         """
-        # Mapping from env_name (lowercase) to Task class name
-        # We need the Task class to potentially get the right client or initial setup
-        ENV_TO_TASK_CLASS = {
-            "academia": "AcademiaTask",
-            "alfworld": "AlfWorldTask",
-            "babyai": "BabyAITask",
-            "maze": "MazeTask", 
-            "wordle": "WordleTask",
-            "movie": "MovieTask",
-            "sciworld": "SciworldTask",
-            "sheet": "SheetTask",
-            "sqlgym": "SqlGymTask",
-            "textcraft": "TextCraftTask",
-            "todo": "TodoTask",
-            "weather": "WeatherTask",
-            "webarena": "WebarenaTask",
-            "webshop": "WebshopTask",
-        }
-        
+        clients = []
         env_name_lower = self.config.env_name.lower()
+
+        # Mapping from env_name (lowercase) to Task class name
+        ENV_TO_TASK_CLASS = {
+            "academia": "AcademiaTask", "alfworld": "AlfWorldTask", "babyai": "BabyAITask",
+            "maze": "MazeTask", "wordle": "WordleTask", "movie": "MovieTask",
+            "sciworld": "SciworldTask", "sheet": "SheetTask", "sqlgym": "SqlGymTask",
+            "textcraft": "TextCraftTask", "todo": "TodoTask", "weather": "WeatherTask",
+            "webarena": "WebarenaTask", "webshop": "WebshopTask",
+        }
+
         if env_name_lower not in ENV_TO_TASK_CLASS:
             raise ValueError(f"Unsupported environment name: {self.config.env_name}. Supported: {list(ENV_TO_TASK_CLASS.keys())}")
 
         task_class_name = ENV_TO_TASK_CLASS[env_name_lower]
-        print(f"Initializing Env Client for: {self.config.env_name} (via Task: {task_class_name})")
-        print(f"Connecting to AgentGym server at: {self.config.env_server_base}:{self.config.env_port}")
+        print(f"[Info] Initializing {len(self.config.env_ports)} Env Client(s) for: {self.config.env_name} (via Task: {task_class_name})")
 
         # Dynamically import the Task class
         try:
@@ -160,28 +158,41 @@ class OpenManusAgent:
         except (ImportError, AttributeError) as e:
             raise ImportError(f"Could not import Task class {task_class_name} from agentenv.envs: {e}")
 
-        client_args={
-            "env_server_base": f"{self.config.env_server_base}:{self.config.env_port}",
-            "data_len": self.config.env_data_len, 
-            "timeout": 300, 
-        }
-        
-        # Instantiate the task to get the client. 
-        # Assuming Task object creates and holds the client(s) in a list `clients`.
-        # This might need adjustment based on actual Task implementation.
-        try:
-            # We only need one client instance per agent worker typically.
-            task_instance = TaskClass(client_args=client_args, n_clients=1)
-            if hasattr(task_instance, 'clients') and task_instance.clients:
-                client = task_instance.clients[0] 
-                print(f"Successfully obtained client: {type(client)}")
-                return client
-            else:
-                raise ValueError(f"Task class {task_class_name} did not provide a client in 'clients' attribute.")
-        except Exception as e:
-             print(f"Error initializing Task or getting client for {task_class_name}: {e}")
-             print(traceback.format_exc()) # Print detailed traceback
-             raise
+        for i, port in enumerate(self.config.env_ports):
+            server_url = f"{self.config.env_server_base}:{port}"
+            print(f"  - Client {i+1}: Connecting to {server_url}")
+
+            client_args={
+                "env_server_base": server_url,
+                "data_len": self.config.env_data_len,
+                "timeout": 300,
+            }
+
+            try:
+                # Instantiate the task to get the client.
+                # We need one client per specified port.
+                # Assuming TaskClass handles client creation correctly when n_clients=1.
+                # If TaskClass itself manages multiple internal clients, this might need adjustment.
+                task_instance = TaskClass(client_args=client_args, n_clients=1)
+                if hasattr(task_instance, 'clients') and task_instance.clients:
+                    client = task_instance.clients[0]
+                    print(f"  - Client {i+1}: Successfully obtained client: {type(client)}")
+                    clients.append(client)
+                else:
+                     print(f"  - Client {i+1}: Error - Task class {task_class_name} did not provide a client for port {port}.")
+                     # Decide how to handle failure: raise error or skip this client? Skipping for now.
+                     # raise ValueError(f"Task class {task_class_name} did not provide a client for port {port}.")
+            except Exception as e:
+                 print(f"  - Client {i+1}: Error initializing Task or getting client for port {port}: {e}")
+                 print(traceback.format_exc()) # Print detailed traceback
+                 # Decide how to handle failure: raise error or skip? Skipping for now.
+                 # raise
+
+        if not clients:
+            raise RuntimeError("Failed to initialize any environment clients.")
+
+        print(f"[Info] Successfully initialized {len(clients)} environment clients.")
+        return clients
 
     def _batch_tokenize(self, responses: List[str]) -> torch.Tensor:
         """Tokenize a batch of responses."""
@@ -398,13 +409,14 @@ class OpenManusAgent:
                 for filename in filenames:
                     self.logger.logger['wandb'].save(filename)
 
-    def _run_single_rollout(self, initial_prompt_ids: torch.Tensor, task_idx: int) -> Dict[str, Any]:
+    def _run_single_rollout(self, initial_prompt_ids: torch.Tensor, task_idx: int, client: Any) -> Dict[str, Any]:
         """
-        Runs the interaction loop for a single environment instance.
+        Runs the interaction loop for a single environment instance using the provided client.
         
         Args:
             initial_prompt_ids: Token IDs for the initial prompt/observation.
             task_idx: The index for resetting the environment.
+            client: The specific environment client instance to use for this rollout.
             
         Returns:
             A dictionary containing the trajectory, step rewards, final reward, turns,
@@ -419,13 +431,13 @@ class OpenManusAgent:
         current_input_ids = None 
 
         try:
-            # Reset environment
-            self.client.reset(task_idx)
-            initial_obs_text = self.client.observe()
+            # Reset environment using the provided client
+            client.reset(task_idx)
+            initial_obs_text = client.observe()
             
             # Handle initial observation
             if not initial_obs_text:
-                print(f"[Agent._run_single_rollout][{task_idx}] Warning: Received empty initial observation. Using initial prompt from batch.")
+                print(f"[Agent._run_single_rollout][{task_idx} @ {client.env_server_base}] Warning: Received empty initial observation. Using initial prompt from batch.")
                 initial_prompt_text = self.tokenizer.decode(initial_prompt_ids[0], skip_special_tokens=True)
                 trajectory.append({"from": "human", "value": initial_prompt_text})
                 current_input_ids = initial_prompt_ids
@@ -441,15 +453,17 @@ class OpenManusAgent:
                 # Handle input that exceeds max length
                 if current_input_ids.shape[1] > self.config.max_prompt_length:
                     current_input_ids = current_input_ids[:, -self.config.max_prompt_length:]
-                    print(f"[Agent._run_single_rollout][{task_idx}] Warning: Truncating input {current_input_ids.shape} > {self.config.max_prompt_length}.")
+                    print(f"[Agent._run_single_rollout][{task_idx} @ {client.env_server_base}] Warning: Truncating input {current_input_ids.shape} > {self.config.max_prompt_length}.")
 
                 # Prepare input
                 current_attention_mask = self.tensor_fn.create_attention_mask(current_input_ids)
                 current_position_ids = self.tensor_fn.create_position_ids(current_attention_mask)
+                # Ensure input tensors are on the correct device for the actor model
+                device = next(self.actor_rollout_wg.actor_model.parameters()).device # Get model's device
                 gen_input_proto = DataProto.from_dict({
-                    'input_ids': current_input_ids.to(self.actor_rollout_wg.device),
-                    'attention_mask': current_attention_mask.to(self.actor_rollout_wg.device),
-                    'position_ids': current_position_ids.to(self.actor_rollout_wg.device)
+                    'input_ids': current_input_ids.to(device),
+                    'attention_mask': current_attention_mask.to(device),
+                    'position_ids': current_position_ids.to(device)
                 })
                 
                 # Generate response
@@ -460,6 +474,7 @@ class OpenManusAgent:
                     temperature=1.0, 
                     do_sample=True   
                 )
+                # Generation happens on the actor worker group's device
                 gen_output_proto = self.actor_rollout_wg.generate_sequences(gen_input_proto, generation_config=generation_config)
                 response_ids = gen_output_proto.batch['response_ids'] 
                 response_text = self.tokenizer.decode(response_ids[0], skip_special_tokens=True)
@@ -469,29 +484,30 @@ class OpenManusAgent:
                 action_types, action_contents = self.postprocess_predictions([response_text])
                 action_text = action_contents[0] 
                 
-                # Execute environment step
+                # Execute environment step using the provided client
                 if action_text is None: action_text = "" 
-                next_obs_text, reward, done, info = self.client.step(action_text)
+                next_obs_text, reward, done, info = client.step(action_text)
                 
                 # Record rewards
                 step_rewards.append(reward)
                 final_reward = reward 
-                final_env_score = info.get('score', 0.0)
+                final_env_score = info.get('score', 0.0) # Use .get for safety
 
                 # Process next observation
                 if not done:
                     trajectory.append({"from": "human", "value": next_obs_text})
                     next_obs_ids = self.tokenizer(next_obs_text, return_tensors='pt', add_special_tokens=False)['input_ids']
+                    # Ensure tensors are concatenated on the same device (e.g., CPU or model's device if needed later)
                     current_input_ids = torch.cat([
-                        current_input_ids, 
-                        response_ids.to(current_input_ids.device), 
-                        next_obs_ids.to(current_input_ids.device)
+                        current_input_ids.to(response_ids.device), # Move to same device as response_ids
+                        response_ids, 
+                        next_obs_ids.to(response_ids.device) # Move to same device
                     ], dim=1)
                 else:
                     break 
 
         except Exception as e:
-            print(f"[Agent._run_single_rollout][{task_idx}] Error during rollout: {e}")
+            print(f"[Agent._run_single_rollout][{task_idx} @ {getattr(client, 'env_server_base', 'unknown_client')}] Error during rollout: {e}")
             print(traceback.format_exc())
             step_rewards = []
             final_reward = 0.0 
@@ -509,25 +525,28 @@ class OpenManusAgent:
 
     def run_llm_loop(self, gen_batch: DataProto, output_dir: str = None, global_steps: int = 0) -> DataProto:
         """
-        Run the LLM interaction loop for a batch of initial prompts.
-        Updated to include trajectory visualization similar to generation.py.
-        
+        Run the LLM interaction loop for a batch of initial prompts using multiple clients.
+
         Args:
             gen_batch: DataProto containing initial prompts
             output_dir: Directory to save visualizations
             global_steps: Current training step
-            
+
         Returns:
             DataProto containing processed results
         """
         initial_prompts_ids = gen_batch.batch['input_ids']
         batch_size = initial_prompts_ids.shape[0]
-        print(f"[Agent.run_llm_loop] Starting rollout for batch size: {batch_size}")
+        num_clients = len(self.clients)
+        if num_clients == 0:
+             raise RuntimeError("No environment clients available for rollout.")
+
+        print(f"[Agent.run_llm_loop] Starting rollout for batch size: {batch_size} using {num_clients} clients.")
 
         # --- Setup Visualization ---
         trajectory = self._setup_visualization()
-        
-        # --- Extract Task Indices --- 
+
+        # --- Extract Task Indices ---
         if 'idx' in gen_batch.meta_info:
             task_idxs = gen_batch.meta_info['idx']
             if isinstance(task_idxs, torch.Tensor):
@@ -539,74 +558,76 @@ class OpenManusAgent:
             print("[Agent.run_llm_loop] Warning: 'idx' not found in gen_batch.meta_info. Using range(batch_size)." )
             task_idxs = list(range(batch_size))
 
-        # Create active_mask to track active tasks
-        active_mask = torch.ones(batch_size, dtype=torch.bool)
-        active_num_list = [active_mask.sum().item()]
-
-        # --- Parallel Rollout Execution --- 
+        # --- Parallel Rollout Execution ---
         futures = {}
         rollout_results_list = [None] * batch_size  # Preallocate list to store results in order
-        
-        # Create task list
-        envs = []  # Store environment instances
 
+        # Submit tasks to the thread pool, distributing across clients
         for i in range(batch_size):
             task_idx = task_idxs[i]
             initial_prompt = initial_prompts_ids[i:i+1]  # Keep batch dim
-            env = self.client  # Assume client is the environment instance
-            envs.append(env)
-            future = self.executor.submit(self._run_single_rollout, initial_prompt, task_idx)
-            futures[future] = i  # Store original index
+
+            # Select a client for this task (round-robin)
+            client_index = i % num_clients
+            selected_client = self.clients[client_index]
+
+            # Submit the rollout task with the selected client
+            future = self.executor.submit(self._run_single_rollout, initial_prompt, task_idx, selected_client)
+            futures[future] = i  # Store original batch index
+
+        print(f"[Agent.run_llm_loop] Submitted {batch_size} rollout tasks to {self.executor._max_workers} workers.")
 
         # Collect results
+        completed_count = 0
         for future in as_completed(futures):
             original_index = futures[future]
             try:
                 result_dict = future.result()
                 rollout_results_list[original_index] = result_dict
-                
+                completed_count += 1
+                # print(f"Completed task {original_index + 1}/{batch_size}") # Optional progress logging
+
                 # If visualization is enabled, update trajectory
-                if trajectory and original_index < len(trajectory):
-                    for turn in result_dict.get('trajectory', []):
-                        if turn.get('from') == 'gpt':
-                            # Create active_mask with only this index active
-                            current_active_mask = torch.zeros(batch_size, dtype=torch.bool)
-                            current_active_mask[original_index] = True
-                            # Update trajectory
-                            self._update_trajectory(
-                                trajectory, 
-                                envs, 
-                                [turn.get('value', '')], 
-                                current_active_mask
-                            )
+                # Note: Visualization logic might need adjustment if envs are not easily accessible
+                # or if you want per-client visualization. Current logic assumes a single env list.
+                # Consider passing necessary env state back from _run_single_rollout if needed.
+                # if trajectory and original_index < len(trajectory):
+                #     # This part might be tricky with multiple clients unless you manage env state carefully
+                #     pass # Placeholder for potential visualization update logic
+
             except Exception as e:
-                print(f"[Agent.run_llm_loop] Error collecting result for index {original_index}: {e}")
-                # Store a placeholder or error indicator if needed
+                print(f"[Agent.run_llm_loop] Error collecting result for batch index {original_index} (task_idx {task_idxs[original_index]}): {e}")
+                print(traceback.format_exc())
+                # Store a placeholder or error indicator
                 rollout_results_list[original_index] = {
-                    'trajectory': [], 'step_rewards': [], 'reward': 0.0, 
-                    'turns': 0, 'env_score': 0.0, 'task_idx': task_idxs[original_index], 
+                    'trajectory': [], 'step_rewards': [], 'reward': 0.0,
+                    'turns': 0, 'env_score': 0.0, 'task_idx': task_idxs[original_index],
                     'error': str(e)
                 }
-                # Update active_mask to mark current task as inactive
-                active_mask[original_index] = False
-                active_num_list.append(active_mask.sum().item())
 
-        print(f"[Agent.run_llm_loop] Collected results from {len(futures)} rollouts. Active trajectory nums: {active_num_list}")
-        
-        # Save trajectory visualizations
-        if output_dir and trajectory:
-            self._save_trajectory(trajectory, output_dir, global_steps)
-        
-        # Filter out potential None entries if some tasks failed critically before returning dict
+        print(f"[Agent.run_llm_loop] Collected results from {completed_count}/{batch_size} rollouts.")
+
+        # Save trajectory visualizations (if implemented and needed)
+        # if output_dir and trajectory:
+        #     self._save_trajectory(trajectory, output_dir, global_steps)
+
+        # Filter out potential None entries if some tasks failed critically
         valid_results = [res for res in rollout_results_list if res is not None]
-        
+
         if not valid_results:
             print("[Agent.run_llm_loop] Error: No valid rollout results collected.")
-            return DataProto.from_dict({})  # Return empty DataProto
-            
-        # --- Format Results into DataProto --- 
+            # Return empty DataProto but with correct structure if possible
+            return DataProto.from_dict({
+                "input_ids": torch.empty((0,0), dtype=torch.long),
+                "attention_mask": torch.empty((0,0), dtype=torch.long),
+                "position_ids": torch.empty((0,0), dtype=torch.long),
+                "info_mask": torch.empty((0,0), dtype=torch.long),
+                "token_level_rewards": torch.empty((0,0), dtype=torch.float)
+            })
+
+        # --- Format Results into DataProto ---
         processed_data = self._convert_rollout_results_to_dataproto(valid_results, gen_batch)
-        
+
         print(f"[Agent.run_llm_loop] Finished processing rollout results.")
         return processed_data
 
