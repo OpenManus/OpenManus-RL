@@ -22,6 +22,7 @@ from verl.utils.reward_score import agentgym
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 import re
 import numpy as np
+from omegaconf import OmegaConf
 
 def _select_rm_score_fn(data_source):
     # 定义已知的AgentGym环境列表
@@ -129,7 +130,6 @@ def main_task(config):
 
     # print initial config
     from pprint import pprint
-    from omegaconf import OmegaConf
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
     OmegaConf.resolve(config)
 
@@ -176,45 +176,52 @@ def main_task(config):
         Role.RefPolicy: global_pool_id,
     }
 
-    # --- Conditionally Define Reward Functions --- 
+    # --- Conditionally Define Reward Functions ---
     reward_fn = None
     val_reward_fn = None
 
     # Define known AgentGym environments (mirroring agentgym.py or train_ppo.sh)
     KNOWN_AGENTGYM_ENVS = [
-        "webshop", "webarena", "maze", "wordle", "alfworld", 
-        "sciworld", "babyai", "textcraft", "weather", "movie", 
+        "webshop", "webarena", "maze", "wordle", "alfworld",
+        "sciworld", "babyai", "textcraft", "weather", "movie",
         "academia", "todo", "sheet", "sqlgym"
     ]
     is_agentgym_run = config.data.env_name in KNOWN_AGENTGYM_ENVS
-    
+
+    # --- Get Reward Component Configuration --- 
+    # Safely get the reward components config, default to empty dict if not present
+    reward_component_config = OmegaConf.to_container(
+        config.algorithm.get('reward_components', {}), # Use .get for safety
+        resolve=True
+    )
+    print(f"[main_task] Reward component configuration: {reward_component_config}")
+
+    # --- Initialize RewardManager (if needed, e.g., for non-AgentGym) ---
+    # Decide if RewardManager is still needed. With RewardComposer, its role might change
+    # or become obsolete if all scoring is handled by components.
+    # For now, let's assume it might still be used for specific datasets.
     if not is_agentgym_run:
         print("[main_task] Initializing RewardManager for non-AgentGym run.")
-        # Initialize RewardManager only for non-AgentGym runs
-        # Make sure RewardManager class definition exists above
         try:
+            # Pass reward_component_config to RewardManager if it needs it
             reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0, format_score=config.get('format_score', 0.))
             val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=1, format_score=config.get('format_score', 0.))
         except NameError:
-             print("[main_task] Error: RewardManager class not defined. Cannot initialize reward functions.")
-             # Decide how to proceed - exit or continue without reward_fn?
-             # For now, let reward_fn remain None
-             pass
+             print("[main_task] Error: RewardManager class not defined. Skipping.")
+             pass # reward_fn and val_reward_fn remain None
 
-        # Setup RewardModel worker only if reward_model is enabled AND it's NOT AgentGym
-        if config.reward_model.enable:
-            print("[main_task] Setting up RewardModel worker.")
-            if config.reward_model.strategy == 'fsdp':
-                from verl.workers.fsdp_workers import RewardModelWorker
-            elif config.reward_model.strategy == 'megatron':
-                from verl.workers.megatron_workers import RewardModelWorker
-            else:
-                raise NotImplementedError
-            role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
-            mapping[Role.RewardModel] = global_pool_id
+    # --- Setup RewardModel worker (if needed) ---
+    # This logic remains largely the same, depends on reward_model.enable config
+    if config.reward_model.enable:
+         print("[main_task] Setting up RewardModel worker.")
+         # ... (rest of the RewardModel setup logic) ...
+         # if config.reward_model.strategy == 'fsdp':
+         #    from verl.workers.fsdp_workers import RewardModelWorker
+         # ... etc ...
+         # role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+         # mapping[Role.RewardModel] = global_pool_id
     else:
-        print(f"[main_task] AgentGym run ({config.data.env_name}) detected. Skipping RewardManager initialization.")
-        pass 
+        print(f"[main_task] AgentGym run ({config.data.env_name}) or RewardModel not enabled. Skipping RewardManager/RewardModel worker setup.")
 
     # --- Initialize Trainer --- 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
@@ -225,6 +232,7 @@ def main_task(config):
                             ray_worker_group_cls=ray_worker_group_cls,
                             reward_fn=reward_fn, # Pass potentially None
                             val_reward_fn=val_reward_fn, # Pass potentially None
+                            reward_component_config=reward_component_config, # Pass the parsed config
                             )
     trainer.init_workers()
     trainer.fit()

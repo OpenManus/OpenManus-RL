@@ -150,11 +150,33 @@ algorithm:
   gamma: 1.0
   lam: 1.0
   adv_estimator: gae
+  reward_score_fn: agentgym # Base scoring function (or other default)
   no_think_rl: False
   kl_penalty: kl  # how to estimate kl divergence
   kl_ctrl:
     type: fixed
     kl_coef: 0.001
+  # --- New Reward Components Configuration ---
+  reward_components:
+    goal_reward: # Base reward from env success/score
+      enabled: true
+      weight: 1.0
+    length_penalty:
+      enabled: false # Default to disabled
+      weight: -0.01 # Penalty weight (negative)
+      max_length: 450 # Max length before penalty
+      min_length: 20  # Min length before penalty (optional)
+      penalty_type: "linear" # Options: "linear", "quadratic", "log"
+    format_reward:
+      enabled: false # Default to disabled
+      weight: 0.2  # Reward weight (positive)
+      # Define patterns per environment or use a default
+      patterns_by_env:
+        webshop: ['<action>.*</action>', '<response>.*</response>']
+        # alfworld: ['go to .*', 'take .* from .*', 'put .* in/on .*']
+        default: [] # Default empty list if no env-specific patterns
+  # --- New Reward Allocation Strategy ---
+  reward_allocation: "last_token" # Options: "last_token", "uniform_positive", "discounted"
   state_masking:
     start_state_marker: "<information>"
     end_state_marker: "</information>"

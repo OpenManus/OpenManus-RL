@@ -1,2 +1,0 @@
-# prevent the local config file from being uploaded to the remote repository
-config.toml
