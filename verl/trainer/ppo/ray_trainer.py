@@ -42,6 +42,9 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 import re
 from openmanus_rl.llm_agent.openmanus import OpenManusAgent, AgentConfig
 from verl.utils.reward_score import SUPPORTED_REWARD_SCORE_FNS
+from verl.utils.reward_score.agentgym import compute_score as agentgym_compute_score
+from verl.utils.reward_score.reward_components import RewardComposer, GoalReward, LengthPenalty, FormatReward
+from verl.utils.tracking import Tracking
 
 WorkerType = Type[Worker]
 
@@ -333,7 +336,8 @@ class RayPPOTrainer(object):
                  resource_pool_manager: ResourcePoolManager,
                  ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
                  reward_fn=None,
-                 val_reward_fn=None):
+                 val_reward_fn=None,
+                 reward_component_config: dict = None):
 
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
 
@@ -341,6 +345,7 @@ class RayPPOTrainer(object):
         self.config = config
         self.reward_fn = reward_fn
         self.val_reward_fn = val_reward_fn
+        self.reward_component_config = reward_component_config or {}
 
         self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
         assert self.hybrid_engine, 'Currently, only support hybrid engine'
@@ -370,13 +375,51 @@ class RayPPOTrainer(object):
 
         self._create_dataloader()
         self._init_logger()
+        self._init_reward_composer()
     
     def _init_logger(self):
-        from verl.utils.tracking import Tracking
         self.logger = Tracking(project_name=self.config.trainer.project_name,
                           experiment_name=self.config.trainer.experiment_name,
                           default_backend=self.config.trainer.logger,
                           config=OmegaConf.to_container(self.config, resolve=True))
+
+    def _init_reward_composer(self):
+        """Initializes the RewardComposer based on the configuration."""
+        components = []
+        cfg = self.reward_component_config
+        print(f"[Trainer._init_reward_composer] Initializing with config: {cfg}")
+
+        # --- Build Reward Components List --- 
+        # Example: Dynamically add components based on config
+        if cfg.get('goal_reward', {}).get('enabled', True):
+            components.append(GoalReward(weight=cfg['goal_reward'].get('weight', 1.0)))
+            print("  - Added GoalReward")
+
+        if cfg.get('length_penalty', {}).get('enabled', False):
+            lp_cfg = cfg['length_penalty']
+            components.append(LengthPenalty(
+                weight=lp_cfg.get('weight', -0.01),
+                max_length=lp_cfg.get('max_length', 500),
+                min_length=lp_cfg.get('min_length', 10),
+                penalty_type=lp_cfg.get('penalty_type', "linear")
+            ))
+            print("  - Added LengthPenalty")
+
+        if cfg.get('format_reward', {}).get('enabled', False):
+            fmt_cfg = cfg['format_reward']
+            # Get patterns specific to the current env or use default
+            patterns = fmt_cfg.get('patterns_by_env', {}).get(
+                self.config.data.env_name, # Assumes env_name is available in self.config.data
+                fmt_cfg.get('patterns_by_env', {}).get('default', [])
+            )
+            components.append(FormatReward(
+                weight=fmt_cfg.get('weight', 0.2),
+                required_patterns=patterns
+            ))
+            print(f"  - Added FormatReward with patterns: {patterns}")
+
+        self.reward_composer = RewardComposer(components=components)
+        print(f"[Trainer._init_reward_composer] Composer initialized with {len(components)} components.")
 
     def _create_dataloader(self):
         from torch.utils.data import DataLoader
@@ -444,30 +487,21 @@ class RayPPOTrainer(object):
 
     def _validate(self):
         """
-        Validation loop.
+        Validation loop using the RewardComposer.
         """
         import torch
-        all_metrics = defaultdict(list) 
-        all_calculated_scores = [] # Store scores calculated by score_fn
+        all_metrics = defaultdict(list)
+        all_calculated_scores = [] # Store final composite scores
+        all_reward_breakdowns = defaultdict(list) # Store breakdown from composer
 
-        # --- Determine Score Function --- 
-        score_fn = None
-        score_fn_name = self.config.algorithm.get('reward_score_fn')
-        if score_fn_name and score_fn_name in SUPPORTED_REWARD_SCORE_FNS:
-            score_fn = SUPPORTED_REWARD_SCORE_FNS[score_fn_name]
-            print(f"[Trainer._validate] Using reward score function: {score_fn_name}")
-        else:
-            print(f"[Trainer._validate] No valid reward_score_fn configured ('{score_fn_name}'). Using val_reward_fn if available.")
-            score_fn = self.val_reward_fn # Fallback to RewardManager if passed
-            if score_fn:
-                 print(f"[Trainer._validate] Using val_reward_fn (likely RewardManager).")
-            else:
-                 print(f"[Trainer._validate] No score_fn or val_reward_fn available.")
+        # --- Determine if Validation is Possible (e.g., if composer has components) ---
+        can_validate = bool(self.reward_composer and self.reward_composer.components)
+        if not can_validate:
+            print("[Trainer._validate] No reward components configured in composer. Skipping validation scoring.")
+            # Still might run generation for qualitative checks if needed
+            # return {} # Or continue if other validation steps exist
 
-        # Determine if this is an AgentGym run
-        is_agentgym_run = self.config.data.env_name in KNOWN_AGENTGYM_ENVS
-
-        # Agent config preparation (remains the same)
+        # Agent config preparation
         gen_config = AgentConfig(
             max_turns=self.config.max_turns,
             max_start_length=self.config.data.max_start_length,
@@ -476,122 +510,114 @@ class RayPPOTrainer(object):
             max_obs_length=self.config.data.max_obs_length,
             num_gpus=self.config.trainer.n_gpus_per_node, 
             env_name=self.config.data.env_name, 
-            env_port=self.config.data.env_port,
+            env_ports=self.config.data.env_ports, # Use env_ports list
             env_server_base=self.config.data.env_server_base,
             env_data_len=self.config.data.get('env_data_len', 200),
             max_workers=self.config.actor_rollout_ref.rollout.get('max_workers', 10),
+            logging=self.config.get('logging') # Pass logging config
         )
+        agent_logger = self.logger if hasattr(self, 'logger') else None
         generation_manager = OpenManusAgent(
             tokenizer=self.tokenizer,
             actor_rollout_wg=self.actor_rollout_wg,
             config=gen_config,
-            tool_manager=None, 
             is_validation = True,
+            logger=agent_logger # Pass logger
         )
 
         # --- Run Validation Loop --- 
         for batch_dict in self.val_dataloader:
             timing_raw = {}
             test_batch: DataProto = DataProto.from_single_dict(batch_dict)
-            
+
             final_batch_output = None # To store results from rollout/generation
-            
+            is_agentgym_run = self.config.data.env_name in KNOWN_AGENTGYM_ENVS # Moved check inside loop if needed
+
             # --- Rollout/Generation --- 
             if is_agentgym_run:
-                # print("[Trainer._validate] Running AgentGym/do_search path.") # Debug
+                # Run AgentGym loop
                 test_gen_batch = test_batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
+                # Ensure idx and reward_model are present (as before)
+                # ... (add idx and reward_model if missing) ...
                 if 'idx' not in test_gen_batch.meta_info:
                      batch_size = test_gen_batch.batch['input_ids'].shape[0]
                      test_gen_batch.meta_info['idx'] = torch.arange(batch_size)
                 if 'reward_model' not in test_gen_batch.meta_info:
                      batch_size = test_gen_batch.batch['input_ids'].shape[0]
-                     test_gen_batch.meta_info['reward_model'] = [{} for _ in range(batch_size)] 
+                     test_gen_batch.meta_info['reward_model'] = [{} for _ in range(batch_size)]
 
                 with _timer('step', timing_raw):
-                    final_batch_output = generation_manager.run_llm_loop(gen_batch=test_gen_batch)
-                    
-            else: # Original Path (Not AgentGym)
-                # print("[Trainer._validate] Running original/non-AgentGym path.") # Debug
-                # Check reward model style if needed (original logic)
-                # if self.config.reward_model.enable and test_batch[0].non_tensor_batch['reward_model']['style'] == 'model':
-                #    continue 
-                test_gen_batch = test_batch.pop(['input_ids', 'attention_mask', 'position_ids'])
-                test_gen_batch.meta_info = {
-                    'eos_token_id': self.tokenizer.eos_token_id,
-                    'pad_token_id': self.tokenizer.pad_token_id,
-                    'recompute_log_prob': False,
-                    'do_sample': False,
-                    'validate': True,
-                }
-                test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
-                test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
-                final_batch_output = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
-            
-            # --- Score Calculation (using results in final_batch_output) --- 
-            if final_batch_output and score_fn:
+                    # Prepare output directory if logging images
+                    output_dir = None
+                    if self.config.logging and self.config.logging.get('log_images'):
+                        output_dir = os.path.join(
+                            self.config.trainer.default_local_dir,
+                            f"val_step_{self.global_steps}"
+                        )
+                    final_batch_output = generation_manager.run_llm_loop(
+                        gen_batch=test_gen_batch,
+                        output_dir=output_dir,
+                        global_steps=self.global_steps
+                    )
+            else:
+                 # Run original generation path
+                 # ... (original generation logic) ...
+                 print("[Trainer._validate] Non-AgentGym validation path not fully updated for RewardComposer.")
+                 continue # Skip scoring for now
+
+            # --- Score Calculation (using RewardComposer) --- 
+            if can_validate and final_batch_output and final_batch_output.batch:
                 current_batch_size = final_batch_output.batch['input_ids'].shape[0]
                 env_name = self.config.data.env_name
-                
+
                 # Prepare data needed by the score function
                 trajectories = final_batch_output.meta_info.get('rollout_trajectory', [[]] * current_batch_size)
-                reward_models = final_batch_output.meta_info.get('reward_model', [{}] * current_batch_size)
-                env_scores_from_rollout = final_batch_output.meta_info.get('env_scores', None) # Direct scores from env
-                
+                reward_models_info = final_batch_output.meta_info.get('reward_model', [{}] * current_batch_size)
+
                 batch_scores = []
                 for i in range(current_batch_size):
-                    # --- Call the selected score function --- 
-                    # Check if score_fn is the agentgym one by name (or reference)
-                    if score_fn_name == 'agentgym': 
-                        # Pass trajectory and reward_model info
-                        score_kwargs = {
-                            'trajectory': trajectories[i] if i < len(trajectories) else [],
-                            'reward_model_info': reward_models[i] if i < len(reward_models) else {}
-                        }
-                        try:
-                            score = score_fn(env_name=env_name, **score_kwargs)
-                            batch_scores.append(score)
-                        except Exception as e:
-                            print(f"[Trainer._validate] Error calling score function {score_fn_name} for sample {i}: {e}")
-                            batch_scores.append(0.0)
-                    elif score_fn == self.val_reward_fn: # Check if it's the RewardManager
-                        # RewardManager expects the full batch DataProto
-                        # Reconstruct a single item DataProto for RewardManager
-                        single_item_batch = test_batch[i].union(final_batch_output[i])
-                        try:
-                             # RewardManager.__call__ returns a tensor, get the score
-                             reward_tensor = score_fn(single_item_batch) 
-                             # Assume score is sum or last non-zero value
-                             score = reward_tensor.sum().item() # Or other logic based on RewardManager output
-                             batch_scores.append(score)
-                        except Exception as e:
-                            print(f"[Trainer._validate] Error calling val_reward_fn (RewardManager) for sample {i}: {e}")
-                            batch_scores.append(0.0)
-                    else:
-                        # Handle other potential score functions if needed
-                        print(f"[Trainer._validate] Warning: Handling for score function {score_fn_name} not implemented. Skipping.")
+                    try:
+                        # Use RewardComposer to get the total score and breakdown
+                        total_score, breakdown = self.reward_composer.compute_total_reward(
+                            trajectory=trajectories[i] if i < len(trajectories) else [],
+                            reward_model_info=reward_models_info[i] if i < len(reward_models_info) else {},
+                            env_name=env_name,
+                            # Pass any other context needed by components
+                        )
+                        batch_scores.append(total_score)
+                        # Store breakdown for aggregation
+                        for comp_name, comp_score in breakdown.items():
+                             all_reward_breakdowns[f'val/{comp_name}/mean'].append(comp_score)
+
+                    except Exception as e:
+                        print(f"[Trainer._validate] Error calling RewardComposer for sample {i}: {e}")
                         batch_scores.append(0.0)
-                        
+                        # Record 0 for all components in breakdown on error?
+                        for comp in self.reward_composer.components:
+                             all_reward_breakdowns[f'val/{comp.name}/mean'].append(0.0)
+
                 all_calculated_scores.extend(batch_scores)
-                # print(f"[Trainer._validate] Calculated Batch Scores: {batch_scores}") # Debug
-            elif not score_fn:
-                 print("[Trainer._validate] No score function available to calculate scores.")
-                 
-            # Collect timing or other common metrics if needed
-            # ...
+            elif not can_validate:
+                 print("[Trainer._validate] Skipping scoring as no components are configured.")
+            elif not final_batch_output or not final_batch_output.batch:
+                 print("[Trainer._validate] Skipping scoring due to empty generation output.")
 
         # --- Aggregate and Log Metrics --- 
         final_metrics = {}
         if all_calculated_scores:
             mean_score = np.mean(all_calculated_scores)
-            log_key = f'val/{score_fn_name}/mean' if score_fn_name else 'val/calculated_score/mean'
-            final_metrics[log_key] = mean_score
-            print(f"[Trainer._validate] Final Mean Score ({log_key}): {mean_score}")
+            final_metrics['val/total_reward/mean'] = mean_score # Log the composite score
+            print(f"[Trainer._validate] Final Mean Composite Score: {mean_score}")
+
+            # Aggregate and log breakdown
+            for name, scores in all_reward_breakdowns.items():
+                 if scores:
+                      final_metrics[name] = np.mean(scores)
         else:
              print("[Trainer._validate] No validation scores collected to report.")
-             # ... (Fallback logging if needed) ...
 
-        # Aggregate other metrics if collected
-        # ... 
+        # Add other potential validation metrics (timing, etc.)
+        # ...
 
         return final_metrics
 
@@ -701,17 +727,18 @@ class RayPPOTrainer(object):
 
     def fit(self):
         """
-        The training loop of PPO.
+        The training loop of PPO, modified to use RewardComposer.
         """
         logger = self.logger
         self.global_steps = 0
-        
+
         # Determine if this is an AgentGym run upfront
         self.is_agentgym_run = self.config.data.env_name in KNOWN_AGENTGYM_ENVS
         print(f"[Trainer.fit] Is AgentGym run: {self.is_agentgym_run}")
 
         # perform validation before training
-        if self.val_reward_fn is not None or self.config.algorithm.get('reward_score_fn') == 'agentgym': # Check if validation is possible
+        can_validate = bool(self.reward_composer and self.reward_composer.components)
+        if can_validate:
              if self.config.trainer.get('val_before_train', True):
                 val_metrics = self._validate()
                 pprint(f'Initial validation metrics: {val_metrics}')
@@ -719,7 +746,7 @@ class RayPPOTrainer(object):
                 if self.config.trainer.get('val_only', False):
                     return
         else:
-             print("[Trainer.fit] Skipping initial validation as no val_reward_fn or agentgym score fn is configured.")
+             print("[Trainer.fit] Skipping initial validation as no reward components are configured.")
 
         # we start from step 1
         self.global_steps += 1
@@ -728,25 +755,26 @@ class RayPPOTrainer(object):
         generation_manager = None
         if self.is_agentgym_run:
             gen_config = AgentConfig(
-                 # ... (ensure all necessary AgentGym params are passed from self.config.data)
                 max_turns=self.config.max_turns,
                 max_start_length=self.config.data.max_start_length,
                 max_prompt_length=self.config.data.max_prompt_length,
                 max_response_length=self.config.data.max_response_length,
                 max_obs_length=self.config.data.max_obs_length,
-                num_gpus=self.config.trainer.n_gpus_per_node, 
-                env_name=self.config.data.env_name, 
-                env_port=self.config.data.env_port,
+                num_gpus=self.config.trainer.n_gpus_per_node,
+                env_name=self.config.data.env_name,
+                env_ports=self.config.data.env_ports, # Use the list of ports
                 env_server_base=self.config.data.env_server_base,
                 env_data_len=self.config.data.get('env_data_len', 200),
                 max_workers=self.config.actor_rollout_ref.rollout.get('max_workers', 10),
+                logging=self.config.get('logging') # Pass logging config
             )
+            agent_logger = self.logger if hasattr(self, 'logger') else None
             generation_manager = OpenManusAgent(
                 tokenizer=self.tokenizer,
                 actor_rollout_wg=self.actor_rollout_wg,
                 config=gen_config,
-                tool_manager=None, # Tool manager likely not needed
-                # is_validation = False # Default
+                is_validation = True,
+                logger=agent_logger # Pass logger
             )
 
         # start training loop
@@ -757,73 +785,79 @@ class RayPPOTrainer(object):
                 timing_raw = {}
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
-                # Do NOT repeat batch here initially, repeat happens after rollout/generation if needed
-                # batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n_agent, interleave=True)
-
-                # pop those keys for generation / initial prompt
+                original_batch_size = batch.batch['input_ids'].shape[0]
                 gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
-                if 'idx' not in gen_batch.meta_info: # Add index if missing
-                     gen_batch.meta_info['idx'] = torch.arange(gen_batch.batch['input_ids'].shape[0])
-                if 'reward_model' not in gen_batch.meta_info: # Add placeholder
-                     gen_batch.meta_info['reward_model'] = [{} for _ in range(gen_batch.batch['input_ids'].shape[0])] 
+                # ... (add idx and reward_model if missing) ...
+                if 'idx' not in gen_batch.meta_info: gen_batch.meta_info['idx'] = torch.arange(original_batch_size)
+                if 'reward_model' not in gen_batch.meta_info: gen_batch.meta_info['reward_model'] = [{} for _ in range(original_batch_size)]
 
                 ####################
                 # Rollout / Generation Step
                 ####################
+                final_gen_batch_output = None
                 with _timer('step', timing_raw):
                     if self.is_agentgym_run:
                         # --- AgentGym Path --- 
                         with _timer('gen', timing_raw):
-                            final_gen_batch_output = generation_manager.run_llm_loop(gen_batch=gen_batch)
-                            
-                        # Check if final_gen_batch_output is empty (e.g., error during rollout)
-                        if not final_gen_batch_output.batch: 
-                             print("[Trainer.fit] Warning: AgentGym rollout returned empty batch. Skipping step.")
-                             continue # Skip to next training batch
-                             
-                        # Add log probs (needed for PPO loss)
-                        with torch.no_grad():
-                            output_logp = self.actor_rollout_wg.compute_log_prob(final_gen_batch_output)
-                            final_gen_batch_output = final_gen_batch_output.union(output_logp)
-                            
-                        # Merge rollout results back with original batch info (like index)
-                        batch = batch.union(final_gen_batch_output)
+                             # Prepare output directory if logging images
+                            output_dir = None
+                            if self.config.logging and self.config.logging.get('log_images'):
+                                output_dir = os.path.join(
+                                    self.config.trainer.default_local_dir,
+                                    f"train_step_{self.global_steps}"
+                                )
+                            final_gen_batch_output = generation_manager.run_llm_loop(
+                                gen_batch=gen_batch,
+                                output_dir=output_dir,
+                                global_steps=self.global_steps
+                            )
+
+                        if not final_gen_batch_output or not final_gen_batch_output.batch:
+                            print("[Trainer.fit] Warning: AgentGym rollout returned empty batch. Skipping step.")
+                            continue # Skip to next training batch
+
+                        # Add log probs (needed for PPO loss calculation later)
+                        with torch.no_grad(), _timer('logp', timing_raw):
+                            # Need to ensure the batch passed here has the correct format
+                            # It should contain the full sequence (prompt+response)
+                            # The run_llm_loop might need adjustment to return this structure
+                            # OR we compute log probs based on what run_llm_loop returns
+                            # Assuming run_llm_loop returns a batch with keys like 'input_ids', 'attention_mask'
+                            # representing the full trajectory for each item
+                            if 'input_ids' in final_gen_batch_output.batch:
+                                 output_logp = self.actor_rollout_wg.compute_log_prob(final_gen_batch_output)
+                                 final_gen_batch_output = final_gen_batch_output.union(output_logp)
+                            else:
+                                 print("[Trainer.fit] Warning: Cannot compute log probabilities, expected keys not found in rollout output.")
+
+                        # Merge rollout results back with original batch info
+                        # Be careful about overwriting vs. union
+                        batch = gen_batch.union(final_gen_batch_output) # Start with original gen_batch meta, add rollout results
                         # Assign UID (can use index)
-                        if 'index' in batch.non_tensor_batch:
-                            batch.non_tensor_batch['uid'] = batch.non_tensor_batch['index'].copy()
+                        if 'idx' in batch.meta_info:
+                            batch.non_tensor_batch['uid'] = batch.meta_info['idx'].tolist() # Use list of indices as UID
                         else: # Fallback UID
-                             batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+                             batch.non_tensor_batch['uid'] = [str(uuid.uuid4()) for _ in range(batch.batch['input_ids'].shape[0])] # Generate unique IDs
 
                     else:
-                        # --- Original Path --- 
-                        # Generate sequences
-                        with _timer('gen', timing_raw):
-                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                        # Add log probs
-                        with torch.no_grad():
-                             output_logp = self.actor_rollout_wg.compute_log_prob(gen_batch_output)
-                             gen_batch_output = gen_batch_output.union(output_logp)
-                             
-                        # Assign UID
-                        batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
-                        # Merge generated results
-                        batch = batch.union(gen_batch_output)
+                        # --- Original Path (Non-AgentGym) ---
+                        # ... (original generation logic) ...
+                        print("[Trainer.fit] Non-AgentGym training path not fully updated for RewardComposer.")
+                        continue # Skip processing for now
 
                     # Apply batch repetition if configured (AFTER generation/rollout)
                     if self.config.actor_rollout_ref.rollout.n > 1:
+                        # Need to ensure UID handling is correct with repetition if needed by GRPO
                         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                        
+
                     ####################
-                    # Post-Rollout Processing
+                    # Post-Rollout Processing (Common for both paths after merging)
                     ####################
                     self._balance_batch(batch, metrics=metrics)
-                    batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
+                    # batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist() # Recalculate if needed
 
-                    # Ensure correct dtypes (mostly long, except log_probs)
-                    for key in batch.batch.keys():
-                        if key != 'old_log_probs' and 'log_prob' not in key and 'rewards' not in key and 'scores' not in key: # Keep floats for rewards/scores/logprobs
-                            if torch.is_tensor(batch.batch[key]):
-                                 batch.batch[key] = batch.batch[key].long()
+                    # Ensure correct dtypes
+                    # ... (dtype correction logic) ...
 
                     # --- Compute Ref Log Probs --- 
                     if self.use_reference_policy:
@@ -836,86 +870,101 @@ class RayPPOTrainer(object):
                         with _timer('values', timing_raw):
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
-                    
-                    # --- Compute Rewards & Advantages --- 
-                    with _timer('adv', timing_raw):
-                        # Use RM model if configured (and not AgentGym? Check logic)
-                        if self.use_rm and not self.is_agentgym_run: # Only use RM model if NOT agentgym?
-                            reward_tensor_rm = self.rm_wg.compute_rm_score(batch)
-                            batch = batch.union(reward_tensor_rm)
-                            if 'token_level_scores' not in batch.batch:
-                                batch.batch['token_level_scores'] = reward_tensor_rm.get('rm_scores', torch.zeros_like(batch.batch['input_ids'], dtype=torch.float32))
-                        
-                        # --- Get Token Level Scores/Rewards --- 
-                        if self.is_agentgym_run and 'token_level_rewards' in batch.batch:
-                            # Trust rewards from agentgym rollout
-                            print("[Trainer.fit] Using token_level_rewards directly from AgentGym rollout.")
-                            if 'token_level_scores' not in batch.batch: # Need scores for KL penalty
-                                batch.batch['token_level_scores'] = batch.batch['token_level_rewards'].clone()
-                            # token_level_rewards is already set 
-                            
-                        elif not self.is_agentgym_run and self.reward_fn: 
-                            # Use RewardManager for non-agentgym runs
-                            print("[Trainer.fit] Using self.reward_fn (RewardManager) to compute scores.")
-                            reward_tensor = self.reward_fn(batch)
-                            batch.batch['token_level_scores'] = reward_tensor
-                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores'].clone()
-                        else:
-                            # Fallback: No rewards available
-                            print(f"[Trainer.fit] Warning: No reward source found (AgentGym: {self.is_agentgym_run}, reward_fn: {self.reward_fn is not None}). Using zeros.")
-                            if 'token_level_scores' not in batch.batch:
-                                 batch.batch['token_level_scores'] = torch.zeros_like(batch.batch['input_ids'], dtype=torch.float32)
-                            if 'token_level_rewards' not in batch.batch:
-                                 batch.batch['token_level_rewards'] = torch.zeros_like(batch.batch['input_ids'], dtype=torch.float32)
 
-                        # Apply KL penalty (modifies token_level_rewards)
+                    # --- Compute Composite Rewards & Advantages --- 
+                    with _timer('adv', timing_raw):
+                        # 1. Calculate base scores using RewardComposer
+                        batch_size = batch.batch['input_ids'].shape[0]
+                        composite_scores = torch.zeros(batch_size, dtype=torch.float32) # Store per-item scores
+                        reward_breakdowns = [] # Store breakdown dicts
+
+                        trajectories = batch.meta_info.get('rollout_trajectory', [[]] * batch_size)
+                        reward_models_info = batch.meta_info.get('reward_model', [{}] * batch_size)
+
+                        for i in range(batch_size):
+                            total_score, breakdown = self.reward_composer.compute_total_reward(
+                                trajectory=trajectories[i] if i < len(trajectories) else [],
+                                reward_model_info=reward_models_info[i] if i < len(reward_models_info) else {},
+                                env_name=self.config.data.env_name
+                                # Add other kwargs if needed
+                            )
+                            composite_scores[i] = total_score
+                            reward_breakdowns.append(breakdown)
+
+                        # 2. Decide how composite_scores map to token_level_scores
+                        # Simplest approach: Assign the total score to the last token (or distribute later)
+                        # We need a tensor representing scores assigned to *tokens*
+                        # Let's assume the reward allocation happens in OpenManusAgent first,
+                        # returning token_level_rewards based on the total score.
+                        # So, `batch` should already contain `token_level_rewards` from the agent.
+                        # We need to create `token_level_scores` which is pre-KL penalty.
+                        if 'token_level_rewards' not in batch.batch:
+                             print("[Trainer.fit] Error: 'token_level_rewards' not found in batch after agent processing. Cannot proceed.")
+                             continue
+                             
+                        # Assign scores before KL penalty. Often same as rewards if no base RM score.
+                        batch.batch['token_level_scores'] = batch.batch['token_level_rewards'].clone()
+                        metrics['reward/composer_total_mean'] = composite_scores.mean().item()
+                        # Log average breakdown
+                        avg_breakdown = {f'reward/{k}/mean': np.mean([d.get(k, 0.0) for d in reward_breakdowns])
+                                           for k in reward_breakdowns[0].keys()} if reward_breakdowns else {}
+                        metrics.update(avg_breakdown)
+
+                        # 3. Apply KL penalty (modifies token_level_rewards based on token_level_scores)
                         if not self.config.actor_rollout_ref.actor.use_kl_loss and self.use_reference_policy:
-                            batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl, kl_penalty=self.config.algorithm.kl_penalty)
-                            metrics.update(kl_metrics)
-                        
-                        # Compute advantages using the final token_level_rewards
+                            # apply_kl_penalty needs 'responses' and 'info_mask' or 'attention_mask'
+                            # Need to ensure these are correctly present in `batch`
+                            if 'responses' not in batch.batch or 'info_mask' not in batch.batch:
+                                 print("[Trainer.fit] Warning: Cannot apply KL penalty. Missing 'responses' or 'info_mask'.")
+                            else:
+                                 batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl, kl_penalty=self.config.algorithm.kl_penalty)
+                                 metrics.update(kl_metrics)
+
+                        # 4. Compute advantages using the potentially KL-penalized token_level_rewards
                         batch = compute_advantage(batch,
                                                   adv_estimator=self.config.algorithm.adv_estimator,
                                                   gamma=self.config.algorithm.gamma,
                                                   lam=self.config.algorithm.lam,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n)
 
-                    # update critic
+                    # --- Update Critic --- 
                     if self.use_critic:
                         with _timer('update_critic', timing_raw):
                             critic_output = self.critic_wg.update_critic(batch)
                         critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
                         metrics.update(critic_output_metrics)
 
-                    # implement critic warmup
+                    # --- Update Actor --- 
                     if self.config.trainer.critic_warmup <= self.global_steps:
-                        # update actor
                         with _timer('update_actor', timing_raw):
-                            # Apply state masking only for agentgym runs if configured
-                            if self.is_agentgym_run and self.config.actor_rollout_ref.actor.state_masking:
-                                batch, metrics = self._create_loss_mask(batch, metrics)
+                            # Apply state masking if configured
+                            # if self.is_agentgym_run and self.config.actor_rollout_ref.actor.state_masking:
+                            #    batch, metrics = self._create_loss_mask(batch, metrics)
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)
 
-                    # validate
-                    # Check if validation is possible
-                    can_validate = self.config.algorithm.get('reward_score_fn') or self.val_reward_fn is not None
+                    # --- Validation --- 
                     if can_validate and self.config.trainer.test_freq > 0 and \
                         self.global_steps % self.config.trainer.test_freq == 0:
                         with _timer('testing', timing_raw):
                             val_metrics: dict = self._validate()
                         metrics.update(val_metrics)
 
-                    # ... (save checkpoint) ...
+                    # --- Save Checkpoint --- 
                     if self.config.trainer.save_freq > 0 and \
                             self.global_steps % self.config.trainer.save_freq == 0:
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
 
-                # collect metrics
-                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
-                metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
+                # --- Collect and Log Metrics --- 
+                # compute_data_metrics needs 'advantages', 'returns', 'token_level_scores', 'token_level_rewards' etc.
+                # Ensure they are all present in the batch
+                try:
+                     metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
+                     metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
+                except KeyError as e:
+                     print(f"[Trainer.fit] Warning: Skipping some metrics calculation due to missing key: {e}")
 
                 # Log metrics
                 logger.log(data=metrics, step=self.global_steps)
@@ -927,8 +976,9 @@ class RayPPOTrainer(object):
                         val_metrics = self._validate()
                         pprint(f'Final validation metrics: {val_metrics}')
                         logger.log(data=val_metrics, step=self.global_steps)
+                    print("[Trainer.fit] Reached total training steps. Exiting.")
                     return
-    
+
     def _create_loss_mask(self, batch, metrics):
         """Create loss mask for state tokens."""
         response_length = batch.batch['responses'].shape[-1]

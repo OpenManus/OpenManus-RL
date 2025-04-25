@@ -15,6 +15,7 @@ from ragen.utils.plot import (
     parse_llm_output
 )
 from verl.utils.tracking import Tracking
+from omegaconf import DictConfig # Import DictConfig for type hint
 
 @dataclass
 class AgentConfig:
@@ -37,6 +38,7 @@ class AgentConfig:
         storage_backend: Backend for storing trajectories (mongodb/file)
         max_workers: Maximum number of worker threads
         logging: dict = None  # Contains log_images, log_n_image_per_batch, log_image_step_size, etc.
+        algorithm_config: DictConfig = None # Pass relevant part of algorithm config
     """
     max_turns: int
     max_start_length: int
@@ -58,29 +60,8 @@ class AgentConfig:
     # Add visualization-related configuration
     logging: dict = None  # Contains log_images, log_n_image_per_batch, log_image_step_size, etc.
 
-def create_react_prompt(task_description, tool_manager):
-    """
-    Create a prompt for the agent using ReAct format.
-    
-    Args:
-        task_description: Description of the specific task
-        tool_manager: ToolManager instance with registered tools
-        
-    Returns:
-        Formatted prompt string
-    """
-    tools_instructions = tool_manager.get_prompt_instructions()
-    
-    prompt = f"""# Task
-{task_description}
-
-# Instructions
-{tools_instructions}
-
-Let's solve this step by step.
-
-"""
-    return prompt
+    # Add algorithm config relevant to reward allocation
+    algorithm_config: DictConfig = None # Pass relevant part of algorithm config
 
 class OpenManusAgent:
     def __init__(
@@ -88,7 +69,6 @@ class OpenManusAgent:
         tokenizer,
         actor_rollout_wg, # This is the Verl component for generation
         config: AgentConfig,
-        tool_manager, # Keep for potential parsing, but execution is via env
         is_validation: bool = False,
         logger: Tracking = None,  # Add logger parameter for trajectory saving
     ):
@@ -98,17 +78,15 @@ class OpenManusAgent:
         Args:
             tokenizer: Tokenizer for text processing
             actor_rollout_wg: Actor rollout wrapper for generation
-            config: Agent configuration including env details
-            tool_manager: Manager for tool operations (potentially unused)
+            config: Agent configuration including env details and algorithm config
             is_validation: Whether in validation mode
             logger: Logger for tracking and visualization
         """
         self.tokenizer = tokenizer
         self.actor_rollout_wg = actor_rollout_wg
-        self.config = config
-        self.tool_manager = tool_manager
+        self.config = config # AgentConfig now holds algorithm_config
         self.is_validation = is_validation
-        self.logger = logger  # Add logger attribute
+        self.logger = logger
 
         self.tensor_fn = TensorHelper(TensorConfig(
             pad_token_id=tokenizer.pad_token_id,
@@ -412,48 +390,55 @@ class OpenManusAgent:
     def _run_single_rollout(self, initial_prompt_ids: torch.Tensor, task_idx: int, client: Any) -> Dict[str, Any]:
         """
         Runs the interaction loop for a single environment instance using the provided client.
-        
+        Now includes the final computed reward from the environment step in the result.
+
         Args:
             initial_prompt_ids: Token IDs for the initial prompt/observation.
             task_idx: The index for resetting the environment.
             client: The specific environment client instance to use for this rollout.
-            
+
         Returns:
-            A dictionary containing the trajectory, step rewards, final reward, turns,
-            final env score, and original task index.
+            A dictionary containing the trajectory, step rewards, final reward,
+            final env score, turns, and original task index.
         """
         trajectory = []
         step_rewards = []  # Store rewards per step
-        final_reward = 0.0 
-        final_env_score = 0.0
+        final_reward = 0.0 # Reward from the *last step*
+        final_env_score = 0.0 # Final score from env info
         done = False
         turns = 0
-        current_input_ids = None 
+        current_input_ids = None
 
         try:
             # Reset environment using the provided client
-            client.reset(task_idx)
+            # Some envs might need a specific seed or config reset
+            # print(f"[Agent._run_single_rollout][{task_idx}] Resetting env...")
+            reset_info = client.reset(task_idx) # Capture potential info from reset
             initial_obs_text = client.observe()
-            
+            # print(f"[Agent._run_single_rollout][{task_idx}] Initial Obs: {initial_obs_text[:100]}...")
+
             # Handle initial observation
             if not initial_obs_text:
-                print(f"[Agent._run_single_rollout][{task_idx} @ {client.env_server_base}] Warning: Received empty initial observation. Using initial prompt from batch.")
+                # print(f"[Agent._run_single_rollout][{task_idx} @ {client.env_server_base}] Warning: Received empty initial observation. Using initial prompt from batch.")
+                # Use the initial prompt text passed in
                 initial_prompt_text = self.tokenizer.decode(initial_prompt_ids[0], skip_special_tokens=True)
                 trajectory.append({"from": "human", "value": initial_prompt_text})
                 current_input_ids = initial_prompt_ids
             else:
                 trajectory.append({"from": "human", "value": initial_obs_text})
                 current_input_ids = self.tokenizer(initial_obs_text, return_tensors='pt', add_special_tokens=False)['input_ids']
-            
+
             # --- Interaction Loop --- 
             for t in range(self.config.max_turns):
                 turns = t + 1
-                if current_input_ids is None: break 
-                
+                if current_input_ids is None:
+                    # print(f"[Agent._run_single_rollout][{task_idx}] Breaking loop: current_input_ids is None")
+                    break
+
                 # Handle input that exceeds max length
                 if current_input_ids.shape[1] > self.config.max_prompt_length:
+                    # print(f"[Agent._run_single_rollout][{task_idx} @ {client.env_server_base}] Warning: Truncating input {current_input_ids.shape} > {self.config.max_prompt_length}.")
                     current_input_ids = current_input_ids[:, -self.config.max_prompt_length:]
-                    print(f"[Agent._run_single_rollout][{task_idx} @ {client.env_server_base}] Warning: Truncating input {current_input_ids.shape} > {self.config.max_prompt_length}.")
 
                 # Prepare input
                 current_attention_mask = self.tensor_fn.create_attention_mask(current_input_ids)
@@ -465,62 +450,76 @@ class OpenManusAgent:
                     'attention_mask': current_attention_mask.to(device),
                     'position_ids': current_position_ids.to(device)
                 })
-                
+
                 # Generate response
                 generation_config = GenerationConfig(
                     max_new_tokens=self.config.max_response_length,
                     eos_token_id=self.tokenizer.eos_token_id,
                     pad_token_id=self.tokenizer.pad_token_id,
-                    temperature=1.0, 
-                    do_sample=True   
+                    temperature=1.0, # Consider adjusting temperature/sampling based on validation vs training
+                    do_sample=True
                 )
                 # Generation happens on the actor worker group's device
                 gen_output_proto = self.actor_rollout_wg.generate_sequences(gen_input_proto, generation_config=generation_config)
-                response_ids = gen_output_proto.batch['response_ids'] 
+                response_ids = gen_output_proto.batch['response_ids']
                 response_text = self.tokenizer.decode(response_ids[0], skip_special_tokens=True)
+                # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Response: {response_text[:100]}...")
                 trajectory.append({"from": "gpt", "value": response_text})
 
                 # Post-process response to get action
                 action_types, action_contents = self.postprocess_predictions([response_text])
-                action_text = action_contents[0] 
-                
+                action_text = action_contents[0]
+
                 # Execute environment step using the provided client
-                if action_text is None: action_text = "" 
+                if action_text is None: action_text = ""
+                # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Action: {action_text}")
                 next_obs_text, reward, done, info = client.step(action_text)
-                
-                # Record rewards
+                # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Env Step Result: Reward={reward}, Done={done}, Info={info}")
+
+                # Store the reward from this specific step
                 step_rewards.append(reward)
-                final_reward = reward 
+                final_reward = reward # Keep track of the reward from the last executed step
                 final_env_score = info.get('score', 0.0) # Use .get for safety
+
+                # Add reward and info to the trajectory for this agent step
+                # This helps the RewardComposer access step-specific info if needed
+                trajectory[-1]['reward'] = reward
+                trajectory[-1]['info'] = info
 
                 # Process next observation
                 if not done:
+                    # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Next Obs: {next_obs_text[:100]}...")
                     trajectory.append({"from": "human", "value": next_obs_text})
                     next_obs_ids = self.tokenizer(next_obs_text, return_tensors='pt', add_special_tokens=False)['input_ids']
                     # Ensure tensors are concatenated on the same device (e.g., CPU or model's device if needed later)
                     current_input_ids = torch.cat([
                         current_input_ids.to(response_ids.device), # Move to same device as response_ids
-                        response_ids, 
+                        response_ids,
                         next_obs_ids.to(response_ids.device) # Move to same device
                     ], dim=1)
                 else:
-                    break 
+                    # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Done received.")
+                    break
 
         except Exception as e:
             print(f"[Agent._run_single_rollout][{task_idx} @ {getattr(client, 'env_server_base', 'unknown_client')}] Error during rollout: {e}")
             print(traceback.format_exc())
+            # Reset results on error
+            trajectory = trajectory # Keep partial trajectory for debugging?
             step_rewards = []
-            final_reward = 0.0 
+            final_reward = 0.0
             final_env_score = 0.0
-            done = True
+            done = True # Mark as done on error
 
+        # Return the collected information
         return {
-            'trajectory': trajectory, 
-            'step_rewards': step_rewards,
-            'reward': final_reward, 
-            'turns': turns, 
-            'env_score': final_env_score,
-            'task_idx': task_idx
+            'trajectory': trajectory,        # Full interaction history
+            'step_rewards': step_rewards,    # List of rewards from each env.step call
+            'reward': final_reward,          # Reward from the *last* env.step call
+            'env_score': final_env_score,    # Final score reported by env info
+            'turns': turns,
+            'task_idx': task_idx,
+            'done': done                   # Whether the episode finished naturally or via error
         }
 
     def run_llm_loop(self, gen_batch: DataProto, output_dir: str = None, global_steps: int = 0) -> DataProto:
@@ -635,22 +634,27 @@ class OpenManusAgent:
         """
         Convert the list of dictionaries (each containing trajectory, step_rewards, env_score)
         from the internal rollout loop into a DataProto suitable for PPO training.
-        Creates 'token_level_rewards' based on step_rewards.
-        
+        Creates 'token_level_rewards' based on the chosen reward allocation strategy.
+
         Args:
-            results: List of result dictionaries from rollout
-            original_batch: Original batch DataProto with metadata
-            
+            results: List of result dictionaries from _run_single_rollout.
+            original_batch: Original batch DataProto with metadata.
+
         Returns:
-            DataProto: Processed data with rewards and metadata
+            DataProto: Processed data with token-level rewards and metadata.
         """
         batch_input_ids = []
         batch_attention_mask = []
         batch_position_ids = []
-        batch_info_mask = [] 
-        batch_rewards = [] # Store final rewards
-        batch_token_level_rewards = [] # Store step rewards aligned with tokens
+        batch_info_mask = []
+        batch_token_level_rewards = [] # Store final token-level rewards for PPO
         batch_meta_info = defaultdict(list)
+
+        # Get reward allocation strategy from config
+        reward_allocation = "last_token" # Default
+        if self.config.algorithm_config:
+            reward_allocation = self.config.algorithm_config.get('reward_allocation', 'last_token')
+        print(f"[Agent._convert_rollout] Using reward allocation strategy: {reward_allocation}")
 
         # Get the index mapping from the original batch
         original_indices = original_batch.meta_info.get('idx', list(range(original_batch.batch['input_ids'].shape[0])))
@@ -660,68 +664,72 @@ class OpenManusAgent:
 
         print(f"[Agent._convert_rollout] Formatting {len(results)} trajectories.")
         for result_dict in results:
-            # Extract trajectory and reward information
+            # Extract trajectory and other info
             trajectory = result_dict.get('trajectory', [])
+            # IMPORTANT: Decide which reward signal to use for allocation.
+            # Option 1: Use the final env score (often 0/1 for success)
+            # reward_to_distribute = result_dict.get('env_score', 0.0)
+            # Option 2: Use the reward from the last step
+            # reward_to_distribute = result_dict.get('reward', 0.0)
+            # Option 3: Use the sum/average of step_rewards (less common for final goal tasks)
             step_rewards_list = result_dict.get('step_rewards', [])
-            final_reward = result_dict.get('reward', 0.0)
+            # Let's use final_env_score as the primary signal for allocation, as it usually reflects task completion.
+            reward_to_distribute = result_dict.get('env_score', 0.0)
+
             turns = result_dict.get('turns', 0)
-            env_score = result_dict.get('env_score', 0.0)
             task_idx = result_dict.get('task_idx', -1)
-            
+
             # Get the original batch index
             original_batch_idx = original_indices_map.get(task_idx, -1)
-            if original_batch_idx == -1: 
+            if original_batch_idx == -1:
                 print(f"[Agent._convert_rollout] Warning: Task idx {task_idx} not found in original batch. Skipping.")
                 continue
-                
-            # --- Concatenate conversation and align rewards --- 
+
+            # --- Concatenate conversation and identify agent segments --- 
             conversation_ids_list = []
             info_mask_parts = []
             segment_lengths = [] # Store length of each segment (human/gpt)
-            agent_response_indices = [] # Store indices of agent responses
-            valid_actions = 0
+            agent_response_indices = [] # Store indices of agent responses (in the segment list)
+            valid_actions = 0 # Count of agent turns
 
             if not trajectory:
-                 print(f"[Agent._convert_rollout] Warning: Empty trajectory for task_idx {task_idx}. Using initial prompt only.")
-                 # If trajectory is empty, use original prompt
+                 # ... (handle empty trajectory) ...
                  initial_prompt_ids = original_batch.batch['input_ids'][original_batch_idx:original_batch_idx+1]
                  conversation_ids_list.append(initial_prompt_ids)
                  info_mask_parts.append(torch.ones_like(initial_prompt_ids))
                  segment_lengths.append(initial_prompt_ids.shape[1])
             else:
-                # Process each turn in the trajectory
                 for turn_idx, msg in enumerate(trajectory):
                     msg_text = msg.get("value", "")
                     msg_from = msg.get("from", "")
                     if not msg_text: continue
-                    
-                    # Convert text to token ids
+
                     msg_ids = self.tokenizer(msg_text, add_special_tokens=False, return_tensors='pt')['input_ids']
                     conversation_ids_list.append(msg_ids)
                     segment_lengths.append(msg_ids.shape[1])
-                    
-                    # Distinguish between agent responses and environment observations
+
                     if msg_from == "gpt":
-                        info_mask_parts.append(torch.ones_like(msg_ids)) 
-                        valid_actions += 1 
-                        agent_response_indices.append(len(conversation_ids_list) - 1) # Store index of this segment
-                    else: 
-                        info_mask_parts.append(torch.ones_like(msg_ids)) 
-            
-            # Concatenate, Pad, Truncate (Input IDs, Info Mask)
+                        info_mask_parts.append(torch.ones_like(msg_ids))
+                        valid_actions += 1
+                        agent_response_indices.append(len(conversation_ids_list) - 1)
+                    else: # human or other
+                        info_mask_parts.append(torch.ones_like(msg_ids))
+
             if not conversation_ids_list:
                 print(f"[Agent._convert_rollout] Warning: No valid conversation segments for task_idx {task_idx}. Skipping.")
                 continue
-                
-            # Concatenate all conversation segments
+
+            # --- Pad and Truncate --- 
+            # ... (Padding and truncation logic remains the same) ...
             full_input_ids = torch.cat(conversation_ids_list, dim=1)
             full_info_mask = torch.cat(info_mask_parts, dim=1)
             seq_len = full_input_ids.shape[1]
-            target_len = self.config.max_prompt_length 
+            target_len = self.config.max_prompt_length # Or another max len? Check this
             padding_len = max(0, target_len - seq_len)
+            agent_indices_in_padded = [] # List of (start, end) indices for agent tokens in the final padded tensor
 
             if seq_len > target_len:
-                # Truncate from left - need to adjust segment_lengths and indices
+                # Truncate left
                 removed_len = seq_len - target_len
                 current_removed = 0
                 first_segment_idx = 0
@@ -732,61 +740,72 @@ class OpenManusAgent:
                     if segment_lengths[first_segment_idx] == 0:
                         first_segment_idx += 1
                 
-                # Adjust agent response indices if segments were removed
-                agent_response_indices = [idx for idx in agent_response_indices if idx >= first_segment_idx]
-                # Recalculate indices relative to the truncated start
-                agent_response_indices = [idx - first_segment_idx for idx in agent_response_indices]
-                # Update segment_lengths list
+                # Adjust agent response indices
+                adjusted_agent_response_indices = [idx - first_segment_idx for idx in agent_response_indices if idx >= first_segment_idx]
                 segment_lengths = segment_lengths[first_segment_idx:]
                 
-                # Truncate input_ids and info_mask
                 full_input_ids = full_input_ids[:, -target_len:]
                 full_info_mask = full_info_mask[:, -target_len:]
-                seq_len = target_len # Update sequence length
-
+                seq_len = target_len
+                padding_len = 0 # No padding needed after truncation
             elif seq_len < target_len:
-                # Pad left (Input IDs)
+                # Pad left
                 pad_tensor = torch.full((1, padding_len), self.tokenizer.pad_token_id, dtype=torch.long, device=full_input_ids.device)
-                full_input_ids = torch.cat([pad_tensor, full_input_ids], dim=1) 
-                # Pad left (Info Mask)
-                info_pad = torch.zeros_like(pad_tensor) # Padding is masked
+                full_input_ids = torch.cat([pad_tensor, full_input_ids], dim=1)
+                info_pad = torch.zeros_like(pad_tensor) # Padding is masked in info
                 full_info_mask = torch.cat([info_pad, full_info_mask], dim=1)
-            
-            # --- Create Token Level Rewards Tensor --- 
+                adjusted_agent_response_indices = agent_response_indices # Indices remain the same relative to segments
+
+            # Calculate agent token indices in the *final* padded/truncated tensor
+            current_token_idx_in_padded = padding_len
+            for segment_idx, length in enumerate(segment_lengths):
+                 is_agent_response = segment_idx in adjusted_agent_response_indices
+                 start_idx = current_token_idx_in_padded
+                 end_idx = current_token_idx_in_padded + length - 1
+                 if is_agent_response and length > 0:
+                      agent_indices_in_padded.append((start_idx, end_idx))
+                 current_token_idx_in_padded += length
+
+            # --- Create Token Level Rewards Tensor based on Allocation Strategy --- 
             token_level_rewards = torch.zeros_like(full_input_ids, dtype=torch.float32)
-            
-            # If there are step rewards, assign them to appropriate tokens
-            if step_rewards_list:
-                current_token_idx_in_unpadded = 0 
-                agent_turn_reward_idx = 0
-                for segment_idx, length in enumerate(segment_lengths):
-                    if length == 0: continue # Skip segments that were fully truncated
-                    
-                    # Check if this segment corresponds to an agent response
-                    is_agent_response = segment_idx in agent_response_indices
-                    
-                    if is_agent_response and agent_turn_reward_idx < len(step_rewards_list):
-                        # Assign reward for this step
-                        reward_for_this_step = step_rewards_list[agent_turn_reward_idx]
-                        # Assign reward to the last token of this agent segment
-                        end_idx_in_unpadded = current_token_idx_in_unpadded + length - 1
-                        actual_end_idx_in_padded = padding_len + end_idx_in_unpadded # Adjust for padding
-                        if actual_end_idx_in_padded < target_len:
-                            token_level_rewards[0, actual_end_idx_in_padded] = reward_for_this_step
-                        agent_turn_reward_idx += 1
-                    
-                    current_token_idx_in_unpadded += length
-            
-            # --- Add reward shaping variations, supporting multiple reward distribution methods ---
-            # 1. If there's only one reward, distribute it across all agent response tokens
-            if len(step_rewards_list) == 1 and valid_actions > 0:
-                # Distribute reward across all agent response tokens
-                reward_value = step_rewards_list[0] / max(1, valid_actions)
-                # Identify agent response tokens where info_mask is 1
-                agent_token_mask = (full_info_mask == 1)
-                token_level_rewards = torch.where(agent_token_mask, 
-                                                torch.full_like(token_level_rewards, reward_value), 
-                                                token_level_rewards)
+
+            if agent_indices_in_padded: # Only allocate if there are agent responses
+                if reward_allocation == "last_token":
+                    # Assign reward only to the last token of the last agent segment
+                    last_segment_start, last_segment_end = agent_indices_in_padded[-1]
+                    if last_segment_end < target_len: # Ensure index is within bounds
+                        token_level_rewards[0, last_segment_end] = reward_to_distribute
+
+                elif reward_allocation == "uniform_positive":
+                    # Distribute positive rewards evenly across all agent tokens
+                    if reward_to_distribute > 0:
+                        total_agent_tokens = sum(end - start + 1 for start, end in agent_indices_in_padded)
+                        reward_per_token = reward_to_distribute / max(1, total_agent_tokens)
+                        for start, end in agent_indices_in_padded:
+                            token_level_rewards[0, start : end + 1] = reward_per_token
+                    # Negative rewards are assigned to the last token (or ignored)
+                    elif reward_to_distribute < 0:
+                         last_segment_start, last_segment_end = agent_indices_in_padded[-1]
+                         if last_segment_end < target_len:
+                              token_level_rewards[0, last_segment_end] = reward_to_distribute
+
+                elif reward_allocation == "discounted":
+                    # Distribute reward starting from the last agent segment, discounted backward
+                    gamma = self.config.algorithm_config.get('gamma', 1.0) if self.config.algorithm_config else 1.0
+                    current_reward = reward_to_distribute
+                    # Iterate segments backward
+                    for start, end in reversed(agent_indices_in_padded):
+                        segment_len = end - start + 1
+                        # Simple example: distribute reward uniformly within the segment
+                        reward_for_segment = current_reward / segment_len
+                        token_level_rewards[0, start : end + 1] = reward_for_segment
+                        # Apply discount for the *next* (earlier) segment
+                        current_reward *= (gamma ** segment_len)
+                else:
+                     print(f"[Agent._convert_rollout] Warning: Unknown reward_allocation strategy '{reward_allocation}'. Defaulting to last_token.")
+                     last_segment_start, last_segment_end = agent_indices_in_padded[-1]
+                     if last_segment_end < target_len:
+                         token_level_rewards[0, last_segment_end] = reward_to_distribute
 
             # --- Create Attention Mask and Position IDs --- 
             full_attention_mask = self.tensor_fn.create_attention_mask(full_input_ids)
@@ -796,142 +815,102 @@ class OpenManusAgent:
             batch_input_ids.append(full_input_ids)
             batch_attention_mask.append(full_attention_mask)
             batch_position_ids.append(full_position_ids)
-            batch_info_mask.append(full_info_mask)
-            batch_token_level_rewards.append(token_level_rewards) # Store rewards tensor
-            batch_rewards.append(final_reward) # Store final reward
-            
-            # Add metadata
+            batch_info_mask.append(full_info_mask) # Store the info mask
+            batch_token_level_rewards.append(token_level_rewards) # Store calculated rewards
+
+            # Add metadata (ensure reward/env_score reflect the values used for distribution if needed)
             batch_meta_info["task_idx"].append(task_idx)
             batch_meta_info["turns_stats"].append(turns)
             batch_meta_info["valid_action_stats"].append(valid_actions)
-            batch_meta_info["reward"].append(final_reward) # Last step reward
-            batch_meta_info["env_score"].append(env_score) 
-            batch_meta_info["rollout_trajectory"].append(trajectory) # Add trajectory list
-            
-            # --- Add reward_model information ---
-            if 'reward_model' in original_batch.meta_info:
-                if isinstance(original_batch.meta_info['reward_model'], list) and len(original_batch.meta_info['reward_model']) > original_batch_idx:
-                    # Assume reward_model is a list in the batch metadata
-                    batch_meta_info["reward_model"].append(original_batch.meta_info['reward_model'][original_batch_idx])
-                elif isinstance(original_batch.meta_info['reward_model'], dict):
-                    # If reward_model is a single dict passed for the whole batch (less likely)
-                    if original_batch_idx == 0: # Add only once
-                        batch_meta_info["reward_model"] = original_batch.meta_info['reward_model']
-            
-            # Copy other relevant metadata from the original batch
+            batch_meta_info["reward"].append(result_dict.get('reward', 0.0)) # Last step reward
+            batch_meta_info["env_score"].append(result_dict.get('env_score', 0.0)) # Final env score
+            batch_meta_info["rollout_trajectory"].append(trajectory)
+            # Add other relevant metadata from original_batch
+            # ... (metadata copying logic as before) ...
             for key, value in original_batch.meta_info.items():
-                # Avoid duplicating keys already handled (idx, reward, reward_model)
-                if key not in ['idx', 'reward', 'reward_model']:
-                    if isinstance(value, list) and len(value) > original_batch_idx:
-                        batch_meta_info[key].append(value[original_batch_idx])
-                    elif not isinstance(value, list): # Keep non-list metadata (add only once)
-                        if original_batch_idx == 0: # Add only once
-                            batch_meta_info[key] = value 
+                 if key not in ['idx', 'reward', 'env_score']: # Avoid duplication
+                      if isinstance(value, list) and len(value) > original_batch_idx:
+                           batch_meta_info[key].append(value[original_batch_idx])
+                      elif not isinstance(value, list): # Keep non-list metadata
+                           if task_idx == original_indices[0]: # Add only once per batch
+                                batch_meta_info[key] = value
 
         # --- Stack Tensors --- 
-        if not batch_input_ids: 
+        if not batch_input_ids:
             print("[Agent._convert_rollout] No valid trajectories formatted. Returning empty DataProto.")
-            return DataProto.from_dict({}) 
-            
+            # Return structure matching trainer expectations, even if empty
+            return DataProto.from_dict({
+                "input_ids": torch.empty((0,0), dtype=torch.long),
+                "attention_mask": torch.empty((0,0), dtype=torch.long),
+                "position_ids": torch.empty((0,0), dtype=torch.long),
+                "info_mask": torch.empty((0,0), dtype=torch.long),
+                "token_level_rewards": torch.empty((0,0), dtype=torch.float)
+            })
+
         # Create final batch data
         final_batch = {
             "input_ids": torch.cat(batch_input_ids, dim=0),
             "attention_mask": torch.cat(batch_attention_mask, dim=0),
             "position_ids": torch.cat(batch_position_ids, dim=0),
-            "info_mask": torch.cat(batch_info_mask, dim=0), 
-            "token_level_rewards": torch.cat(batch_token_level_rewards, dim=0) # Add stacked rewards tensor
+            "info_mask": torch.cat(batch_info_mask, dim=0),
+            "token_level_rewards": torch.cat(batch_token_level_rewards, dim=0) # Crucial output for PPO
         }
-        
+
         # Create DataProto and add metadata
         data_proto = DataProto.from_dict(final_batch)
+        # ... (metadata handling as before, converting lists to tensors where appropriate) ...
         for key, value in batch_meta_info.items():
             try:
-                # Try to convert values to tensors
                 if isinstance(value, list) and all(isinstance(item, (int, float)) for item in value):
                     data_proto.meta_info[key] = torch.tensor(value)
+                # Handle numpy arrays if they appear
+                elif isinstance(value, np.ndarray):
+                     data_proto.meta_info[key] = torch.from_numpy(value)
                 else:
+                    # Keep as list for non-numeric types (like trajectories)
                     data_proto.meta_info[key] = value
-            except (ValueError, TypeError):
-                data_proto.meta_info[key] = value 
-        
-        # Add rewards tensor
-        data_proto.meta_info["rewards"] = torch.tensor(batch_rewards, dtype=torch.float32)
-        
-        # Explicitly add environment scores
+            except (ValueError, TypeError, RuntimeError) as e:
+                 # Fallback: keep as list if tensor conversion fails
+                 print(f"[Agent._convert_rollout] Warning: Could not convert metadata '{key}' to tensor: {e}. Keeping as list.")
+                 data_proto.meta_info[key] = value
+
+        # Explicitly add final env scores as a tensor if possible
         if "env_score" in batch_meta_info:
             try:
                 data_proto.meta_info["env_scores"] = torch.tensor(batch_meta_info["env_score"], dtype=torch.float32)
             except (ValueError, TypeError):
-                print("[Agent._convert_rollout] Could not convert env_scores to tensor, keeping as list.")
+                # This case should be less likely now, but keep fallback
+                print("[Agent._convert_rollout] Could not convert env_scores to tensor, keeping original list.")
                 data_proto.meta_info["env_scores"] = batch_meta_info["env_score"]
-                 
+
         print(f"[Agent._convert_rollout] Final batch shapes: input_ids={final_batch['input_ids'].shape}, token_level_rewards={final_batch['token_level_rewards'].shape}")
         return data_proto
 
-    def execute_predictions(self, predictions: List[str], pad_token: str, active_mask=None, execute_tools=True) -> Tuple[List[str], List[bool], List[bool], List[bool]]:
-        """
-        Execute predictions (Placeholder - Actual execution handled by AgentGym Task via controller).
-        
-        This method is likely called by the RolloutController's strategy.
-        In the AgentGym setup, the controller gets the prediction string from the agent 
-        (via model generation) and passes it to the task's step function.
-        This method here might only be needed for parsing or returning flags, not execution.
-        
-        Args:
-            predictions: List of action predictions (strings from model)
-            pad_token: Padding token
-            active_mask: Mask for active sequences
-            execute_tools: Whether to execute tools (Likely ignored)
-            
-        Returns:
-            Placeholder tuple. The actual next_obs, dones, etc., come from the Task's step method.
-        """
-        # The original implementation had a recursive call to rollout_controller._rollout_one, which is incorrect.
-        # The RolloutController orchestrates the flow: agent predicts -> controller passes prediction to task.step -> task executes -> task returns obs/done.
-        # Therefore, this method in the agent should likely *not* execute tools or interact with the environment directly.
-        
-        # For now, return placeholder values. The actual values are determined by the Task environment.
-        # We need to understand how the chosen Strategy uses this method, if at all.
-        num_preds = len(predictions)
-        dummy_obs = ["" for _ in range(num_preds)]
-        dummy_dones = [False for _ in range(num_preds)] # Assume not done unless Task says otherwise
-        dummy_valid = [True for _ in range(num_preds)] # Assume valid unless parsing fails
-        dummy_tool_use = [False for _ in range(num_preds)] # Determine based on prediction parsing
-        
-        # Basic check if prediction looks like a tool call based on common patterns
-        actions, _ = self.postprocess_predictions(predictions)
-        for i, action_type in enumerate(actions):
-            if action_type == 'action':
-                dummy_tool_use[i] = True
-                
-        # If not using tools (e.g., final response), these flags might be different.
-        # This part might need refinement based on how the strategy/trainer uses these return values.
-
-        print(f"[Agent.execute_predictions] Received {num_preds} predictions. Returning placeholder env state.")
-        return dummy_obs, dummy_dones, dummy_valid, dummy_tool_use
 
     def postprocess_predictions(self, predictions: List[Any]) -> Tuple[List[str], List[str]]:
         """
-        Process predictions into actions and content.
-        
+        Process predictions into actions and content based on XML-like tags.
+        Does not require tool_manager.
+
         Args:
-            predictions: List of raw predictions
-            
+            predictions: List of raw predictions (strings from LLM)
+
         Returns:
-            Tuple of (action types list, action contents list)
+            Tuple of (action types list ['action' or 'response' or None],
+                    action contents list [text inside tags or empty string])
         """
         actions = []
         contents = []
-                
+
         for prediction in predictions:
             if isinstance(prediction, str):
                 # Extract action or response tags
                 action_pattern = r'<action>(.*?)</action>'
                 response_pattern = r'<response>(.*?)</response>'
-                
+
                 action_match = re.search(action_pattern, prediction, re.DOTALL)
                 response_match = re.search(response_pattern, prediction, re.DOTALL)
-                
+
                 if action_match:
                     actions.append('action')
                     contents.append(action_match.group(1).strip())
@@ -939,9 +918,14 @@ class OpenManusAgent:
                     actions.append('response')
                     contents.append(response_match.group(1).strip())
                 else:
+                    # If no recognized tag, assume it's neither a specific action nor response
                     actions.append(None)
-                    contents.append('')
+                    contents.append('') # Return empty content if no tag found
             else:
-                raise ValueError(f"Invalid prediction type: {type(prediction)}")
-            
+                # Handle non-string predictions if necessary, e.g., raise error or log warning
+                print(f"[Warning] Received non-string prediction: {type(prediction)}. Cannot process.")
+                actions.append(None)
+                contents.append('')
+                # Or raise ValueError(f"Invalid prediction type: {type(prediction)}")
+
         return actions, contents
