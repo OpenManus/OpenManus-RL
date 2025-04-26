@@ -153,12 +153,65 @@ for (( i=0; i<$NUM_SERVERS; i++ )); do
 done
 
 # --- Wait and Check Servers ---
-echo "[Server] Waiting a moment for AgentGym servers (${AGENTGYM_PGIDS[*]}) to initialize..."
-sleep 5 # Reduced sleep, as the check is removed
+echo "[Server] Checking if AgentGym servers (${AGENTGYM_PORTS[*]}) are responsive..."
+ALL_SERVERS_RUNNING=true
+MAX_RETRIES=5       # Number of times to check each server
+RETRY_DELAY=3       # Seconds to wait between retries
+CONNECT_TIMEOUT=1   # Seconds for nc connection timeout
 
-# Removed the unreliable check based on PID (setsid exits quickly)
-# The trap mechanism below is the primary way to ensure cleanup.
-echo "[Server] Assuming servers are starting... Cleanup will occur on script exit."
+for (( i=0; i<${#AGENTGYM_PORTS[@]}; i++ )); do
+    PORT=${AGENTGYM_PORTS[i]}
+    PGID=${AGENTGYM_PGIDS[i]} # Corresponding PGID for logging/debug
+    LOG_FILE="logs/${TARGET_ENV_NAME}_server_${PORT}.log"
+    SERVER_UP=false
+
+    # Determine host to check (use localhost if host is 0.0.0.0)
+    CHECK_HOST=$AGENTGYM_HOST
+    if [ "$CHECK_HOST" == "0.0.0.0" ]; then
+        CHECK_HOST="127.0.0.1"
+    fi
+
+    echo "[Server Check] Checking server on ${CHECK_HOST}:${PORT} (PGID: $PGID)..."
+    for (( attempt=1; attempt<=$MAX_RETRIES; attempt++ )); do
+        # Use netcat (nc) to check if port is open. -z: zero-I/O mode, -w: timeout
+        # Redirect errors to /dev/null to avoid clutter
+        if nc -z -w $CONNECT_TIMEOUT "$CHECK_HOST" "$PORT" > /dev/null 2>&1; then
+             echo "[Server Check] Server on port $PORT is responsive."
+             SERVER_UP=true
+             break # Exit retry loop for this server
+        else
+            if [ $attempt -lt $MAX_RETRIES ]; then
+                echo "[Server Check] Server on port $PORT not responsive (Attempt $attempt/$MAX_RETRIES). Retrying in $RETRY_DELAY seconds..."
+                sleep $RETRY_DELAY
+            else
+                echo "[Error] Server on port $PORT (PGID: $PGID) failed to respond after $MAX_RETRIES attempts."
+                echo "[Error] Check server log for details: $LOG_FILE"
+            fi
+        fi
+    done
+
+    if [ "$SERVER_UP" = false ]; then
+        ALL_SERVERS_RUNNING=false
+        # No need to check remaining servers if one failed
+        break
+    fi
+done
+
+if [ "$ALL_SERVERS_RUNNING" = false ]; then
+    echo "[Error] Not all AgentGym servers started successfully or became responsive. Initiating cleanup..."
+    # Manually trigger cleanup for potentially started PGIDs before exiting
+    # We duplicate part of the trap logic here for immediate cleanup on check failure
+    CLEANUP_PGIDS_ON_FAIL=(${AGENTGYM_PGIDS[*]});
+    for pgid_fail in "${CLEANUP_PGIDS_ON_FAIL[@]}"; do
+        echo "[Cleanup] Killing process group -$pgid_fail due to failed startup check."
+        kill -- -$pgid_fail 2>/dev/null;
+    done
+    wait 2>/dev/null # Give kill commands a moment
+    echo "[Error] Exiting script due to server startup failure."
+    exit 1 # Exit with error code
+fi
+
+echo "[Server] All AgentGym servers appear to be responsive and running."
 
 
 # Setup trap to kill all server process groups on script exit/interrupt
