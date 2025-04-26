@@ -103,7 +103,7 @@ esac
 
 # --- Start AgentGym Servers in Dedicated Environment ---
 TARGET_ENV_NAME="agentenv-${AGENTGYM_ENV_NAME}"
-AGENTGYM_PIDS=() # Array to store PIDs
+AGENTGYM_PGIDS=() # Array to store PGIDs (changed from PIDS)
 AGENTGYM_PORTS=() # Array to store ports
 
 # Check if target env exists
@@ -132,52 +132,38 @@ for (( i=0; i<$NUM_SERVERS; i++ )); do
     echo "[Server $(($i+1))/$NUM_SERVERS] Launching on ${AGENTGYM_HOST}:${AGENTGYM_PORT}..."
     echo "[Server $(($i+1))/$NUM_SERVERS] Command: $CURRENT_LAUNCH_CMD"
 
-    # Run server in background using conda run
+    # Run server in background using conda run within a new process group (setsid)
     LOG_FILE="logs/${TARGET_ENV_NAME}_server_${AGENTGYM_PORT}.log"
     echo "[Server $(($i+1))/$NUM_SERVERS] Logging to $LOG_FILE"
 
-    # Use bash -c to handle potential env vars in launch cmd (like for sqlgym)
-    conda run --no-capture-output -n "$TARGET_ENV_NAME" bash -c "$CURRENT_LAUNCH_CMD" > "$LOG_FILE" 2>&1 &
-    PID=$!
+    # Use setsid to ensure the server runs in its own process group
+    setsid conda run --no-capture-output -n "$TARGET_ENV_NAME" bash -c "$CURRENT_LAUNCH_CMD" > "$LOG_FILE" 2>&1 &
+    PGID=$! # PID of setsid becomes the Process Group ID
 
-    # Check if PID was obtained
-    if [ -z "$PID" ]; then
-        echo "[Error] Failed to get PID for AgentGym server instance $i on port $AGENTGYM_PORT."
+    # Check if PGID was obtained
+    if [ -z "$PGID" ]; then
+        echo "[Error] Failed to get PGID for AgentGym server instance $i on port $AGENTGYM_PORT."
         # Attempt to kill already launched servers before exiting
-        for p in "${AGENTGYM_PIDS[@]}"; do kill $p 2>/dev/null; done
+        for pgid in "${AGENTGYM_PGIDS[@]}"; do kill -- -$pgid 2>/dev/null; done # Kill process group
         exit 1
     fi
-    AGENTGYM_PIDS+=($PID) # Store PID
-    echo "[Server $(($i+1))/$NUM_SERVERS] Launched (PID: $PID)."
+    AGENTGYM_PGIDS+=($PGID) # Store PGID
+    echo "[Server $(($i+1))/$NUM_SERVERS] Launched (PGID: $PGID)."
     sleep 2 # Small delay between starting servers
 done
 
 # --- Wait and Check Servers ---
-echo "[Server] Waiting for AgentGym servers (${AGENTGYM_PIDS[*]}) to initialize..."
-sleep 15 # Adjust sleep time if needed
+echo "[Server] Waiting a moment for AgentGym servers (${AGENTGYM_PGIDS[*]}) to initialize..."
+sleep 5 # Reduced sleep, as the check is removed
 
-# Check if all server processes are still running
-ALL_SERVERS_RUNNING=true
-for PID in "${AGENTGYM_PIDS[@]}"; do
-    if ! kill -0 $PID > /dev/null 2>&1; then
-        echo "[Error] AgentGym server (PID: $PID) failed to start or exited prematurely."
-        # Attempt to find the corresponding log file (this is a bit heuristic)
-        PORT=$(grep -oP -- "--port\\s+\\K\\d+" "logs/"*"${PID}"* 2>/dev/null || echo "unknown")
-        echo "[Error] Check server log potentially named logs/${TARGET_ENV_NAME}_server_${PORT}.log or similar."
-        ALL_SERVERS_RUNNING=false
-    fi
-done
+# Removed the unreliable check based on PID (setsid exits quickly)
+# The trap mechanism below is the primary way to ensure cleanup.
+echo "[Server] Assuming servers are starting... Cleanup will occur on script exit."
 
-if [ "$ALL_SERVERS_RUNNING" = false ]; then
-    echo "[Error] Not all servers started successfully. Exiting."
-    # Kill remaining servers
-    for p in "${AGENTGYM_PIDS[@]}"; do kill $p 2>/dev/null; done
-    exit 1
-fi
-echo "[Server] All AgentGym servers appear to be running."
 
-# Setup trap to kill all server processes on script exit/interrupt
-trap "echo '[Cleanup] Stopping AgentGym servers (PIDs: ${AGENTGYM_PIDS[*]})...'; kill ${AGENTGYM_PIDS[*]} 2>/dev/null || echo '[Cleanup] Servers already stopped.'; wait ${AGENTGYM_PIDS[*]} 2>/dev/null" EXIT
+# Setup trap to kill all server process groups on script exit/interrupt
+# Note the use of kill -- -$pgid to target the entire process group
+trap "echo '[Cleanup] Stopping AgentGym server process groups (PGIDs: ${AGENTGYM_PGIDS[*]})...'; CLEANUP_PGIDS=(${AGENTGYM_PGIDS[*]}); for pgid in \${CLEANUP_PGIDS[@]}; do echo '[Cleanup] Killing process group -\$pgid'; kill -- -\$pgid 2>/dev/null; done; wait 2>/dev/null; echo '[Cleanup] Done.'" EXIT
 
 # --- Data and Experiment Naming ---
 export DATA_DIR=${DATA_DIR_OVERRIDE:-"data/$AGENTGYM_ENV_NAME"} # Default data dir based on env name
