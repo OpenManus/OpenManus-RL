@@ -10,7 +10,7 @@ from transformers import GenerationConfig
 import importlib # Added import
 import traceback # For error logging
 from concurrent.futures import ThreadPoolExecutor, as_completed # For parallel rollout
-from ragen.utils.plot import (
+from openmanus_rl.utils.visualization import (
     save_trajectory_to_output,
     parse_llm_output
 )
@@ -29,29 +29,29 @@ class AgentConfig:
         max_response_length: Maximum length of response
         max_obs_length: Maximum length of observation
         num_gpus: Number of GPUs to use
-        react_format: Whether to use ReAct format
         env_name: Name of the environment (e.g., "webshop")
         env_ports: List of ports for parallel servers
         env_server_base: Base URL for environment server
+        react_format: Whether to use ReAct format
         env_data_len: Number of data samples in the environment (used for client init)
         rollout_strategy: Strategy to use for rollout (StandardReAct/ToT/MCTS)
-        storage_backend: Backend for storing trajectories (mongodb/file)
         max_workers: Maximum number of worker threads
         logging: dict = None  # Contains log_images, log_n_image_per_batch, log_image_step_size, etc.
         algorithm_config: DictConfig = None # Pass relevant part of algorithm config
     """
+    # All required fields without default values
     max_turns: int
     max_start_length: int
     max_prompt_length: int 
     max_response_length: int
     max_obs_length: int
     num_gpus: int
-    react_format: bool = True
-    
-    # Environment configuration (Now passed from trainer)
     env_name: str 
     env_ports: List[int] # List of ports for parallel servers
     env_server_base: str
+    
+    # All optional fields with default values
+    react_format: bool = True
     env_data_len: int = 200 # Default, might need adjustment
     rollout_strategy: str = "StandardReAct" # Strategy is now internal logic
     # storage_backend: str = "mongodb" # Storage handled elsewhere or not needed here

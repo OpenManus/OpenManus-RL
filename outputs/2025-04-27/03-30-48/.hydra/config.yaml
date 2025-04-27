@@ -1,0 +1,192 @@
+data:
+  tokenizer: null
+  train_files: data/webshop/train.parquet
+  val_files: data/webshop/test.parquet
+  train_data_num: null
+  val_data_num: null
+  prompt_key: prompt
+  max_prompt_length: 4096
+  max_response_length: 500
+  max_start_length: 2048
+  max_obs_length: 500
+  train_batch_size: 512
+  val_batch_size: 256
+  return_raw_input_ids: false
+  return_raw_chat: false
+  shuffle_train_dataloader: true
+  env_name: webshop
+  env_server_base: http://0.0.0.0
+  env_ports:
+  - 36001
+  env_data_len: 200
+actor_rollout_ref:
+  hybrid_engine: true
+  model:
+    path: Qwen/Qwen2.5-3B
+    external_lib: null
+    override_config: {}
+    enable_gradient_checkpointing: true
+    use_remove_padding: true
+  actor:
+    strategy: fsdp
+    ppo_mini_batch_size: 256
+    ppo_micro_batch_size: 64
+    use_dynamic_bsz: false
+    ppo_max_token_len_per_gpu: 16384
+    grad_clip: 1.0
+    state_masking: true
+    clip_ratio: 0.2
+    entropy_coeff: 0.001
+    use_kl_loss: false
+    kl_loss_coef: 0.001
+    kl_loss_type: low_var_kl
+    ppo_epochs: 1
+    shuffle: false
+    ulysses_sequence_parallel_size: 1
+    optim:
+      lr: 1.0e-06
+      lr_warmup_steps_ratio: 0.95
+      min_lr_ratio: null
+      warmup_style: constant
+      total_training_steps: -1
+    fsdp_config:
+      wrap_policy:
+        min_num_params: 0
+      param_offload: true
+      grad_offload: true
+      optimizer_offload: true
+      fsdp_size: -1
+  ref:
+    fsdp_config:
+      param_offload: true
+      wrap_policy:
+        min_num_params: 0
+      fsdp_size: -1
+    log_prob_micro_batch_size: 128
+    log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+    log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+    ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size}
+  rollout:
+    name: vllm
+    temperature: 1
+    top_k: -1
+    top_p: 0.95
+    prompt_length: ${data.max_prompt_length}
+    response_length: ${data.max_response_length}
+    dtype: bfloat16
+    gpu_memory_utilization: 0.6
+    ignore_eos: false
+    enforce_eager: true
+    free_cache_engine: true
+    load_format: dummy_dtensor
+    tensor_model_parallel_size: 1
+    max_num_batched_tokens: 8192
+    max_num_seqs: 1024
+    log_prob_micro_batch_size: 128
+    log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+    log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+    do_sample: true
+    'n': 1
+    n_agent: 1
+critic:
+  strategy: fsdp
+  optim:
+    lr: 1.0e-05
+    lr_warmup_steps_ratio: 0.05
+    min_lr_ratio: null
+    warmup_style: constant
+    total_training_steps: -1
+  model:
+    path: Qwen/Qwen2.5-3B
+    tokenizer_path: ${actor_rollout_ref.model.path}
+    override_config: {}
+    external_lib: ${actor_rollout_ref.model.external_lib}
+    enable_gradient_checkpointing: true
+    use_remove_padding: true
+    fsdp_config:
+      param_offload: true
+      grad_offload: true
+      optimizer_offload: true
+      wrap_policy:
+        min_num_params: 0
+      fsdp_size: -1
+  ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
+  ppo_micro_batch_size: 8
+  forward_micro_batch_size: ${critic.ppo_micro_batch_size}
+  use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+  ppo_max_token_len_per_gpu: 32768
+  forward_max_token_len_per_gpu: ${critic.ppo_max_token_len_per_gpu}
+  ulysses_sequence_parallel_size: 1
+  ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
+  shuffle: ${actor_rollout_ref.actor.shuffle}
+  grad_clip: 1.0
+  cliprange_value: 0.5
+reward_model:
+  enable: false
+  strategy: fsdp
+  model:
+    input_tokenizer: ${actor_rollout_ref.model.path}
+    path: ~/models/FsfairX-LLaMA3-RM-v0.1
+    external_lib: ${actor_rollout_ref.model.external_lib}
+    use_remove_padding: false
+    fsdp_config:
+      min_num_params: 0
+      param_offload: false
+  micro_batch_size: 64
+  max_length: null
+  ulysses_sequence_parallel_size: 1
+  use_dynamic_bsz: ${critic.use_dynamic_bsz}
+  forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
+retriever:
+  url: http://127.0.0.1:8000/retrieve
+  topk: 3
+algorithm:
+  gamma: 1.0
+  lam: 1.0
+  adv_estimator: gae
+  reward_score_fn: agentgym
+  no_think_rl: false
+  kl_penalty: kl
+  kl_ctrl:
+    type: fixed
+    kl_coef: 0.001
+  reward_components:
+    goal_reward:
+      enabled: true
+      weight: 1.0
+    length_penalty:
+      enabled: false
+      weight: -0.01
+      max_length: 450
+      min_length: 20
+      penalty_type: linear
+    format_reward:
+      enabled: false
+      weight: 0.2
+      patterns_by_env:
+        webshop:
+        - <action>.*</action>
+        - <response>.*</response>
+        default: []
+  reward_allocation: last_token
+  state_masking:
+    start_state_marker: <information>
+    end_state_marker: </information>
+trainer:
+  total_epochs: 15
+  total_training_steps: 305
+  project_name: OpenManus-rl
+  experiment_name: OpenManus-rl-ppo-Qwen2.5-3B-webshop
+  logger:
+  - wandb
+  nnodes: 1
+  n_gpus_per_node: 8
+  save_freq: 100
+  test_freq: 50
+  critic_warmup: 0
+  default_hdfs_dir: null
+  default_local_dir: verl_checkpoints/OpenManus-rl-ppo-Qwen2.5-3B-webshop
+  val_only: false
+  val_before_train: true
+max_turns: 2
+do_search: true

@@ -47,6 +47,7 @@ Code and dataset coming soon! Stay tuned!
 - [Acknowledgement](#acknowledgement)
 - [Community Group](#community-group)
 - [Citation](#citation)
+- [Documentation](#documentation)
 
 ---
 
@@ -368,3 +369,9 @@ Please cite the following paper if you find OpenManus helpful!
   </picture>
 </a>
 </p>
+
+## Documentation
+- [Development Guide (English)](docs/DEVELOPMENT_GUIDE_EN.md)
+- [Development Guide (Chinese)](docs/DEVELOPMENT_GUIDE_ZH.md)
+- [Training Process Overview (English)](docs/README.md)
+- [Training Process Overview (Chinese)](docs/README_ZH.md)
