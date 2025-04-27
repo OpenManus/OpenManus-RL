@@ -1,0 +1,114 @@
+{
+  "os": "Linux-5.15.0-122-generic-x86_64-with-glibc2.35",
+  "python": "CPython 3.11.11",
+  "startedAt": "2025-04-27T03:40:48.246634Z",
+  "args": [
+    "--node-ip-address=172.22.224.42",
+    "--node-manager-port=41307",
+    "--object-store-name=/tmp/ray/session_2025-04-27_03-40-34_059482_3447017/sockets/plasma_store",
+    "--raylet-name=/tmp/ray/session_2025-04-27_03-40-34_059482_3447017/sockets/raylet",
+    "--redis-address=None",
+    "--metrics-agent-port=63833",
+    "--logging-rotate-bytes=536870912",
+    "--logging-rotate-backup-count=5",
+    "--runtime-env-agent-port=64912",
+    "--gcs-address=172.22.224.42:63199",
+    "--session-name=session_2025-04-27_03-40-34_059482_3447017",
+    "--temp-dir=/tmp/ray",
+    "--webui=127.0.0.1:8265",
+    "--cluster-id=a18fdfb88869696431e182aec4c3949e557cf38c9cde24d511499901",
+    "--startup-token=96",
+    "--worker-launch-time-ms=1745725238583",
+    "--node-id=05605af7f9e59171525db68c3817251417d89e459b3c11f3cfed5bbc",
+    "--runtime-env-hash=1830736042"
+  ],
+  "program": "/home/kunlunz2/.conda/envs/openmanus-rl/lib/python3.11/site-packages/ray/_private/workers/default_worker.py",
+  "git": {
+    "remote": "git@github.com:OpenManus/OpenManus-RL.git",
+    "commit": "cd671d8182a4ef322e9d44431b6d43a5709402f9"
+  },
+  "email": "zhuklun@mail2.sysu.edu.cn",
+  "root": "/home/kunlunz2/github_repos/OpenManus-RL",
+  "host": "sn4622122392",
+  "executable": "/home/kunlunz2/.conda/envs/openmanus-rl/bin/python3",
+  "cpu_count": 48,
+  "cpu_count_logical": 96,
+  "gpu": "NVIDIA RTX A6000",
+  "gpu_count": 10,
+  "disk": {
+    "/": {
+      "total": "2002365816832",
+      "used": "1296476807168"
+    }
+  },
+  "memory": {
+    "total": "1081814921216"
+  },
+  "cpu": {
+    "count": 48,
+    "countLogical": 96
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA RTX A6000",
+      "memoryTotal": "51527024640",
+      "cudaCores": 10752,
+      "architecture": "Ampere"
+    },
+    {
+      "name": "NVIDIA RTX A6000",
+      "memoryTotal": "51527024640",
+      "cudaCores": 10752,
+      "architecture": "Ampere"
+    },
+    {
+      "name": "NVIDIA RTX A6000",
+      "memoryTotal": "51527024640",
+      "cudaCores": 10752,
+      "architecture": "Ampere"
+    },
+    {
+      "name": "NVIDIA RTX A6000",
+      "memoryTotal": "51527024640",
+      "cudaCores": 10752,
+      "architecture": "Ampere"
+    },
+    {
+      "name": "NVIDIA RTX A6000",
+      "memoryTotal": "51527024640",
+      "cudaCores": 10752,
+      "architecture": "Ampere"
+    },
+    {
+      "name": "NVIDIA RTX A6000",
+      "memoryTotal": "51527024640",
+      "cudaCores": 10752,
+      "architecture": "Ampere"
+    },
+    {
+      "name": "NVIDIA RTX A6000",
+      "memoryTotal": "51527024640",
+      "cudaCores": 10752,
+      "architecture": "Ampere"
+    },
+    {
+      "name": "NVIDIA RTX A6000",
+      "memoryTotal": "51527024640",
+      "cudaCores": 10752,
+      "architecture": "Ampere"
+    },
+    {
+      "name": "NVIDIA RTX A6000",
+      "memoryTotal": "51527024640",
+      "cudaCores": 10752,
+      "architecture": "Ampere"
+    },
+    {
+      "name": "NVIDIA RTX A6000",
+      "memoryTotal": "51527024640",
+      "cudaCores": 10752,
+      "architecture": "Ampere"
+    }
+  ],
+  "cudaVersion": "12.4"
+}
