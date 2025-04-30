@@ -16,6 +16,7 @@ from openmanus_rl.utils.visualization import (
 )
 from verl.utils.tracking import Tracking
 from omegaconf import DictConfig # Import DictConfig for type hint
+import numpy as np
 
 @dataclass
 class AgentConfig:
@@ -350,15 +351,32 @@ class OpenManusAgent:
                 # Prepare input
                 current_attention_mask = self.tensor_fn.create_attention_mask(current_input_ids)
                 current_position_ids = self.tensor_fn.create_position_ids(current_attention_mask)
-                # Ensure input tensors are on the correct device for the actor model
-                device = next(self.actor_rollout_wg.actor_model.parameters()).device # Get model's device
+                # device = 'cuda' # Assume target device is cuda; worker group handles internal placement
                 gen_input_proto = DataProto.from_dict({
-                    'input_ids': current_input_ids.to(device),
-                    'attention_mask': current_attention_mask.to(device),
-                    'position_ids': current_position_ids.to(device)
-                })
+                    'input_ids': current_input_ids, # Pass tensor directly (likely CPU)
+                    'attention_mask': current_attention_mask,
+                    'position_ids': current_position_ids
+                }) # may need to put this on the correct device
 
-                # Generate response
+                # <<< FIX: Pad batch to match world size if needed >>>
+                world_size = self.actor_rollout_wg.world_size
+                original_size = 1 # We know batch size is 1 here
+                padded_gen_input_proto = gen_input_proto
+                padding_size = 0
+                if world_size > 1 and original_size % world_size != 0:
+                    padding_size = world_size - (original_size % world_size)
+                    padded_batch = {}
+                    for k, v in gen_input_proto.batch.items():
+                        # Use the single sequence as padding template
+                        pad_sequence = v[0:1].repeat(padding_size, *[1] * (len(v.shape) - 1))
+                        padded_batch[k] = torch.cat([v, pad_sequence], dim=0)
+                    padded_gen_input_proto = DataProto.from_dict(padded_batch)
+                    # Copy meta_info if needed
+                    if hasattr(gen_input_proto, 'meta_info'):
+                         padded_gen_input_proto.meta_info = gen_input_proto.meta_info.copy()
+                # <<< END FIX >>>
+
+                # --- Prepare Generation Config --- 
                 generation_config = GenerationConfig(
                     max_new_tokens=self.config.max_response_length,
                     eos_token_id=self.tokenizer.eos_token_id,
@@ -366,10 +384,26 @@ class OpenManusAgent:
                     temperature=1.0, # Consider adjusting temperature/sampling based on validation vs training
                     do_sample=True
                 )
+
+                # <<< FIX: Move generation_config into meta_info >>>
+                if not hasattr(padded_gen_input_proto, 'meta_info'):
+                    padded_gen_input_proto.meta_info = {}
+                padded_gen_input_proto.meta_info['generation_config'] = generation_config
+                # <<< END FIX >>>
+
                 # Generation happens on the actor worker group's device
-                gen_output_proto = self.actor_rollout_wg.generate_sequences(gen_input_proto, generation_config=generation_config)
-                response_ids = gen_output_proto.batch['response_ids']
+                gen_output_proto = self.actor_rollout_wg.generate_sequences(padded_gen_input_proto)
+                # response_ids = gen_output_proto.batch['response_ids'] # Original line causing KeyError
+                response_ids = gen_output_proto.batch['responses'] # Use the correct key ('responses') assuming it holds IDs
+
+                # <<< FIX: Remove padding from response_ids if padding was added >>>
+                if padding_size > 0:
+                     response_ids = response_ids[:-padding_size]
+                # <<< END FIX >>>
+
+                # Decode the response IDs to get the text for the trajectory
                 response_text = self.tokenizer.decode(response_ids[0], skip_special_tokens=True)
+
                 # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Response: {response_text[:100]}...")
                 trajectory.append({"from": "gpt", "value": response_text})
 
@@ -380,7 +414,12 @@ class OpenManusAgent:
                 # Execute environment step using the provided client
                 if action_text is None: action_text = ""
                 # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Action: {action_text}")
-                next_obs_text, reward, done, info = client.step(action_text)
+                # next_obs_text, reward, done, info = client.step(action_text) # Original unpacking (fails)
+                step_output = client.step(action_text)
+                next_obs_text = step_output.state
+                reward = step_output.reward
+                done = step_output.done
+                info = {} # Initialize info as empty dict, as StepOutput doesn't explicitly return it
                 # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Env Step Result: Reward={reward}, Done={done}, Info={info}")
 
                 # Store the reward from this specific step
@@ -556,6 +595,7 @@ class OpenManusAgent:
         batch_info_mask = []
         batch_token_level_rewards = [] # Store final token-level rewards for PPO
         batch_meta_info = defaultdict(list)
+        batch_responses = [] # Initialize batch_responses
 
         # Get reward allocation strategy from config
         reward_allocation = "last_token" # Default
@@ -725,6 +765,34 @@ class OpenManusAgent:
             batch_info_mask.append(full_info_mask) # Store the info mask
             batch_token_level_rewards.append(token_level_rewards) # Store calculated rewards
 
+            # --- FIX: Extract and pad response-only tokens ---
+            response_segments = []
+            total_response_len = 0
+            for r_start, r_end in agent_indices_in_padded:
+                segment = full_input_ids[0, r_start : r_end + 1]
+                response_segments.append(segment)
+                total_response_len += segment.shape[0]
+            
+            if response_segments:
+                response_only_ids_cat = torch.cat(response_segments, dim=0).unsqueeze(0) # Shape (1, total_response_len)
+                resp_pad_len = max(0, self.config.max_response_length - total_response_len)
+                if resp_pad_len > 0:
+                    resp_pad = torch.full((1, resp_pad_len), self.tokenizer.pad_token_id, dtype=torch.long, device=response_only_ids_cat.device)
+                    response_only_ids_padded = torch.cat([response_only_ids_cat, resp_pad], dim=1)
+                else:
+                    # Truncate if response is too long
+                    response_only_ids_padded = response_only_ids_cat[:, :self.config.max_response_length]
+            else:
+                # Handle case with no agent responses (e.g., empty trajectory)
+                response_only_ids_padded = torch.full((1, self.config.max_response_length), self.tokenizer.pad_token_id, dtype=torch.long, device=full_input_ids.device)
+            
+            # Append to batch list (this will be concatenated later)
+            # Ensure batch_responses list is initialized outside the loop
+            if 'batch_responses' not in locals() and 'batch_responses' not in globals():
+                 batch_responses = [] # Initialize here if first iteration
+            batch_responses.append(response_only_ids_padded)
+            # --- END FIX ---
+
             # Add metadata (ensure reward/env_score reflect the values used for distribution if needed)
             batch_meta_info["task_idx"].append(task_idx)
             batch_meta_info["turns_stats"].append(turns)
@@ -760,7 +828,8 @@ class OpenManusAgent:
             "attention_mask": torch.cat(batch_attention_mask, dim=0),
             "position_ids": torch.cat(batch_position_ids, dim=0),
             "info_mask": torch.cat(batch_info_mask, dim=0),
-            "token_level_rewards": torch.cat(batch_token_level_rewards, dim=0) # Crucial output for PPO
+            "token_level_rewards": torch.cat(batch_token_level_rewards, dim=0), # Crucial output for PPO
+            "responses": torch.cat(batch_responses, dim=0) # FIX: Add the collected responses
         }
 
         # Create DataProto and add metadata

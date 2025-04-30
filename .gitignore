@@ -31,3 +31,4 @@ data/output_txt_files/
 
 outputs/
 wandb/
+logs/
