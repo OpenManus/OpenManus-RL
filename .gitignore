@@ -14,6 +14,9 @@ __pycache__
 .idea
 .vscode
 
+.err
+.out
+
 # log files
 *.log
 
@@ -27,3 +30,4 @@ data/output_env_groups/
 data/output_txt_files/
 
 outputs/
+wandb/

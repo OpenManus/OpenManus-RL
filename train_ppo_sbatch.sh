@@ -1,4 +1,100 @@
 #!/bin/bash
+#SBATCH --job-name=OpenManus-rl-ppo-Qwen2.5-3B-webshop           # 作业名称
+#SBATCH --account=kunlunz2-ic       # 账户名称
+#SBATCH --partition=IllinoisComputes-GPU  # 分区名称
+#SBATCH --nodes=1                   # 节点数
+#SBATCH --ntasks-per-node=16        # 每节点任务数
+#SBATCH --time=00:30:00             # 运行时间限制
+#SBATCH --gres=gpu:A100:2           # 申请2个A100 GPU
+#SBATCH --output=%j.out             # 输出文件
+#SBATCH --error=%j.err              # 错误文件
+#SBATCH --mem=256G                 # 把整节点内存都给这 1 个 task（可选）
+
+
+# 加载conda环境
+module load anaconda
+source activate openmanus-rl  # 替换为您的环境名称
+
+
+
+apptainer_image_path=./apptainer/verl-ngc.sif
+# replace these information with your own
+
+# Getting the node names
+nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
+nodes_array=("$nodes")
+
+head_node=${nodes_array[0]}
+head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)
+
+# if we detect a space character in the head node IP, we'll
+# convert it to an ipv4 address. This step is optional.
+if [[ "$head_node_ip" == *" "* ]]; then
+IFS=' ' read -ra ADDR <<<"$head_node_ip"
+if [[ ${#ADDR[0]} -gt 16 ]]; then
+  head_node_ip=${ADDR[1]}
+else
+  head_node_ip=${ADDR[0]}
+fi
+echo "IPV6 address detected. We split the IPV4 address as $head_node_ip"
+fi
+
+port=6379
+ip_head=$head_node_ip:$port
+export ip_head
+echo "IP Head: $ip_head"
+
+# make sure we set environment variables before Ray initialization
+# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
+# export VLLM_ATTENTION_BACKEND=XFORMERS
+
+printenv
+
+echo "Starting HEAD at $head_node"
+srun --nodes=1 --ntasks=1 -w "$head_node" \
+    apptainer run --nv --bind $verl_workdir $apptainer_image_path \
+        ray start --head --node-ip-address="$head_node_ip" --port=$port \
+        --num-cpus "${SLURM_CPUS_PER_TASK}" --num-gpus "${SLURM_GPUS_PER_NODE}" --block &
+# optional, though may be useful in certain versions of Ray < 1.0.
+sleep 10
+
+# number of nodes other than the head node
+worker_num=$((SLURM_JOB_NUM_NODES - 1))
+
+for ((i = 1; i <= worker_num; i++)); do
+    node_i=${nodes_array[$i]}
+    echo "Starting WORKER $i at $node_i"
+    srun --nodes=1 --ntasks=1 -w "$node_i" \
+        apptainer run --nv --bind $verl_workdir $apptainer_image_path \
+            ray start --address "$ip_head" --num-cpus "${SLURM_CPUS_PER_TASK}" --num-gpus "${SLURM_GPUS_PER_NODE}" --block &
+    sleep 5
+done
+
+
+if [ -z "$SLURM_SUBMIT_DIR" ]; then
+  echo "Warning: SLURM_SUBMIT_DIR is not set. Trying to determine script directory..."
+  # If running the script directly with bash, try to get the script's directory
+  SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+else
+  # Use the directory where sbatch was submitted
+  SCRIPT_DIR="$SLURM_SUBMIT_DIR"
+fi
+
+# Construct the path to the parent directory of 'agentenv' (which is openmanus_rl/agentgym)
+# Assumes this script is run from the project root (e.g., /u/kunlunz2/OpenManus-RL/)
+AGENTGYM_PARENT_DIR="${SCRIPT_DIR}/openmanus_rl/agentgym"
+
+# Check if the constructed directory exists
+if [ -d "$AGENTGYM_PARENT_DIR" ]; then
+  echo "[Info] Adding ${AGENTGYM_PARENT_DIR} to PYTHONPATH"
+  # Prepend the directory to PYTHONPATH so Python finds 'agentenv' there
+  export PYTHONPATH="${AGENTGYM_PARENT_DIR}:${PYTHONPATH}"
+else
+  echo "[Error] Could not find agentgym parent directory at ${AGENTGYM_PARENT_DIR}. PYTHONPATH not set correctly."
+  # Optionally exit here if this path is critical:
+  # exit 1
+fi
+
 
 # --- Configuration (defaults, can be overridden via env vars) ---
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1}
@@ -7,6 +103,7 @@ export BASE_MODEL=${BASE_MODEL:-'Qwen/Qwen2.5-3B'}
 AGENTGYM_HOST=${AGENTGYM_HOST:-'0.0.0.0'} # Default to 0.0.0.0 for external access
 AGENTGYM_SQL_BIRD_PATH=${AGENTGYM_SQL_BIRD_PATH:-} # Used only for sqlgym
 export VLLM_ATTENTION_BACKEND=XFORMERS # comment this line if you want to use flash-attn and successfully install flash-attn
+export HYDRA_FULL_ERROR=1
 
 # --- Argument Parsing ---
 usage() {
@@ -153,12 +250,12 @@ for (( i=0; i<$NUM_SERVERS; i++ )); do
     sleep 2 # Small delay between starting servers
 done
 
-# # --- Wait and Check Servers ---
-# echo "[Server] Checking if AgentGym servers (${AGENTGYM_PORTS[*]}) are responsive..."
-# ALL_SERVERS_RUNNING=true
-# MAX_RETRIES=5       # Number of times to check each server
-# RETRY_DELAY=3       # Seconds to wait between retries
-# CONNECT_TIMEOUT=1   # Seconds for nc connection timeout
+# --- Wait and Check Servers ---
+echo "[Server] Checking if AgentGym servers (${AGENTGYM_PORTS[*]}) are responsive..."
+ALL_SERVERS_RUNNING=true
+MAX_RETRIES=5       # Number of times to check each server
+RETRY_DELAY=3       # Seconds to wait between retries
+CONNECT_TIMEOUT=1   # Seconds for nc connection timeout
 
 # for (( i=0; i<${#AGENTGYM_PORTS[@]}; i++ )); do
 #     PORT=${AGENTGYM_PORTS[i]}
@@ -290,6 +387,8 @@ hydra_overrides=(
     "data.shuffle_train_dataloader=True"
     "algorithm.adv_estimator=gae"
     "actor_rollout_ref.model.path=$BASE_MODEL"
+    "actor_rollout_ref.model.torch_dtype=bfloat16"
+    "actor_rollout_ref.model.attn_implementation=sdpa"
     "actor_rollout_ref.actor.optim.lr=1e-6"
     "actor_rollout_ref.model.enable_gradient_checkpointing=true"
     "actor_rollout_ref.model.use_remove_padding=True"
@@ -312,6 +411,8 @@ hydra_overrides=(
     "critic.model.use_remove_padding=True"
     "critic.optim.lr_warmup_steps_ratio=0.05"
     "critic.model.path=$BASE_MODEL"
+    "critic.model.torch_dtype=bfloat16"
+    "critic.model.attn_implementation=sdpa"
     "critic.model.enable_gradient_checkpointing=true"
     "critic.ppo_micro_batch_size=8"
     "critic.model.fsdp_config.param_offload=true"
@@ -339,7 +440,9 @@ hydra_overrides=(
 )
 
 # --- Execute Python Training Script ---
-PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
+PYTHONUNBUFFERED=1 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
+    apptainer run --nv --bind $verl_workdir $apptainer_image_path \
+    python3 -m verl.trainer.main_ppo \
     --config-name ppo_trainer --config-path config \
     "${hydra_overrides[@]}" \
     2>&1 | tee "$TRAINER_LOG_FILE" # Log trainer output

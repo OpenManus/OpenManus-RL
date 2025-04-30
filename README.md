@@ -212,8 +212,11 @@ First, create a conda environment and activate it:
 
 ```bash
 # Create a new conda environment
-conda create -n openmanus-rl python=3.11 -y
+conda create -n openmanus-rl python=3.10 -y
 conda activate openmanus-rl
+pip3 install torch torchvision
+pip3 install flash-attn --no-build-isolation
+pip3 install -e .[vllm]
 ```
 
 Then, install the required dependencies:
