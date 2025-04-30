@@ -1,11 +1,14 @@
 #!/bin/bash
 
 # --- Configuration (defaults, can be overridden via env vars) ---
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,6}
 WAND_PROJECT=${WAND_PROJECT:-'OpenManus-rl'}
 export BASE_MODEL=${BASE_MODEL:-'Qwen/Qwen2.5-3B'}
 AGENTGYM_HOST=${AGENTGYM_HOST:-'0.0.0.0'} # Default to 0.0.0.0 for external access
 AGENTGYM_SQL_BIRD_PATH=${AGENTGYM_SQL_BIRD_PATH:-} # Used only for sqlgym
+export NCCL_IB_DISABLE=1
+export NCCL_P2P_DISABLE=1
+export PYTHONPATH="./openmanus_rl/agentgym/agentenv:${PYTHONPATH}"
 
 # --- Argument Parsing ---
 usage() {
@@ -68,7 +71,7 @@ AGENTGYM_HOST=${AGENTGYM_HOST:-'0.0.0.0'}
 case $AGENTGYM_ENV_NAME in
     webshop)
         LAUNCH_CMD="webshop --host $AGENTGYM_HOST --port \$AGENTGYM_PORT"
-        DEFAULT_BASE_PORT=36001;;
+        DEFAULT_BASE_PORT=36005;;
     webarena)
         LAUNCH_CMD="webarena --host $AGENTGYM_HOST --port \$AGENTGYM_PORT"
         DEFAULT_BASE_PORT=8000;;
@@ -280,12 +283,12 @@ hydra_overrides=(
     "data.env_ports=[${AGENTGYM_PORTS_STR}]"
     "data.train_data_num=null"
     "data.val_data_num=null"
-    "data.train_batch_size=512"
+    "data.train_batch_size=4"
     "data.val_batch_size=2"
     "data.max_prompt_length=4096"
-    "data.max_response_length=500"
+    "data.max_response_length=1000"
     "data.max_start_length=2048"
-    "data.max_obs_length=500"
+    "data.max_obs_length=1000"
     "data.shuffle_train_dataloader=True"
     "algorithm.adv_estimator=gae"
     "actor_rollout_ref.model.path=$BASE_MODEL"
@@ -293,8 +296,8 @@ hydra_overrides=(
     "actor_rollout_ref.model.enable_gradient_checkpointing=true"
     "actor_rollout_ref.model.use_remove_padding=True"
     "actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.95"
-    "actor_rollout_ref.actor.ppo_mini_batch_size=256"
-    "actor_rollout_ref.actor.ppo_micro_batch_size=64"
+    "actor_rollout_ref.actor.ppo_mini_batch_size=2"
+    "actor_rollout_ref.actor.ppo_micro_batch_size=4"
     "actor_rollout_ref.actor.fsdp_config.param_offload=true"
     "actor_rollout_ref.actor.fsdp_config.grad_offload=true"
     "actor_rollout_ref.actor.fsdp_config.optimizer_offload=true"
@@ -312,7 +315,7 @@ hydra_overrides=(
     "critic.optim.lr_warmup_steps_ratio=0.05"
     "critic.model.path=$BASE_MODEL"
     "critic.model.enable_gradient_checkpointing=true"
-    "critic.ppo_micro_batch_size=8"
+    "critic.ppo_micro_batch_size=4"
     "critic.model.fsdp_config.param_offload=true"
     "critic.model.fsdp_config.grad_offload=true"
     "critic.model.fsdp_config.optimizer_offload=true"
@@ -324,7 +327,7 @@ hydra_overrides=(
     "+trainer.val_only=false"
     "+trainer.val_before_train=true"
     "trainer.default_hdfs_dir=null"
-    "trainer.n_gpus_per_node=8"
+    "trainer.n_gpus_per_node=4"
     "trainer.nnodes=1"
     "trainer.save_freq=100"
     "trainer.test_freq=50"

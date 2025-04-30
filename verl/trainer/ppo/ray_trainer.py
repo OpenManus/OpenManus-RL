@@ -549,11 +549,11 @@ class RayPPOTrainer(object):
                 with _timer('step', timing_raw):
                     # Prepare output directory if logging images
                     output_dir = None
-                    if self.config.logging and self.config.logging.get('log_images'):
-                        output_dir = os.path.join(
-                            self.config.trainer.default_local_dir,
-                            f"val_step_{self.global_steps}"
-                        )
+                    # if self.config.logging and self.config.logging.get('log_images'):
+                    #     output_dir = os.path.join(
+                    #         self.config.trainer.default_local_dir,
+                    #         f"val_step_{self.global_steps}"
+                    #     )
                     final_batch_output = generation_manager.run_llm_loop(
                         gen_batch=test_gen_batch,
                         output_dir=output_dir,
@@ -566,7 +566,7 @@ class RayPPOTrainer(object):
                  continue # Skip scoring for now
 
             # --- Score Calculation (using RewardComposer) --- 
-            if can_validate and final_batch_output and final_batch_output.batch:
+            if can_validate and final_batch_output and final_batch_output.batch is not None and not final_batch_output.batch.is_empty():
                 current_batch_size = final_batch_output.batch['input_ids'].shape[0]
                 env_name = self.config.data.env_name
 
@@ -800,19 +800,17 @@ class RayPPOTrainer(object):
                         # --- AgentGym Path --- 
                         with _timer('gen', timing_raw):
                              # Prepare output directory if logging images
-                            output_dir = None
-                            if self.config.logging and self.config.logging.get('log_images'):
-                                output_dir = os.path.join(
-                                    self.config.trainer.default_local_dir,
-                                    f"train_step_{self.global_steps}"
-                                )
+                            output_dir = os.path.join(
+                                self.config.trainer.default_local_dir,
+                                f"train_step_{self.global_steps}"
+                            )
                             final_gen_batch_output = generation_manager.run_llm_loop(
                                 gen_batch=gen_batch,
                                 output_dir=output_dir,
                                 global_steps=self.global_steps
                             )
 
-                        if not final_gen_batch_output or not final_gen_batch_output.batch:
+                        if not final_gen_batch_output or final_gen_batch_output.batch is None or final_gen_batch_output.batch.is_empty():
                             print("[Trainer.fit] Warning: AgentGym rollout returned empty batch. Skipping step.")
                             continue # Skip to next training batch
 
@@ -825,14 +823,41 @@ class RayPPOTrainer(object):
                             # Assuming run_llm_loop returns a batch with keys like 'input_ids', 'attention_mask'
                             # representing the full trajectory for each item
                             if 'input_ids' in final_gen_batch_output.batch:
+                                 # <<< FIX: Add micro_batch_size to meta_info before calling compute_log_prob >>>
+                                 logp_mbs = self.config.actor_rollout_ref.rollout.log_prob_micro_batch_size
+                                 final_gen_batch_output.meta_info['micro_batch_size'] = logp_mbs
+                                 # <<< FIX: Add temperature to meta_info >>>
+                                 temperature = self.config.actor_rollout_ref.rollout.temperature
+                                 final_gen_batch_output.meta_info['temperature'] = temperature
+                                 # <<< FIX: Add use_dynamic_bsz to meta_info >>>
+                                 use_dyn_bsz = self.config.actor_rollout_ref.rollout.log_prob_use_dynamic_bsz
+                                 final_gen_batch_output.meta_info['use_dynamic_bsz'] = use_dyn_bsz
+                                 # <<< END FIX >>>
                                  output_logp = self.actor_rollout_wg.compute_log_prob(final_gen_batch_output)
                                  final_gen_batch_output = final_gen_batch_output.union(output_logp)
                             else:
                                  print("[Trainer.fit] Warning: Cannot compute log probabilities, expected keys not found in rollout output.")
 
-                        # Merge rollout results back with original batch info
-                        # Be careful about overwriting vs. union
-                        batch = gen_batch.union(final_gen_batch_output) # Start with original gen_batch meta, add rollout results
+                        # Directly use the output from the rollout loop, as it should contain
+                        # the necessary tensors (full trajectory, rewards, etc.) and metadata.
+                        batch = final_gen_batch_output
+
+                        # --- FIX: Explicitly define token_level_scores before potential KL penalty ---
+                        if 'token_level_rewards' in batch.batch:
+                            # Assume score before KL penalty is the reward calculated by the agent
+                            batch.batch['token_level_scores'] = batch.batch['token_level_rewards'].clone()
+                        else:
+                            print("[Trainer.fit] Warning: 'token_level_rewards' not found in batch. Cannot create 'token_level_scores'. Assigning zeros.")
+                            # Handle error or assign zeros? Assigning zeros might be safer if KL penalty MUST run
+                            # Ensure input_ids exists before trying to get its shape/device
+                            if 'input_ids' in batch.batch:
+                                batch.batch['token_level_scores'] = torch.zeros_like(batch.batch['input_ids'], dtype=torch.float)
+                            else:
+                                # This case is problematic, log an error or handle differently
+                                print("[Trainer.fit] Error: Cannot create zero 'token_level_scores' because 'input_ids' is missing.")
+                                continue # Skip this problematic batch
+                        # --- END FIX ---
+
                         # Assign UID (can use index)
                         if 'idx' in batch.meta_info:
                             batch.non_tensor_batch['uid'] = batch.meta_info['idx'].tolist() # Use list of indices as UID
