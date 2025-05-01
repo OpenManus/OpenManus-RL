@@ -171,10 +171,15 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         if adv_estimator == 'gae':
             # Check if values field exists, which is required for GAE
             if 'values' not in data.batch:
-                print(f"[compute_advantage] WARNING: 'values' not found in batch, required for GAE. Falling back to GRPO estimator.")
+                # CHANGE: Throw an error instead of automatically falling back to GRPO
+                error_msg = "'values' not found in batch, required for GAE. Please ensure critic.compute_values is called before compute_advantage."
+                print(f"[compute_advantage][ERROR] {error_msg}")
+                raise ValueError(error_msg)
+                # Remove the automatic fallback code below
+                # print(f"[compute_advantage] WARNING: 'values' not found in batch, required for GAE. Falling back to GRPO estimator.")
                 # Fall back to GRPO estimator which doesn't require values
-                adv_estimator = 'grpo'
-                print(f"[compute_advantage] Switched to estimator: {adv_estimator}")
+                # adv_estimator = 'grpo'
+                # print(f"[compute_advantage] Switched to estimator: {adv_estimator}")
             else:
                 values = data.batch['values'] # Assume shape (batch_size, response_length), e.g., (4, 1000)
                 responses = data.batch['responses'] # Shape (batch_size, response_length), e.g., (4, 1000)
@@ -183,11 +188,19 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
 
                 response_length = responses.size(-1) # e.g., 1000
 
+                # Print shapes for debugging
+                print(f"[compute_advantage][GAE] Response length: {response_length}")
+                print(f"[compute_advantage][GAE] Values shape: {values.shape}")
+                print(f"[compute_advantage][GAE] Token level rewards shape: {token_level_rewards.shape}")
+                print(f"[compute_advantage][GAE] Attention mask shape: {attention_mask.shape}")
+
                 # --- FIX: Extract response-only parts for GAE calculation ---
                 # Rewards corresponding to the response part
                 response_rewards = token_level_rewards[:, -response_length:] # Shape (4, 1000)
                 # Values corresponding to the response part (already assumed to be this shape)
-                response_values = values # Shape (4, 1000)
+                # response_values = values # Shape (4, 1000) # Incorrect assumption, values is full length
+                # ---> FIX: Slice the values tensor to match the response length <---
+                response_values = values[:, -response_length:]
                 # Mask corresponding to the response part
                 response_eos_mask = attention_mask[:, -response_length:] # Shape (4, 1000)
                 # --- END FIX ---
@@ -195,7 +208,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
                 # Call GAE with aligned tensors
                 advantages_response, returns_response = core_algos.compute_gae_advantage_return(
                     token_level_rewards=response_rewards,
-                    values=response_values,
+                    values=response_values, # Pass the correctly sliced values
                     eos_mask=response_eos_mask,
                     gamma=gamma,
                     lam=lam
@@ -468,37 +481,37 @@ def _timer(name: str, timing_raw: Dict[str, float]):
 
 def get_safe_device(requested_device='cuda'):
     """
-    Safely determine a usable device (CUDA or CPU).
+    Get a torch device, with stricter error handling for CUDA availability.
     
     Args:
         requested_device: The preferred device, e.g., 'cuda', 'cuda:0', etc.
         
     Returns:
-        A torch device that is guaranteed to work.
+        A torch device that matches the requested device.
+        
+    Raises:
+        RuntimeError: If CUDA is requested but not available, or if a specific CUDA device is invalid.
     """
     import torch
-    # First check if CUDA is available at all
-    if 'cuda' in str(requested_device) and not torch.cuda.is_available():
-        print(f"WARNING: CUDA requested ({requested_device}) but is not available. Falling back to CPU.")
-        return torch.device('cpu')
     
-    # If a specific CUDA device is requested, make sure it exists
+    # Check if CUDA is available when requested
+    if 'cuda' in str(requested_device) and not torch.cuda.is_available():
+        raise RuntimeError(f"CUDA requested ({requested_device}) but CUDA is not available on this system.")
+    
+    # If requesting a specific CUDA device, verify it exists
     if str(requested_device).startswith('cuda:'):
         try:
             device_idx = int(str(requested_device).split(':')[1])
             if device_idx >= torch.cuda.device_count():
-                print(f"WARNING: CUDA device {device_idx} requested but only {torch.cuda.device_count()} devices available. Using device 0.")
-                return torch.device('cuda:0' if torch.cuda.device_count() > 0 else 'cpu')
-        except (ValueError, IndexError):
-            # If the format is invalid, fall back to default CUDA device
-            return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                raise RuntimeError(
+                    f"CUDA device {device_idx} requested but only {torch.cuda.device_count()} devices available. "
+                    f"Please specify a valid device index."
+                )
+        except ValueError:
+            raise RuntimeError(f"Invalid CUDA device format: {requested_device}. Use 'cuda:n' where n is an integer.")
     
-    # If we get here, the requested device should be valid
-    try:
-        return torch.device(requested_device)
-    except:
-        print(f"WARNING: Failed to use device {requested_device}, falling back to CPU.")
-        return torch.device('cpu')
+    # Return the requested device directly - no fallback to CPU
+    return torch.device(requested_device)
 
 
 class RayPPOTrainer(object):
@@ -508,17 +521,28 @@ class RayPPOTrainer(object):
 
     # TODO: support each role have individual ray_worker_group_cls,
     # i.e., support different backend of different role
-    def __init__(self,
-                 config,
-                 tokenizer,
-                 role_worker_mapping: dict[Role, WorkerType],
-                 resource_pool_manager: ResourcePoolManager,
-                 ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-                 reward_fn=None,
-                 val_reward_fn=None,
-                 reward_component_config: dict = None):
+    def __init__(
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        reward_fn=None,
+        val_reward_fn=None,
+        reward_component_config: dict = None):
 
-        # assert torch.cuda.is_available(), 'cuda must be available on driver'
+        # Restore CUDA availability check, but with more detailed error message
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "CUDA is not available but required for OpenManus-RL training. "
+                "Please check your GPU drivers and CUDA installation, or use a machine with GPU support."
+            )
+        else:
+            # Print CUDA info for debugging
+            print(f"[RayPPOTrainer.__init__] CUDA is available. Found {torch.cuda.device_count()} devices.")
+            for i in range(torch.cuda.device_count()):
+                print(f"  - GPU {i}: {torch.cuda.get_device_name(i)}")
 
         self.tokenizer = tokenizer
         self.config = config
@@ -985,6 +1009,8 @@ class RayPPOTrainer(object):
             print(f"[Trainer.init_workers] Critic mapped to pool '{resource_pool.name_prefix}'")
         elif self.config.algorithm.adv_estimator == 'grpo':
             self.use_critic = False
+            # <<< Add log here >>>
+            print(f"[Trainer.init_workers] adv_estimator is '{self.config.algorithm.adv_estimator}', setting self.use_critic = False")
         else:
             raise NotImplementedError
 
@@ -1149,6 +1175,8 @@ class RayPPOTrainer(object):
         # Get advantage estimator strategy
         adv_estimator = self.config.algorithm.adv_estimator
         print(f"[Trainer.fit] Using advantage estimator: {adv_estimator}")
+        # <<< Add log here >>>
+        print(f"[Trainer.fit] Value of self.use_critic at start of loop: {self.use_critic}")
         
         # 如果使用GRPO但仍然设置了use_critic为True，发出警告
         if adv_estimator == 'grpo' and self.use_critic:
@@ -1318,77 +1346,133 @@ class RayPPOTrainer(object):
                 self._balance_batch(batch, metrics=metrics)
                 print(f"[Trainer.fit][STEP {self.global_steps}] Batch balanced successfully")
 
-                # --- Calculate Advantages and Returns (for both GRPO and GAE) ---
-                print(f"[Trainer.fit][STEP {self.global_steps}] Computing advantages with estimator: {adv_estimator}")
-                with _timer('adv', timing_raw):
-                    try:
-                        # Now explicitly call compute_advantage with the current batch
-                        batch = compute_advantage(
-                            data=batch, 
-                            adv_estimator=adv_estimator,
-                            gamma=self.config.algorithm.get('gamma', 1.0),
-                            lam=self.config.algorithm.get('lambda', 1.0)
-                        )
-                        print(f"[Trainer.fit][STEP {self.global_steps}] Advantages computed successfully")
-                    except Exception as e:
-                        print(f"[Trainer.fit][STEP {self.global_steps}][ERROR] Failed to compute advantages: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        continue # Skip to next batch if advantage computation failed
+                # --- COMPLETELY RESTRUCTURED COMPUTATION FLOW ---
+                # Follow verl implementation pattern: First compute critic values, then compute advantages once
 
-                # --- Compute Critic Values (if needed for GAE) ---
+                # --- 1. Compute Critic Values (if needed for GAE) ---
                 if self.use_critic and adv_estimator == 'gae':
+                    print(f"[DEBUG] ****** COMPUTING CRITIC VALUES (Step: {self.global_steps}) ******")
                     print(f"[Trainer.fit][STEP {self.global_steps}] Computing critic values for GAE")
+                    print(f"[DEBUG] Before values computation, batch keys: {list(batch.batch.keys())}")
+                    
                     with _timer('compute_values', timing_raw):
                         try:
-                            # Ensure batch is on the correct device for the critic
-                            worker_device_info = self.critic_wg.get_worker_info() if hasattr(self.critic_wg, 'get_worker_info') else None
-                            requested_device = worker_device_info.get('device', 'cuda') if worker_device_info else 'cuda'
-                            target_device = get_safe_device(requested_device)
-                            critic_batch = batch.clone() if hasattr(batch, 'clone') else batch
+                            # Get worker info to determine the correct device
+                            worker_device_info = None
+                            if hasattr(self.critic_wg, 'get_worker_info') and callable(getattr(self.critic_wg, 'get_worker_info')):
+                                try:
+                                    worker_device_info = ray.get(self.critic_wg.get_worker_info.remote())
+                                    worker_device = worker_device_info.get('device', 'cuda')
+                                    print(f"[DEBUG] Critic worker device: {worker_device}")
+                                except Exception as e:
+                                    print(f"[WARNING] Failed to get worker device info: {e}")
+                                    worker_device = 'cuda' # Default to cuda if we can't get worker info
+                            else:
+                                worker_device = 'cuda' # Default to cuda
                             
-                            # Move tensors to target device if needed
-                            current_device = None
-                            if 'input_ids' in critic_batch.batch:
-                                current_device = critic_batch.batch['input_ids'].device
-                            if current_device is not None and str(current_device) != str(target_device):
-                                if hasattr(critic_batch, 'to') and callable(getattr(critic_batch, 'to')):
-                                    critic_batch = critic_batch.to(target_device)
-                                else:
-                                    for key in critic_batch.batch:
-                                        if isinstance(critic_batch.batch[key], torch.Tensor):
-                                            critic_batch.batch[key] = critic_batch.batch[key].to(target_device)
+                            # Check that tensors are on the correct device
+                            ref_tensor = None
+                            for key in ['input_ids', 'attention_mask', 'position_ids']:
+                                if key in batch.batch:
+                                    ref_tensor = batch.batch[key]
+                                    break
                             
-                            # Call the critic to compute values (make sure this function exists in your critic worker)
-                            values_output = self.critic_wg.compute_values(critic_batch)
+                            if ref_tensor is not None:
+                                current_device = ref_tensor.device
+                                print(f"[DEBUG] Current batch tensor device: {current_device}")
+                                
+                                # If not on CUDA, move to CUDA before sending to critic worker
+                                if 'cuda' not in str(current_device):
+                                    print(f"[DEBUG] Moving batch tensors from {current_device} to {worker_device}")
+                                    for key, tensor in batch.batch.items():
+                                        if isinstance(tensor, torch.Tensor):
+                                            batch.batch[key] = tensor.to(worker_device)
                             
-                            # Union the values with the original batch
-                            batch = batch.union(values_output)
-                            print(f"[Trainer.fit][STEP {self.global_steps}] Critic values computed successfully")
+                            # Call critic worker to compute values
+                            print(f"[DEBUG] Sending batch to critic_wg.compute_values...")
+                            values_output = self.critic_wg.compute_values(batch)
+                            
+                            # Check if values were returned correctly
+                            if 'values' in values_output.batch:
+                                values_tensor = values_output.batch['values']
+                                print(f"[DEBUG] Values computed successfully: shape={values_tensor.shape}, device={values_tensor.device}")
+                                
+                                # Directly assign values to batch (avoiding union operation)
+                                batch.batch['values'] = values_tensor.clone()  # Use clone for safety
+                                
+                                # Create a backup copy for safety
+                                self._values_backup = values_tensor.clone()
+                                print(f"[DEBUG] Values assigned to batch and backup created")
+                                print(f"[DEBUG] After values assignment, batch keys: {list(batch.batch.keys())}")
+                            else:
+                                raise ValueError("CriticWorker.compute_values did not return required 'values' field")
                         except Exception as e:
-                            print(f"[Trainer.fit][STEP {self.global_steps}][ERROR] Error computing critic values: {e}")
-                            print(f"[Trainer.fit][STEP {self.global_steps}][WARNING] Will fall back to GRPO for advantage estimation")
-                            # Fall back to GRPO if critic fails (we'll let compute_advantage handle the fallback)
+                            print(f"[ERROR] Failed to compute critic values: {e}")
                             import traceback
                             traceback.print_exc()
-                
-                # --- Calculate Advantages and Returns (for both GRPO and GAE) ---
+                            continue  # Skip to next batch if values computation failed
+
+                # --- 2. Compute Advantages (ONLY ONCE) ---
+                print(f"[DEBUG] ****** COMPUTING ADVANTAGES (Step: {self.global_steps}) ******")
                 print(f"[Trainer.fit][STEP {self.global_steps}] Computing advantages with estimator: {adv_estimator}")
+                print(f"[DEBUG] Before advantage computation, batch keys: {list(batch.batch.keys())}")
+                
+                # Safety check for GAE - ensure values are present
+                if self.use_critic and adv_estimator == 'gae' and 'values' not in batch.batch:
+                    if hasattr(self, '_values_backup'):
+                        print(f"[WARNING] Values key missing before advantage computation - restoring from backup")
+                        batch.batch['values'] = self._values_backup.clone()
+                    else:
+                        print(f"[ERROR] Values required for GAE but missing from batch and no backup available")
+                        continue  # Skip this batch
+                
+                # Get device for compute_advantage computation 
+                # (ideally should match the device of the batch tensors)
+                target_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+                
+                # Check if all tensors are on the same device
+                device_check = {}
+                for key, tensor in batch.batch.items():
+                    if isinstance(tensor, torch.Tensor):
+                        device_check[key] = tensor.device
+                
+                if len(set(str(dev) for dev in device_check.values())) > 1:
+                    print(f"[WARNING] Detected tensors on different devices: {device_check}")
+                    print(f"[DEBUG] Moving all tensors to {target_device} for consistent computation")
+                    
+                    # Move all tensors to the target device
+                    for key, tensor in batch.batch.items():
+                        if isinstance(tensor, torch.Tensor) and str(tensor.device) != str(target_device):
+                            batch.batch[key] = tensor.to(target_device)
+                
+                # Log key tensor devices for debugging
+                if 'values' in batch.batch:
+                    print(f"[DEBUG] Device for values: {batch.batch['values'].device}")
+                if 'token_level_rewards' in batch.batch:
+                    print(f"[DEBUG] Device for token_level_rewards: {batch.batch['token_level_rewards'].device}")
+                
                 with _timer('adv', timing_raw):
                     try:
-                        # Now explicitly call compute_advantage with the current batch
+                        # SINGLE advantage computation
                         batch = compute_advantage(
                             data=batch, 
                             adv_estimator=adv_estimator,
                             gamma=self.config.algorithm.get('gamma', 1.0),
                             lam=self.config.algorithm.get('lambda', 1.0)
                         )
-                        print(f"[Trainer.fit][STEP {self.global_steps}] Advantages computed successfully")
+                        print(f"[DEBUG] Advantages computed successfully")
+                        print(f"[DEBUG] After advantage computation, batch keys: {list(batch.batch.keys())}")
+                        
+                        # Check device of computed advantages
+                        if 'advantages' in batch.batch:
+                            print(f"[DEBUG] Device for advantages: {batch.batch['advantages'].device}")
+                        if 'returns' in batch.batch:
+                            print(f"[DEBUG] Device for returns: {batch.batch['returns'].device}")
                     except Exception as e:
-                        print(f"[Trainer.fit][STEP {self.global_steps}][ERROR] Failed to compute advantages: {e}")
+                        print(f"[ERROR] Failed to compute advantages: {e}")
                         import traceback
                         traceback.print_exc()
-                        continue # Skip to next batch if advantage computation failed
+                        continue  # Skip to next batch if advantage computation failed
 
                 # --- KL Penalty (if using reference policy) ---
                 if self.use_reference_policy and 'ref_log_prob' in batch.batch and 'old_log_probs' in batch.batch:
@@ -1414,16 +1498,30 @@ class RayPPOTrainer(object):
                         with _timer('update_critic', timing_raw):
                             print(f"[Trainer.fit][STEP {self.global_steps}] Calling critic_wg.update_critic...")
                             try:
-                                # REMOVED EXPLICIT DEVICE CHECK AND TRANSFER
-                                # Let the critic worker handle device placement internally
-                                critic_batch = batch # Pass the original batch
-
-                                # Check devices of advantages and returns (for logging only)
-                                adv_device = critic_batch.batch['advantages'].device
-                                returns_device = critic_batch.batch['returns'].device
-                                print(f"[CUDA DEBUG][STEP {self.global_steps}] Pre-critic tensor devices (data passed to worker): advantages={adv_device}, returns={returns_device}")
-
-                                critic_output = self.critic_wg.update_critic(critic_batch)
+                                # Get worker device info if available
+                                worker_device = 'cuda'
+                                try:
+                                    if hasattr(self.critic_wg, 'get_worker_info'):
+                                        worker_info = ray.get(self.critic_wg.get_worker_info.remote())
+                                        worker_device = worker_info.get('device', 'cuda')
+                                except Exception as e:
+                                    print(f"[WARNING] Failed to get critic worker device: {e}")
+                                
+                                # Check tensor devices before sending to update_critic
+                                adv_device = batch.batch['advantages'].device
+                                returns_device = batch.batch['returns'].device
+                                print(f"[DEBUG] Pre-critic update tensor devices: advantages={adv_device}, returns={returns_device}")
+                                
+                                # If not on the preferred device, move them
+                                if 'cuda' not in str(adv_device) or 'cuda' not in str(returns_device):
+                                    print(f"[DEBUG] Moving tensors to {worker_device} for critic update")
+                                    # Move essential tensors to the worker's device
+                                    for key in ['advantages', 'returns', 'values', 'input_ids', 'attention_mask', 'position_ids']:
+                                        if key in batch.batch:
+                                            batch.batch[key] = batch.batch[key].to(worker_device)
+                                
+                                # Call update_critic
+                                critic_output = self.critic_wg.update_critic(batch)
                                 critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
                                 metrics.update(critic_output_metrics)
                                 print(f"[Trainer.fit][STEP {self.global_steps}] Critic model updated successfully")

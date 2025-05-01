@@ -122,6 +122,11 @@ def main(config):
         # Use ray_init config if available, otherwise default
         num_cpus = config.get("ray_init", {}).get("num_cpus", None)
         print(f"Initializing Ray... Requesting num_cpus: {num_cpus}")
+        
+        # Get number of GPUs from config for Ray initialization
+        num_gpus = config.trainer.n_gpus_per_node
+        print(f"Requesting {num_gpus} GPU(s) for Ray initialization")
+        
         ray.init(
             runtime_env={'env_vars': {
                 'TOKENIZERS_PARALLELISM': 'true', 
@@ -129,13 +134,17 @@ def main(config):
                 'VLLM_LOGGING_LEVEL': 'WARN' # Added based on verl example
             }},
             num_cpus=num_cpus, # Pass num_cpus request
-            num_gpus=config.trainer.n_gpus_per_node
+            num_gpus=num_gpus  # Explicitly pass num_gpus
         )
-        print("Ray initialized.")
+        print(f"Ray initialized with resources: {ray.available_resources()}")
 
     # Create and run the TaskRunner actor
     print("Creating TaskRunner actor...")
-    runner = TaskRunner.remote()
+    
+    # Explicit GPU resource request for the TaskRunner actor
+    # This ensures the TaskRunner has access to GPUs
+    runner = TaskRunner.options(num_gpus=1).remote()
+    
     print("Calling TaskRunner.run...")
     ray.get(runner.run.remote(config))
     print("TaskRunner finished.")
