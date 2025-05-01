@@ -498,24 +498,9 @@ class DataProto:
 
         non_tensor_batch_lst = [{} for _ in range(chunks)]
         for key, val in self.non_tensor_batch.items():
-            if isinstance(val, np.ndarray):
-                # Original logic for numpy arrays
-                non_tensor_lst = np.array_split(val, chunks)
-            elif isinstance(val, list):
-                # Handle Python lists by splitting them
-                list_len = len(val)
-                # Ensure the list length is divisible by chunks for simplicity
-                # If not, this might require more complex logic to distribute remainder
-                if list_len % chunks != 0:
-                     print(f"[DataProto.chunk] Warning: List length {list_len} for key '{key}' is not divisible by {chunks}. Chunking might be uneven or fail.")
-                     # For now, proceed assuming it should work or raise error if strict division needed
-                chunk_size = list_len // chunks
-                non_tensor_lst = [val[i * chunk_size:(i + 1) * chunk_size] for i in range(chunks)]
-            else:
-                # Handle other unexpected types if necessary, or raise error
-                raise TypeError(f"Unsupported type '{type(val)}' found in non_tensor_batch for key '{key}'. Expected np.ndarray or list.")
-
-            assert len(non_tensor_lst) == chunks, f"Splitting failed for key '{key}'"
+            assert isinstance(val, np.ndarray)
+            non_tensor_lst = np.array_split(val, chunks)
+            assert len(non_tensor_lst) == chunks
             for i in range(chunks):
                 non_tensor_batch_lst[i][key] = non_tensor_lst[i]
 

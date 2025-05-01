@@ -130,10 +130,14 @@ class ActorRolloutRefWorker(Worker):
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
 
         torch_dtype = fsdp_config.get('model_dtype', None)
+        if torch_dtype is None and hasattr(self.config, 'model') and hasattr(self.config.model, 'torch_dtype'):
+            torch_dtype = self.config.model.torch_dtype
+            print(f"[ActorRolloutRefWorker] Using torch_dtype from model config: {torch_dtype}")
         if torch_dtype is None:
             torch_dtype = torch.float32 if self._is_actor else torch.bfloat16
         else:
             torch_dtype = PrecisionType.to_dtype(torch_dtype)
+        print(f"[ActorRolloutRefWorker] Final torch_dtype: {torch_dtype}")
 
         # override model kwargs
         actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
@@ -244,6 +248,28 @@ class ActorRolloutRefWorker(Worker):
             actor_lr_scheduler = None
 
         log_gpu_memory_usage('After actor optimizer init', logger=logger)
+
+        # After model creation but before FSDP wrapping, explicitly move model to GPU if CUDA is available
+        if torch.cuda.is_available():
+            try:
+                # Check if torch_dtype is specified in the config
+                torch_dtype_str = fsdp_config.get("torch_dtype", "bfloat16")
+                if torch_dtype_str == "bfloat16":
+                    torch_dtype = torch.bfloat16
+                elif torch_dtype_str == "float16":
+                    torch_dtype = torch.float16
+                else:
+                    torch_dtype = torch.float32
+                    
+                print(f"[ActorRolloutRefWorker._build_model_optimizer] Moving model to CUDA with dtype={torch_dtype}")
+                # Explicitly move model to CUDA to satisfy Flash Attention 2.0 requirements
+                actor_module_fsdp._fsdp_wrapped_module = actor_module_fsdp._fsdp_wrapped_module.to(device="cuda", dtype=torch_dtype)
+            except Exception as e:
+                print(f"[ActorRolloutRefWorker._build_model_optimizer] ERROR moving model to CUDA: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print(f"[ActorRolloutRefWorker._build_model_optimizer] WARNING: CUDA not available, Flash Attention 2.0 will not work")
 
         return actor_module_fsdp, actor_optimizer, actor_lr_scheduler, actor_model_config
 
@@ -593,8 +619,18 @@ class CriticWorker(Worker):
         if self.rank == 0:
             print(f'Critic overriding config {override_config_kwargs}')
 
-        torch_dtype = self.config.model.fsdp_config.get('model_dtype', 'fp32')
+        # <<< 检查并使用 model.torch_dtype >>>
+        # 首先检查是否在 config.model 中直接指定了 torch_dtype
+        if hasattr(config.model, 'torch_dtype'):
+            torch_dtype = config.model.torch_dtype
+            print(f"[CriticWorker] Using torch_dtype from model config: {torch_dtype}")
+        else:
+            # 如果没有，回退到检查 fsdp_config 中的 model_dtype
+            torch_dtype = self.config.model.fsdp_config.get('model_dtype', 'bf16')  # 改为默认 bf16 而非 fp32
+            print(f"[CriticWorker] Using model_dtype from fsdp_config: {torch_dtype}")
+        
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
+        print(f"[CriticWorker] Final torch_dtype: {torch_dtype}")
 
         from transformers import AutoConfig, AutoModelForTokenClassification
         from torch import nn
@@ -720,7 +756,7 @@ class CriticWorker(Worker):
             output = DataProto.from_dict(tensors={'values': values})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
-        output = output.to('cpu')
+        # output = output.to('cpu')
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
         torch.cuda.empty_cache()
@@ -854,15 +890,26 @@ class RewardModelWorker(Worker):
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings)
 
+        # <<< 检查并使用 model.torch_dtype >>>
+        if hasattr(config.model, 'torch_dtype'):
+            torch_dtype = config.model.torch_dtype
+            print(f"[RewardModelWorker] Using torch_dtype from model config: {torch_dtype}")
+            torch_dtype = PrecisionType.to_dtype(torch_dtype)
+        else:
+            # 默认使用 bfloat16 以符合 Flash Attention 2.0 的要求
+            torch_dtype = torch.bfloat16
+            print(f"[RewardModelWorker] Using default torch_dtype: bfloat16")
+
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             setattr(model_config, 'classifier_dropout', 0.)
             reward_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
                                                                             config=model_config,
-                                                                            torch_dtype=torch.bfloat16,
+                                                                            torch_dtype=torch_dtype,
                                                                             attn_implementation='flash_attention_2',
                                                                             trust_remote_code=trust_remote_code)
-            reward_module.to(torch.bfloat16)
+            reward_module.to(torch_dtype)
+
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
 
         reward_module = FSDP(

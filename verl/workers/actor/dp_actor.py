@@ -32,6 +32,7 @@ from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 import verl.utils.torch_functional as verl_F
 
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
+import tensordict
 
 __all__ = ['DataParallelPPOActor']
 
@@ -176,26 +177,74 @@ class DataParallelPPOActor(BasePPOActor):
         use_dynamic_bsz = data.meta_info['use_dynamic_bsz']
 
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
+        
+        # --- DEBUG: Log device before select ---
+        original_device = 'Unknown'
+        if 'input_ids' in data.batch:
+            original_device = data.batch['input_ids'].device
+        print(f"[DP_Actor.compute_log_prob] Original data device: {original_device}")
+            
         batch = data.select(batch_keys=select_keys).batch
+        
+        # --- DEBUG: Log device after select ---
+        select_device = 'Unknown'
+        if 'input_ids' in batch:
+            select_device = batch['input_ids'].device
+        print(f"[DP_Actor.compute_log_prob] Device after select: {select_device}")
+            
+        # Move data to CPU for splitting
+        print(f"[DP_Actor.compute_log_prob] Moving batch to CPU before split")
+        batch_cpu_dict = {k: v.to('cpu') if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        batch_cpu = tensordict.TensorDict(source=batch_cpu_dict, batch_size=batch.batch_size)
+        print(f"[DP_Actor.compute_log_prob] Created TensorDict on CPU with batch_size={batch_cpu.batch_size}")
 
         if use_dynamic_bsz:
             # split using dynamic bsz
             max_token_len = data.meta_info['max_token_len'] * self.ulysses_sequence_parallel_size
-            micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+            print(f"[DP_Actor.compute_log_prob] Using dynamic batch size with max_token_len={max_token_len}")
+            micro_batches, indices = rearrange_micro_batches(batch=batch_cpu, max_token_len=max_token_len)
         else:
-            micro_batches = batch.split(micro_batch_size)
+            print(f"[DP_Actor.compute_log_prob] Using fixed batch size with micro_batch_size={micro_batch_size}")
+            micro_batches = batch_cpu.split(micro_batch_size)
 
         log_probs_lst = []
-        for micro_batch in micro_batches:
+        for mb_idx, micro_batch in enumerate(micro_batches):
+            # --- DEBUG: Log micro_batch device before moving to CUDA ---
+            mb_device = 'Unknown'
+            if 'input_ids' in micro_batch:
+                mb_device = micro_batch['input_ids'].device
+            print(f"[DP_Actor.compute_log_prob] Micro-batch {mb_idx} device before potential CUDA move: {mb_device}")
+            
+            # Conditionally move to CUDA if available
+            target_device = torch.device(f'cuda:{torch.cuda.current_device()}') if torch.cuda.is_available() else torch.device('cpu')
+            needs_move = False
+            if 'input_ids' in micro_batch:
+                if micro_batch['input_ids'].device != target_device:
+                    needs_move = True
+            
+            if needs_move and torch.cuda.is_available():
+                print(f"[DP_Actor.compute_log_prob] Moving micro-batch {mb_idx} to {target_device}")
+                micro_batch = micro_batch.to(target_device)
+                # --- DEBUG: Log micro_batch device after moving to CUDA ---
+                after_device = 'Unknown'
+                if 'input_ids' in micro_batch:
+                    after_device = micro_batch['input_ids'].device
+                print(f"[DP_Actor.compute_log_prob] Micro-batch {mb_idx} device after move: {after_device}")
+            
             with torch.no_grad():
                 _, log_probs = self._forward_micro_batch(micro_batch, temperature=temperature)
+                # --- DEBUG: Log log_probs device ---
+                print(f"[DP_Actor.compute_log_prob] Log probs device for micro-batch {mb_idx}: {log_probs.device}")
             log_probs_lst.append(log_probs)
+            
+        print(f"[DP_Actor.compute_log_prob] Concatenating {len(log_probs_lst)} micro-batches")
         log_probs = torch.concat(log_probs_lst, dim=0)
+        print(f"[DP_Actor.compute_log_prob] Concatenated log_probs device: {log_probs.device}")
 
         if use_dynamic_bsz:
             indices = list(itertools.chain.from_iterable(indices))
             assert len(indices) == log_probs.size(0), f"{len(indices)} vs. {log_probs.size()}"
-            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long, device=log_probs.device)
             log_probs = log_probs[revert_indices]
 
         return log_probs
@@ -214,13 +263,33 @@ class DataParallelPPOActor(BasePPOActor):
         if self.config.use_kl_loss:
             select_keys.append('ref_log_prob')
         batch = data.select(batch_keys=select_keys).batch
+        
+        # --- DEBUG and FIX: Log device information and move data to CPU before split ---
+        print(f"[DP_Actor.update_policy] Moving batch to CPU before split")
+        batch_device = 'Unknown'
+        if 'input_ids' in batch:
+            batch_device = batch['input_ids'].device
+        print(f"[DP_Actor.update_policy] Device BEFORE move to CPU: {batch_device}")
+        
+        # Fix: First create a dictionary with CPU tensors, then create a TensorDict
+        batch_cpu_dict = {k: v.to('cpu') if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        batch_cpu = tensordict.TensorDict(source=batch_cpu_dict, batch_size=batch.batch_size)
+        print(f"[DP_Actor.update_policy] Created TensorDict on CPU with batch_size={batch_cpu.batch_size}")
 
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
-        dataloader = batch.split(self.config.ppo_mini_batch_size)
+        print(f"[DP_Actor.update_policy] Device for split: cpu")
+        dataloader = batch_cpu.split(self.config.ppo_mini_batch_size)
+        print(f"[DP_Actor.update_policy] Dataloader created after split")
 
         metrics = {}
         for batch_idx, data in enumerate(dataloader):
+            # --- DEBUG: Log mini-batch device ---
+            mb_device = 'Unknown'
+            if 'input_ids' in data:
+                mb_device = data['input_ids'].device
+            print(f"[DP_Actor.update_policy] Mini-batch {batch_idx} device: {mb_device}")
+            
             # split batch into micro_batches
             mini_batch = data
             if self.config.use_dynamic_bsz:
@@ -232,8 +301,25 @@ class DataParallelPPOActor(BasePPOActor):
 
             self.actor_optimizer.zero_grad()
 
-            for data in micro_batches:
-                data = data.cuda()  # actor device is cpu when using offload
+            for micro_batch_idx, data in enumerate(micro_batches):
+                # --- DEBUG: Log micro-batch device before moving to CUDA ---
+                before_cuda_device = 'Unknown'
+                if 'input_ids' in data:
+                    before_cuda_device = data['input_ids'].device
+                print(f"[DP_Actor.update_policy] Micro-batch {batch_idx}-{micro_batch_idx} device BEFORE .cuda(): {before_cuda_device}")
+                
+                # Conditionally move data to CUDA
+                if torch.cuda.is_available():
+                    data = data.cuda()  # actor device is cpu when using offload
+                    
+                    # --- DEBUG: Log micro-batch device after moving to CUDA ---
+                    after_cuda_device = 'Unknown'
+                    if 'input_ids' in data:
+                        after_cuda_device = data['input_ids'].device
+                    print(f"[DP_Actor.update_policy] Micro-batch {batch_idx}-{micro_batch_idx} device AFTER .cuda(): {after_cuda_device}")
+                else:
+                    print(f"[DP_Actor.update_policy] CUDA not available, staying on CPU")
+                
                 responses = data['responses']
                 response_length = responses.size(1)
                 attention_mask = data['attention_mask']
