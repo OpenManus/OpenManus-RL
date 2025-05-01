@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Configuration (defaults, can be overridden via env vars) ---
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-2,6,7,8}
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,6,7,8}
 WAND_PROJECT=${WAND_PROJECT:-'OpenManus-rl'}
 export BASE_MODEL=${BASE_MODEL:-'Qwen/Qwen2.5-3B'}
 AGENTGYM_HOST=${AGENTGYM_HOST:-'0.0.0.0'} # Default to 0.0.0.0 for external access
@@ -301,6 +301,7 @@ hydra_overrides=(
     "actor_rollout_ref.actor.fsdp_config.param_offload=true"
     "actor_rollout_ref.actor.fsdp_config.grad_offload=true"
     "actor_rollout_ref.actor.fsdp_config.optimizer_offload=true"
+    "+actor_rollout_ref.model.torch_dtype=bfloat16"
     "actor_rollout_ref.rollout.log_prob_micro_batch_size=128"
     "actor_rollout_ref.rollout.tensor_model_parallel_size=1"
     "actor_rollout_ref.rollout.name=vllm"
@@ -319,6 +320,7 @@ hydra_overrides=(
     "critic.model.fsdp_config.param_offload=true"
     "critic.model.fsdp_config.grad_offload=true"
     "critic.model.fsdp_config.optimizer_offload=true"
+    "+critic.model.torch_dtype=bfloat16"
     "algorithm.kl_ctrl.kl_coef=0.001"
     "algorithm.no_think_rl=false"
     "algorithm.reward_score_fn=agentgym"

@@ -23,6 +23,9 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 import re
 import numpy as np
 from omegaconf import OmegaConf
+import ray
+import hydra
+import os
 
 def _select_rm_score_fn(data_source):
     # 定义已知的AgentGym环境列表
@@ -110,133 +113,185 @@ class RewardManager():
         return reward_tensor
 
 
-import ray
-import hydra
-
-
 @hydra.main(config_path='config', config_name='ppo_trainer', version_base=None)
 def main(config):
+    # Based on verl/verl/trainer/main_ppo.py
+    # Ensure necessary env vars for potential conflicts
+    os.environ["ENSURE_CUDA_VISIBLE_DEVICES"] = os.environ.get("CUDA_VISIBLE_DEVICES", "0,6,7,8")
     if not ray.is_initialized():
-        # this is for local ray cluster
-        ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
+        # Use ray_init config if available, otherwise default
+        num_cpus = config.get("ray_init", {}).get("num_cpus", None)
+        print(f"Initializing Ray... Requesting num_cpus: {num_cpus}")
+        ray.init(
+            runtime_env={'env_vars': {
+                'TOKENIZERS_PARALLELISM': 'true', 
+                'NCCL_DEBUG': 'WARN', 
+                'VLLM_LOGGING_LEVEL': 'WARN' # Added based on verl example
+            }},
+            num_cpus=num_cpus, # Pass num_cpus request
+            num_gpus=config.trainer.n_gpus_per_node
+        )
+        print("Ray initialized.")
 
-    ray.get(main_task.remote(config))
+    # Create and run the TaskRunner actor
+    print("Creating TaskRunner actor...")
+    runner = TaskRunner.remote()
+    print("Calling TaskRunner.run...")
+    ray.get(runner.run.remote(config))
+    print("TaskRunner finished.")
 
+# Define the TaskRunner Actor based on verl/verl structure
+@ray.remote(num_cpus=1) # Request only 1 CPU for the runner itself
+class TaskRunner:
+    def run(self, config):
+        print(f"TaskRunner.run started in PID: {os.getpid()}, Host: {os.uname()[1]}")
+        from verl.utils.fs import copy_local_path_from_hdfs # Keep relevant imports inside
+        from transformers import AutoTokenizer
+        from pprint import pprint
 
-@ray.remote
-def main_task(config):
-    from verl.utils.fs import copy_local_path_from_hdfs
-    from transformers import AutoTokenizer
+        # print initial config
+        print("--- Initial Config (Resolved) ---")
+        pprint(OmegaConf.to_container(config, resolve=True))
+        print("---------------------------------")
+        # Ensure config is fully resolved for subsequent use
+        OmegaConf.resolve(config)
 
-    # print initial config
-    from pprint import pprint
-    pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
-    OmegaConf.resolve(config)
+        # download the checkpoint from hdfs
+        print(f"Copying model from {config.actor_rollout_ref.model.path}...")
+        local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
+        print(f"Model copied to local path: {local_path}")
 
-    # env_class = ENV_CLASS_MAPPING[config.env.name]
+        # instantiate tokenizer
+        print(f"Loading tokenizer from {local_path}...")
+        from verl.utils import hf_tokenizer
+        tokenizer = hf_tokenizer(local_path)
+        print("Tokenizer loaded.")
 
-    # download the checkpoint from hdfs
-    local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
+        # define worker classes based on strategy
+        print(f"Determining worker strategy: {config.actor_rollout_ref.actor.strategy}")
+        if config.actor_rollout_ref.actor.strategy == 'fsdp':
+            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+            from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
+            from verl.single_controller.ray import RayWorkerGroup
+            ray_worker_group_cls = RayWorkerGroup
+            actor_rollout_cls = ActorRolloutRefWorker # Assuming non-async for OpenManus
+            print("Using FSDP workers.")
 
-    # instantiate tokenizer
-    from verl.utils import hf_tokenizer
-    tokenizer = hf_tokenizer(local_path)
+        elif config.actor_rollout_ref.actor.strategy == 'megatron':
+            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+            from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
+            from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
+            ray_worker_group_cls = NVMegatronRayWorkerGroup
+            actor_rollout_cls = ActorRolloutRefWorker
+            print("Using Megatron workers.")
+        else:
+            raise NotImplementedError(f"Unsupported strategy: {config.actor_rollout_ref.actor.strategy}")
 
-    # define worker classes
-    if config.actor_rollout_ref.actor.strategy == 'fsdp':
-        assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-        from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
-        from verl.single_controller.ray import RayWorkerGroup
-        ray_worker_group_cls = RayWorkerGroup
+        from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role, RayPPOTrainer # Import RayPPOTrainer here
 
-    elif config.actor_rollout_ref.actor.strategy == 'megatron':
-        assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-        from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
-        from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
-        ray_worker_group_cls = NVMegatronRayWorkerGroup
+        # Define base role mapping
+        role_worker_mapping = {
+            # Use the determined actor_rollout_cls
+            Role.ActorRollout: ray.remote(actor_rollout_cls),
+            Role.Critic: ray.remote(CriticWorker),
+        }
+        print(f"Base role mapping created: {list(role_worker_mapping.keys())}")
 
-    else:
-        raise NotImplementedError
+        global_pool_id = 'global_pool'
+        resource_pool_spec = {
+            global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
+        }
+        mapping = {
+            Role.ActorRollout: global_pool_id,
+            Role.Critic: global_pool_id,
+        }
+        print(f"Resource pool spec: {resource_pool_spec}")
+        print(f"Initial mapping: {mapping}")
 
-    from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
+        # --- Conditionally Add RefPolicy and RewardModel --- 
+        # Use reference model if KL penalty is applied in either way
+        # Adjusted logic to match verl/verl structure more closely
+        use_kl_in_reward = config.algorithm.get('use_kl_in_reward', False) # Default to False if not present
+        use_kl_loss = config.actor_rollout_ref.actor.get('use_kl_loss', False) # Default to False if not present
+        if use_kl_in_reward or use_kl_loss:
+            print("KL penalty enabled, adding RefPolicy worker.")
+            # RefPolicy typically uses the same base class as ActorRollout
+            role_worker_mapping[Role.RefPolicy] = ray.remote(actor_rollout_cls)
+            mapping[Role.RefPolicy] = global_pool_id
+        else:
+            print("KL penalty not enabled, skipping RefPolicy worker.")
 
-    role_worker_mapping = {
-        Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
-        Role.Critic: ray.remote(CriticWorker),
-        Role.RefPolicy: ray.remote(ActorRolloutRefWorker),
-    }
+        # Setup RewardModel worker if enabled
+        if config.reward_model.enable:
+            print("RewardModel enabled, setting up worker.")
+            # Determine RewardModelWorker class based on strategy (similar to verl/verl)
+            if config.reward_model.strategy == 'fsdp':
+                 from verl.workers.fsdp_workers import RewardModelWorker
+                 print("Using FSDP RewardModelWorker.")
+            elif config.reward_model.strategy == 'megatron':
+                 from verl.workers.megatron_workers import RewardModelWorker
+                 print("Using Megatron RewardModelWorker.")
+            else:
+                raise NotImplementedError(f"Unsupported reward_model strategy: {config.reward_model.strategy}")
+            role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+            mapping[Role.RewardModel] = global_pool_id
+        else:
+             print("RewardModel not enabled, skipping worker setup.")
 
-    global_pool_id = 'global_pool'
-    resource_pool_spec = {
-        global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
-    }
-    mapping = {
-        Role.ActorRollout: global_pool_id,
-        Role.Critic: global_pool_id,
-        Role.RefPolicy: global_pool_id,
-    }
+        # --- Reward Function/Composer Setup --- 
+        reward_fn = None
+        val_reward_fn = None
+        reward_component_config = {}
 
-    # --- Conditionally Define Reward Functions ---
-    reward_fn = None
-    val_reward_fn = None
+        # Define known AgentGym environments (mirroring agentgym.py or train_ppo.sh)
+        KNOWN_AGENTGYM_ENVS = [
+            "webshop", "webarena", "maze", "wordle", "alfworld",
+            "sciworld", "babyai", "textcraft", "weather", "movie",
+            "academia", "todo", "sheet", "sqlgym"
+        ]
+        is_agentgym_run = config.data.env_name in KNOWN_AGENTGYM_ENVS
 
-    # Define known AgentGym environments (mirroring agentgym.py or train_ppo.sh)
-    KNOWN_AGENTGYM_ENVS = [
-        "webshop", "webarena", "maze", "wordle", "alfworld",
-        "sciworld", "babyai", "textcraft", "weather", "movie",
-        "academia", "todo", "sheet", "sqlgym"
-    ]
-    is_agentgym_run = config.data.env_name in KNOWN_AGENTGYM_ENVS
+        # Load reward components config
+        reward_component_config = OmegaConf.to_container(
+            config.algorithm.get('reward_components', {}), resolve=True
+        )
+        print(f"Reward component configuration: {reward_component_config}")
 
-    # --- Get Reward Component Configuration --- 
-    # Safely get the reward components config, default to empty dict if not present
-    reward_component_config = OmegaConf.to_container(
-        config.algorithm.get('reward_components', {}), # Use .get for safety
-        resolve=True
-    )
-    print(f"[main_task] Reward component configuration: {reward_component_config}")
+        # Initialize RewardManager only if NOT an AgentGym run AND if RewardManager class exists
+        if not is_agentgym_run:
+            print("Not an AgentGym run. Attempting to load RewardManager (if defined)...")
+            try:
+                 # Assuming RewardManager is defined globally or imported elsewhere
+                 from verl.trainer.ppo.ray_trainer import RewardManager # Or adjust import path
+                 reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0, format_score=config.get('format_score', 0.))
+                 val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=1, format_score=config.get('format_score', 0.))
+                 print("RewardManager loaded for train and validation.")
+            except (ImportError, NameError):
+                 print("RewardManager class not found or import failed. Skipping RewardManager setup.")
+                 pass # reward_fn and val_reward_fn remain None
+        else:
+             print("AgentGym run detected. Skipping RewardManager setup (RewardComposer will be used).")
 
-    # --- Initialize RewardManager (if needed, e.g., for non-AgentGym) ---
-    # Decide if RewardManager is still needed. With RewardComposer, its role might change
-    # or become obsolete if all scoring is handled by components.
-    # For now, let's assume it might still be used for specific datasets.
-    if not is_agentgym_run:
-        print("[main_task] Initializing RewardManager for non-AgentGym run.")
-        try:
-            # Pass reward_component_config to RewardManager if it needs it
-            reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0, format_score=config.get('format_score', 0.))
-            val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=1, format_score=config.get('format_score', 0.))
-        except NameError:
-             print("[main_task] Error: RewardManager class not defined. Skipping.")
-             pass # reward_fn and val_reward_fn remain None
-
-    # --- Setup RewardModel worker (if needed) ---
-    # This logic remains largely the same, depends on reward_model.enable config
-    if config.reward_model.enable:
-         print("[main_task] Setting up RewardModel worker.")
-         # ... (rest of the RewardModel setup logic) ...
-         # if config.reward_model.strategy == 'fsdp':
-         #    from verl.workers.fsdp_workers import RewardModelWorker
-         # ... etc ...
-         # role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
-         # mapping[Role.RewardModel] = global_pool_id
-    else:
-        print(f"[main_task] AgentGym run ({config.data.env_name}) or RewardModel not enabled. Skipping RewardManager/RewardModel worker setup.")
-
-    # --- Initialize Trainer --- 
-    resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
-    trainer = RayPPOTrainer(config=config,
-                            tokenizer=tokenizer,
-                            role_worker_mapping=role_worker_mapping,
-                            resource_pool_manager=resource_pool_manager,
-                            ray_worker_group_cls=ray_worker_group_cls,
-                            reward_fn=reward_fn, # Pass potentially None
-                            val_reward_fn=val_reward_fn, # Pass potentially None
-                            reward_component_config=reward_component_config, # Pass the parsed config
-                            )
-    trainer.init_workers()
-    trainer.fit()
-
+        # --- Initialize Trainer --- 
+        print("Initializing ResourcePoolManager...")
+        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
+        print("Initializing RayPPOTrainer...")
+        trainer = RayPPOTrainer(
+            config=config,
+            tokenizer=tokenizer,
+            # processor=processor, # Add processor if/when needed for multimodal
+            role_worker_mapping=role_worker_mapping,
+            resource_pool_manager=resource_pool_manager,
+            ray_worker_group_cls=ray_worker_group_cls,
+            reward_fn=reward_fn, # Pass potentially None
+            val_reward_fn=val_reward_fn, # Pass potentially None
+            reward_component_config=reward_component_config, # Pass the parsed config
+        )
+        print("RayPPOTrainer initialized. Initializing workers...")
+        trainer.init_workers()
+        print("Workers initialized. Starting training loop (trainer.fit())...")
+        trainer.fit()
+        print("Trainer finished.")
 
 if __name__ == '__main__':
     main()
