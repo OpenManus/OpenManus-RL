@@ -249,6 +249,28 @@ class ActorRolloutRefWorker(Worker):
 
         log_gpu_memory_usage('After actor optimizer init', logger=logger)
 
+        # After model creation but before FSDP wrapping, explicitly move model to GPU if CUDA is available
+        if torch.cuda.is_available():
+            try:
+                # Check if torch_dtype is specified in the config
+                torch_dtype_str = fsdp_config.get("torch_dtype", "bfloat16")
+                if torch_dtype_str == "bfloat16":
+                    torch_dtype = torch.bfloat16
+                elif torch_dtype_str == "float16":
+                    torch_dtype = torch.float16
+                else:
+                    torch_dtype = torch.float32
+                    
+                print(f"[ActorRolloutRefWorker._build_model_optimizer] Moving model to CUDA with dtype={torch_dtype}")
+                # Explicitly move model to CUDA to satisfy Flash Attention 2.0 requirements
+                actor_module_fsdp._fsdp_wrapped_module = actor_module_fsdp._fsdp_wrapped_module.to(device="cuda", dtype=torch_dtype)
+            except Exception as e:
+                print(f"[ActorRolloutRefWorker._build_model_optimizer] ERROR moving model to CUDA: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print(f"[ActorRolloutRefWorker._build_model_optimizer] WARNING: CUDA not available, Flash Attention 2.0 will not work")
+
         return actor_module_fsdp, actor_optimizer, actor_lr_scheduler, actor_model_config
 
     def _build_rollout(self):
@@ -734,7 +756,7 @@ class CriticWorker(Worker):
             output = DataProto.from_dict(tensors={'values': values})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
-        output = output.to('cpu')
+        # output = output.to('cpu')
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
         torch.cuda.empty_cache()

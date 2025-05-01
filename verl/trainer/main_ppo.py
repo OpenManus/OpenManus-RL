@@ -116,44 +116,91 @@ class RewardManager():
 @hydra.main(config_path='config', config_name='ppo_trainer', version_base=None)
 def main(config):
     # Based on verl/verl/trainer/main_ppo.py
-    # Ensure necessary env vars for potential conflicts
-    os.environ["ENSURE_CUDA_VISIBLE_DEVICES"] = os.environ.get("CUDA_VISIBLE_DEVICES", "0,6,7,8")
+    # Save original CUDA_VISIBLE_DEVICES for diagnostics
+    import os, torch, ray
+    original_cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    
+    # Ensure necessary env vars for potential conflicts are preserved
+    os.environ["ENSURE_CUDA_VISIBLE_DEVICES"] = original_cuda_visible
+    
+    # Print CUDA environment before ray init
+    print(f"[main] Before Ray init - CUDA available: {torch.cuda.is_available()}")
+    print(f"[main] CUDA_VISIBLE_DEVICES: {original_cuda_visible}")
+    if torch.cuda.is_available():
+        device_count = torch.cuda.device_count()
+        print(f"[main] Device count: {device_count}")
+        for i in range(device_count):
+            print(f"[main] Device {i}: {torch.cuda.get_device_name(i)}")
+    
     if not ray.is_initialized():
         # Use ray_init config if available, otherwise default
         num_cpus = config.get("ray_init", {}).get("num_cpus", None)
-        print(f"Initializing Ray... Requesting num_cpus: {num_cpus}")
         
         # Get number of GPUs from config for Ray initialization
         num_gpus = config.trainer.n_gpus_per_node
-        print(f"Requesting {num_gpus} GPU(s) for Ray initialization")
+        print(f"[main] Initializing Ray... Requesting {num_cpus} CPUs and {num_gpus} GPUs")
         
-        ray.init(
-            runtime_env={'env_vars': {
+        # Create explicit runtime_env that preserves CUDA_VISIBLE_DEVICES
+        runtime_env = {
+            'env_vars': {
                 'TOKENIZERS_PARALLELISM': 'true', 
                 'NCCL_DEBUG': 'WARN', 
-                'VLLM_LOGGING_LEVEL': 'WARN' # Added based on verl example
-            }},
-            num_cpus=num_cpus, # Pass num_cpus request
-            num_gpus=num_gpus  # Explicitly pass num_gpus
+                'VLLM_LOGGING_LEVEL': 'WARN',
+                # Explicitly propagate the original CUDA_VISIBLE_DEVICES
+                'CUDA_VISIBLE_DEVICES': original_cuda_visible
+            }
+        }
+        
+        # Initialize Ray with explicit runtime environment
+        ray.init(
+            runtime_env=runtime_env,
+            num_cpus=num_cpus, 
+            num_gpus=num_gpus
         )
-        print(f"Ray initialized with resources: {ray.available_resources()}")
+        
+        # Verify Ray's resource allocation
+        print(f"[main] Ray initialized with resources: {ray.available_resources()}")
+        print(f"[main] Ray runtime_env: {ray.get_runtime_context().runtime_env}")
 
     # Create and run the TaskRunner actor
-    print("Creating TaskRunner actor...")
+    print("[main] Creating TaskRunner actor...")
     
-    # Explicit GPU resource request for the TaskRunner actor
-    # This ensures the TaskRunner has access to GPUs
-    runner = TaskRunner.options(num_gpus=1).remote()
+    # IMPORTANT: REMOVE the explicit GPU request for TaskRunner.
+    # It only needs CPU for orchestration. GPUs are for worker groups.
+    # Original line: runner = TaskRunner.options(num_gpus=1).remote()
+    runner = TaskRunner.remote() # TaskRunner itself does not need a GPU
     
-    print("Calling TaskRunner.run...")
+    print("[main] Calling TaskRunner.run...")
     ray.get(runner.run.remote(config))
-    print("TaskRunner finished.")
+    print("[main] TaskRunner finished.")
 
 # Define the TaskRunner Actor based on verl/verl structure
-@ray.remote(num_cpus=1) # Request only 1 CPU for the runner itself
+@ray.remote(num_cpus=1)  # Base configuration, but we'll use .options() to add GPUs
 class TaskRunner:
     def run(self, config):
+        import torch, os, sys
+        print(f"\n{'='*40}")
         print(f"TaskRunner.run started in PID: {os.getpid()}, Host: {os.uname()[1]}")
+        print(f"Python executable: {sys.executable}")
+        print(f"CUDA debug info in TaskRunner.run:")
+        print(f"  CUDA_VISIBLE_DEVICES = {os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')}")
+        print(f"  torch.cuda.is_available() = {torch.cuda.is_available()}")
+        print(f"  torch.cuda.device_count() = {torch.cuda.device_count()}")
+        if torch.cuda.is_available():
+            for i in range(torch.cuda.device_count()):
+                print(f"  Device {i}: {torch.cuda.get_device_name(i)}")
+                # Print memory info
+                try:
+                    free_mem, total_mem = torch.cuda.mem_get_info(i)
+                    free_gb = free_mem / (1024**3)
+                    total_gb = total_mem / (1024**3)
+                    print(f"  - GPU {i} Memory: {free_gb:.2f}GB free / {total_gb:.2f}GB total")
+                except:
+                    print("  - Memory info not available for this device")
+        else:
+            print("  CRITICAL: No CUDA devices visible to TaskRunner!")
+        print(f"{'='*40}\n")
+        
         from verl.utils.fs import copy_local_path_from_hdfs # Keep relevant imports inside
         from transformers import AutoTokenizer
         from pprint import pprint

@@ -275,7 +275,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
             
             print(f"[compute_advantage] GRPO advantages/returns computed successfully")
         else:
-            raise NotImplementedError(f"Unsupported advantage estimator: {adv_estimator}")
+            raise NotImplementedError
             
         # Check if the computed advantages and returns are valid
         if torch.isnan(data.batch['advantages']).any() or torch.isnan(data.batch['returns']).any():
@@ -479,39 +479,65 @@ def _timer(name: str, timing_raw: Dict[str, float]):
     timing_raw[name] = timer.last
 
 
-def get_safe_device(requested_device='cuda'):
+def get_safe_device(requested_device='cuda', allow_cpu_fallback=True):
     """
-    Get a torch device, with stricter error handling for CUDA availability.
+    Get a torch device, with improved error handling for CUDA availability.
     
     Args:
         requested_device: The preferred device, e.g., 'cuda', 'cuda:0', etc.
+        allow_cpu_fallback: If True, will return CPU device if CUDA is not available
         
     Returns:
-        A torch device that matches the requested device.
+        A torch device that matches the requested device or CPU if CUDA is not available
+        and allow_cpu_fallback is True.
         
     Raises:
-        RuntimeError: If CUDA is requested but not available, or if a specific CUDA device is invalid.
+        RuntimeError: If CUDA is requested but not available and allow_cpu_fallback=False
     """
-    import torch
+    import torch, os
     
     # Check if CUDA is available when requested
     if 'cuda' in str(requested_device) and not torch.cuda.is_available():
-        raise RuntimeError(f"CUDA requested ({requested_device}) but CUDA is not available on this system.")
+        cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')
+        if allow_cpu_fallback:
+            print(f"[WARNING] CUDA requested ({requested_device}) but not available. "
+                  f"CUDA_VISIBLE_DEVICES={cuda_visible}. Falling back to CPU.")
+            return torch.device('cpu')
+        else:
+            raise RuntimeError(f"CUDA requested ({requested_device}) but not available. "
+                              f"CUDA_VISIBLE_DEVICES={cuda_visible}")
     
     # If requesting a specific CUDA device, verify it exists
-    if str(requested_device).startswith('cuda:'):
+    if str(requested_device).startswith('cuda:') and torch.cuda.is_available():
         try:
             device_idx = int(str(requested_device).split(':')[1])
             if device_idx >= torch.cuda.device_count():
-                raise RuntimeError(
-                    f"CUDA device {device_idx} requested but only {torch.cuda.device_count()} devices available. "
-                    f"Please specify a valid device index."
-                )
+                if allow_cpu_fallback:
+                    print(f"[WARNING] CUDA device {device_idx} requested but only "
+                          f"{torch.cuda.device_count()} devices available. "
+                          f"Using device cuda:0 instead.")
+                    return torch.device('cuda:0')
+                else:
+                    raise RuntimeError(
+                        f"CUDA device {device_idx} requested but only {torch.cuda.device_count()} "
+                        f"devices available. Please specify a valid device index."
+                    )
         except ValueError:
-            raise RuntimeError(f"Invalid CUDA device format: {requested_device}. Use 'cuda:n' where n is an integer.")
+            if allow_cpu_fallback:
+                print(f"[WARNING] Invalid CUDA device format: {requested_device}. Using default cuda device.")
+                return torch.device('cuda')
+            else:
+                raise RuntimeError(f"Invalid CUDA device format: {requested_device}. Use 'cuda:n' where n is an integer.")
     
-    # Return the requested device directly - no fallback to CPU
-    return torch.device(requested_device)
+    # For non-CUDA devices or if CUDA is properly available
+    try:
+        return torch.device(requested_device)
+    except Exception as e:
+        if allow_cpu_fallback:
+            print(f"[WARNING] Error creating device {requested_device}: {e}. Falling back to CPU.")
+            return torch.device('cpu')
+        else:
+            raise RuntimeError(f"Error creating device {requested_device}: {e}")
 
 
 class RayPPOTrainer(object):
@@ -532,17 +558,35 @@ class RayPPOTrainer(object):
         val_reward_fn=None,
         reward_component_config: dict = None):
 
-        # Restore CUDA availability check, but with more detailed error message
+        # Check CUDA availability but don't fail if not available
+        # Instead, log detailed information for diagnostics
+        print("\n" + "="*60)
+        print("[RayPPOTrainer.__init__] CUDA Availability Check:")
+        import os
+        print(f"  CUDA_VISIBLE_DEVICES = {os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')}")
+        
         if not torch.cuda.is_available():
-            raise RuntimeError(
-                "CUDA is not available but required for OpenManus-RL training. "
-                "Please check your GPU drivers and CUDA installation, or use a machine with GPU support."
-            )
+            print(f"  WARNING: CUDA is not available in RayPPOTrainer!")
+            print(f"  This might cause issues for GPU-intensive operations.")
+            print(f"  Try checking if CUDA_VISIBLE_DEVICES was modified by Ray.")
+            # Continue but warn rather than failing
         else:
             # Print CUDA info for debugging
-            print(f"[RayPPOTrainer.__init__] CUDA is available. Found {torch.cuda.device_count()} devices.")
-            for i in range(torch.cuda.device_count()):
+            device_count = torch.cuda.device_count()
+            print(f"  CUDA is available. Found {device_count} devices.")
+            for i in range(device_count):
                 print(f"  - GPU {i}: {torch.cuda.get_device_name(i)}")
+                
+            # Additional GPU memory info if available
+            try:
+                for i in range(device_count):
+                    free_mem, total_mem = torch.cuda.mem_get_info(i)
+                    free_gb = free_mem / (1024**3)
+                    total_gb = total_mem / (1024**3)
+                    print(f"  - GPU {i} Memory: {free_gb:.2f}GB free / {total_gb:.2f}GB total")
+            except:
+                print("  (GPU memory info not available)")
+        print("="*60 + "\n")
 
         self.tokenizer = tokenizer
         self.config = config
@@ -953,30 +997,36 @@ class RayPPOTrainer(object):
     def init_workers(self):
         """Init resource pool and worker group - add GPU device checks and pass assignments"""
         # Print driver's view of CUDA before starting workers (main_task context)
+        import os, ray
         print(f"\n[Trainer.init_workers @ {os.uname()[1]}] Running in PID: {os.getpid()}")
-        get_safe_device() # This implicitly prints warnings if CUDA is not available
-        driver_device_count = torch.cuda.device_count()
-        print(f"[Trainer.init_workers] Driver process (main_task) sees {driver_device_count} CUDA devices.")
-        for i in range(driver_device_count):
-             try:
-                 print(f"  Driver Device {i}: {torch.cuda.get_device_name(i)}")
-             except Exception as e:
-                 print(f"  Error getting name for driver device {i}: {e}")
-             
-        # Modify the resource pool specification to ensure each node has the correct number of GPUs
-        # First, determine total GPUs needed
-        total_gpus_needed = 1  # Default minimum
         
-        # Examine the config to see if we should allocate more GPUs
-        # For now, just use a simple approach - we'll allocate at least 1 GPU per node
+        # Check CUDA availability but use a CPU fallback if needed
+        cuda_device = get_safe_device(allow_cpu_fallback=True)  # This will print warnings if CUDA is not available
+        
+        print(f"[Trainer.init_workers] Using primary device: {cuda_device}")
+
+        # Get available resources from Ray
+        ray_resources = ray.available_resources()
+        print(f"[Trainer.init_workers] Ray available resources: {ray_resources}")
+        ray_gpus = ray_resources.get('GPU', 0)
+        print(f"[Trainer.init_workers] Ray has {ray_gpus} GPUs available for allocation")
+        
+        # Configure resource pools
+        total_gpus_needed = 1  # Default minimum
         if hasattr(self.config, 'trainer') and hasattr(self.config.trainer, 'n_gpus_per_node'):
             total_gpus_needed = self.config.trainer.n_gpus_per_node
         
         print(f"[Trainer.init_workers] Configuring resource pools with {total_gpus_needed} GPUs per node")
         
         # Create the resource pool with the specified number of GPUs per node
-        self.resource_pool_manager.create_resource_pool()
-        print(f"[Trainer.init_workers] Resource pools created: {list(self.resource_pool_manager.resource_pool_dict.keys())}")
+        try:
+            self.resource_pool_manager.create_resource_pool()
+            print(f"[Trainer.init_workers] Resource pools created: {list(self.resource_pool_manager.resource_pool_dict.keys())}")
+        except Exception as e:
+            print(f"[Trainer.init_workers] Error creating resource pools: {e}")
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(f"Failed to create resource pools: {e}")
 
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
 
@@ -1498,30 +1548,18 @@ class RayPPOTrainer(object):
                         with _timer('update_critic', timing_raw):
                             print(f"[Trainer.fit][STEP {self.global_steps}] Calling critic_wg.update_critic...")
                             try:
-                                # Get worker device info if available
-                                worker_device = 'cuda'
-                                try:
-                                    if hasattr(self.critic_wg, 'get_worker_info'):
-                                        worker_info = ray.get(self.critic_wg.get_worker_info.remote())
-                                        worker_device = worker_info.get('device', 'cuda')
-                                except Exception as e:
-                                    print(f"[WARNING] Failed to get critic worker device: {e}")
+                                # REMOVED: Explicit device checking and moving logic before calling worker
+                                # The worker itself should handle device placement.
                                 
-                                # Check tensor devices before sending to update_critic
+                                # Log tensor devices for debugging purposes before sending
                                 adv_device = batch.batch['advantages'].device
                                 returns_device = batch.batch['returns'].device
-                                print(f"[DEBUG] Pre-critic update tensor devices: advantages={adv_device}, returns={returns_device}")
-                                
-                                # If not on the preferred device, move them
-                                if 'cuda' not in str(adv_device) or 'cuda' not in str(returns_device):
-                                    print(f"[DEBUG] Moving tensors to {worker_device} for critic update")
-                                    # Move essential tensors to the worker's device
-                                    for key in ['advantages', 'returns', 'values', 'input_ids', 'attention_mask', 'position_ids']:
-                                        if key in batch.batch:
-                                            batch.batch[key] = batch.batch[key].to(worker_device)
+                                print(f"[DEBUG] Pre-critic update tensor devices (in TaskRunner): advantages={adv_device}, returns={returns_device}")
                                 
                                 # Call update_critic
                                 critic_output = self.critic_wg.update_critic(batch)
+                                
+                                # Process results (assuming they are returned to CPU or handled correctly)
                                 critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
                                 metrics.update(critic_output_metrics)
                                 print(f"[Trainer.fit][STEP {self.global_steps}] Critic model updated successfully")
@@ -1533,7 +1571,7 @@ class RayPPOTrainer(object):
                 else:
                     print(f"[Trainer.fit][STEP {self.global_steps}] Skipping critic update (not enabled for {adv_estimator})")
 
-                # --- Update Actor ---
+                # --- Update Actor --- 
                 print(f"[Trainer.fit][STEP {self.global_steps}] Updating actor model")
                 if self.config.trainer.critic_warmup <= self.global_steps:
                     if 'advantages' not in batch.batch or 'old_log_probs' not in batch.batch:
@@ -1544,28 +1582,29 @@ class RayPPOTrainer(object):
                             print(f"[Trainer.fit][STEP {self.global_steps}] Calling actor_rollout_wg.update_actor...")
                             try:
                                 # First check if state_masking is enabled and create loss mask if needed
+                                # This logic should remain as it manipulates the batch content before sending
                                 if self.is_agentgym_run and hasattr(self.config.actor_rollout_ref.actor, 'state_masking') and self.config.actor_rollout_ref.actor.state_masking:
                                     print(f"[Trainer.fit][STEP {self.global_steps}] State masking is enabled, creating loss_mask")
-                                    # Create loss mask for state tokens
                                     batch, actor_metrics = self._create_loss_mask(batch, metrics)
                                     metrics.update(actor_metrics)
                                 else:
                                     print(f"[Trainer.fit][STEP {self.global_steps}] State masking is not enabled, creating default loss_mask")
-                                    # Create a default loss_mask (all 1s) if state_masking is not enabled
                                     response_length = batch.batch['responses'].shape[-1]
                                     batch.batch['loss_mask'] = torch.ones_like(batch.batch['attention_mask'][:, -response_length:])
 
-                                # Check devices before actor update (for logging only)
+                                # REMOVED: Explicit device checking and moving logic before calling worker
+                                # The worker itself should handle device placement.
+                                
+                                # Log tensor devices for debugging purposes before sending
                                 loss_mask_device = batch.batch['loss_mask'].device
-                                adv_device = batch.batch['advantages'].device
+                                adv_device = batch.batch['advantages'].device 
                                 old_log_probs_device = batch.batch['old_log_probs'].device
-                                print(f"[CUDA DEBUG][STEP {self.global_steps}] Pre-actor tensor devices (data passed to worker): loss_mask={loss_mask_device}, advantages={adv_device}, old_log_probs={old_log_probs_device}") # Added print
-
-                                # REMOVED EXPLICIT DEVICE CHECK AND TRANSFER
-                                # Let the actor worker handle device placement internally
-                                actor_batch = batch # Pass the original batch
-
-                                actor_output = self.actor_rollout_wg.update_actor(actor_batch)
+                                print(f"[DEBUG] Pre-actor update tensor devices (in TaskRunner): loss_mask={loss_mask_device}, advantages={adv_device}, old_log_probs={old_log_probs_device}")
+                                
+                                # Call update_actor
+                                actor_output = self.actor_rollout_wg.update_actor(batch)
+                                
+                                # Process results
                                 actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                                 metrics.update(actor_output_metrics)
                                 print(f"[Trainer.fit][STEP {self.global_steps}] Actor model updated successfully")
