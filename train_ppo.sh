@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Configuration (defaults, can be overridden via env vars) ---
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,6,7,8}
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,6,8}
 WAND_PROJECT=${WAND_PROJECT:-'OpenManus-rl'}
 export BASE_MODEL=${BASE_MODEL:-'Qwen/Qwen2.5-3B'}
 AGENTGYM_HOST=${AGENTGYM_HOST:-'0.0.0.0'} # Default to 0.0.0.0 for external access
@@ -329,7 +329,7 @@ hydra_overrides=(
     "+trainer.val_only=false"
     "+trainer.val_before_train=true"
     "trainer.default_hdfs_dir=null"
-    "trainer.n_gpus_per_node=4"
+    "trainer.n_gpus_per_node=3"
     "trainer.nnodes=1"
     "trainer.save_freq=100"
     "trainer.test_freq=50"

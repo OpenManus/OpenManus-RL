@@ -115,7 +115,7 @@ class DataParallelPPOCritic(BasePPOCritic):
         micro_batch_size = data.meta_info['micro_batch_size']
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
         
-        # --- DEBUG: 记录原始数据设备 ---
+        # --- DEBUG: Record original data device ---
         original_device = 'Unknown'
         if 'input_ids' in data.batch:
             original_device = data.batch['input_ids'].device
@@ -123,7 +123,7 @@ class DataParallelPPOCritic(BasePPOCritic):
         
         batch = data.select(batch_keys=select_keys).batch
         
-        # --- DEBUG: 记录 select 后的设备 ---
+        # --- DEBUG: Record device after select ---
         select_device = 'Unknown'
         if 'input_ids' in batch:
             select_device = batch['input_ids'].device
@@ -131,9 +131,13 @@ class DataParallelPPOCritic(BasePPOCritic):
         
         use_dynamic_bsz = data.meta_info['use_dynamic_bsz']
 
-        # --- 修复: 先将数据移动到 CPU 再进行 split ---
+        # --- FIX: Move data to CPU before split ---
         print(f"[DP_Critic.compute_values] Moving batch to CPU before split")
-        batch_cpu = {k: v.to('cpu') if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        
+        # Fix error: Use TensorDict constructor instead of plain dictionary
+        batch_cpu_dict = {k: v.to('cpu') if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        batch_cpu = tensordict.TensorDict(source=batch_cpu_dict, batch_size=batch.batch_size)
+        print(f"[DP_Critic.compute_values] Created TensorDict on CPU with batch_size={batch_cpu.batch_size}")
         
         if use_dynamic_bsz:
             # split using dynamic bsz
@@ -146,13 +150,13 @@ class DataParallelPPOCritic(BasePPOCritic):
 
         values_lst = []
         for mb_idx, micro_batch in enumerate(micro_batches):
-            # --- DEBUG: 记录 micro_batch 设备 ---
+            # --- DEBUG: Record micro_batch device ---
             mb_device = 'Unknown'
             if 'input_ids' in micro_batch:
                 mb_device = micro_batch['input_ids'].device
             print(f"[DP_Critic.compute_values] Micro-batch {mb_idx} device BEFORE potential .cuda(): {mb_device}")
             
-            # 有条件地移动到 CUDA
+            # Conditionally move to CUDA
             target_device = torch.device(f'cuda:{torch.cuda.current_device()}') if torch.cuda.is_available() else torch.device('cpu')
             needs_move = False
             if 'input_ids' in micro_batch:
@@ -167,7 +171,7 @@ class DataParallelPPOCritic(BasePPOCritic):
             else:
                 print(f"[DP_Critic.compute_values] Micro-batch {mb_idx} already on target device. Skipping move.")
                 
-            # --- DEBUG: 记录移动后的设备 ---
+            # --- DEBUG: Record device after move ---
             after_mb_device = 'Unknown'
             if 'input_ids' in micro_batch:
                 after_mb_device = micro_batch['input_ids'].device
@@ -175,7 +179,7 @@ class DataParallelPPOCritic(BasePPOCritic):
             
             with torch.no_grad():
                 values = self._forward_micro_batch(micro_batch)
-                # --- DEBUG: 记录 values 设备 ---
+                # --- DEBUG: Record values device ---
                 print(f"[DP_Critic.compute_values] Micro-batch {mb_idx} values device: {values.device}")
             values_lst.append(values)
             
@@ -187,7 +191,7 @@ class DataParallelPPOCritic(BasePPOCritic):
         attention_mask = data.batch['attention_mask']
         response_length = responses.size(1)
         
-        # 确保 values 和 attention_mask 在同一设备上
+        # Ensure values and attention_mask are on the same device
         if values.device != attention_mask.device:
             print(f"[DP_Critic.compute_values] Moving values from {values.device} to {attention_mask.device}")
             values = values.to(attention_mask.device)
@@ -226,14 +230,17 @@ class DataParallelPPOCritic(BasePPOCritic):
         print(f"[DP_Critic.update_critic] Device AFTER select: {select_device}")
         # --- END DEBUG ---
         
-        # --- 关键修改: 先将数据移动到 CPU 再执行 split ---
+        # --- Key fix: Move data to CPU before split ---
         print(f"[DP_Critic.update_critic] Moving batch to CPU before split")
-        batch_cpu = {k: v.to('cpu') if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        # Fix error: Use TensorDict constructor instead of plain dictionary
+        batch_cpu_dict = {k: v.to('cpu') if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        batch_cpu = tensordict.TensorDict(source=batch_cpu_dict, batch_size=batch.batch_size)
+        print(f"[DP_Critic.update_critic] Created TensorDict on CPU with batch_size={batch_cpu.batch_size}")
         
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
         # --- DEBUG: Log device before split ---
-        split_device = 'cpu'  # 现在应该确定是在 CPU 上
+        split_device = 'cpu'  # Should be CPU at this point
         print(f"[DP_Critic.update_critic] Device BEFORE split: {split_device}")
         dataloader = batch_cpu.split(self.config.ppo_mini_batch_size)
         # --- DEBUG: Log device after split (dataloader is iterator) ---
