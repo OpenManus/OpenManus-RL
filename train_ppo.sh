@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Configuration (defaults, can be overridden via env vars) ---
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,6}
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-2,6,7,8}
 WAND_PROJECT=${WAND_PROJECT:-'OpenManus-rl'}
 export BASE_MODEL=${BASE_MODEL:-'Qwen/Qwen2.5-3B'}
 AGENTGYM_HOST=${AGENTGYM_HOST:-'0.0.0.0'} # Default to 0.0.0.0 for external access

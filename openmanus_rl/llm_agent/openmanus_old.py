@@ -10,6 +10,10 @@ from transformers import GenerationConfig
 import importlib # Added import
 import traceback # For error logging
 from concurrent.futures import ThreadPoolExecutor, as_completed # For parallel rollout
+from openmanus_rl.utils.visualization import (
+    save_trajectory_to_output,
+    parse_llm_output
+)
 from verl.utils.tracking import Tracking
 from omegaconf import DictConfig # Import DictConfig for type hint
 import numpy as np
@@ -33,6 +37,7 @@ class AgentConfig:
         env_data_len: Number of data samples in the environment (used for client init)
         rollout_strategy: Strategy to use for rollout (StandardReAct/ToT/MCTS)
         max_workers: Maximum number of worker threads
+        logging: dict = None  # Contains log_images, log_n_image_per_batch, log_image_step_size, etc.
         algorithm_config: DictConfig = None # Pass relevant part of algorithm config
     """
     # All required fields without default values
@@ -53,6 +58,9 @@ class AgentConfig:
     # storage_backend: str = "mongodb" # Storage handled elsewhere or not needed here
     max_workers: int = 10 # For parallelizing rollouts within the agent
     
+    # Add visualization-related configuration
+    logging: dict = None  # Contains log_images, log_n_image_per_batch, log_image_step_size, etc.
+
     # Add algorithm config relevant to reward allocation
     algorithm_config: DictConfig = None # Pass relevant part of algorithm config
 
@@ -241,6 +249,52 @@ class OpenManusAgent:
         
         return new_rollings
 
+    def _setup_visualization(self) -> List[Dict]:
+        """Setup visualization tracking if enabled."""
+        # If config.logging is not set or log_images is False, return None
+        if not self.config.logging or not self.config.logging.get('log_images', False):
+            return None
+        # Create n_image_per_batch defaultdict(list) instances
+        return [defaultdict(list) for _ in range(self.config.logging.get('log_n_image_per_batch', 1))]
+
+    def _update_trajectory(self, trajectory: List[Dict], 
+                         envs: List[Any], responses: List[str], active_mask: torch.Tensor):
+        """Update visualization trajectory if enabled."""
+        if not trajectory:
+            return
+        # Get the number of environments to visualize
+        n_visualize = self.config.logging.get('log_n_image_per_batch', 1)
+        # Update environment states
+        for idx, (env, active) in enumerate(zip(envs[:n_visualize], active_mask[:n_visualize])):
+            if active:
+                trajectory[idx]['state'].append(env.render('rgb_array'))
+        
+        # Update responses
+        for idx, (response, env, active) in enumerate(zip(responses[:n_visualize], 
+                                                envs[:n_visualize],
+                                                active_mask[:n_visualize])):
+            if active:
+                parsed = parse_llm_output(response, strategy="raw")
+                
+                trajectory[idx]['answer'].append(response)
+                trajectory[idx]['parsed_response'].append(parsed)
+
+    def _save_trajectory(self, trajectory: List[Dict], 
+                        output_dir: str, global_steps: int):
+        """Save trajectory visualization if enabled."""
+        if not trajectory:
+            return
+            
+        # Determine save frequency based on configuration
+        save_step_size = self.config.logging.get('log_image_step_size', 100)
+        if not global_steps % save_step_size or self.is_validation:
+            os.makedirs(output_dir, exist_ok=True)
+            filenames = save_trajectory_to_output(trajectory, save_dir=output_dir)
+            # If using wandb for logging, save the files
+            if self.logger and 'wandb' in self.logger.logger:
+                for filename in filenames:
+                    self.logger.logger['wandb'].save(filename)
+
     def _run_single_rollout(self, initial_prompt_ids: torch.Tensor, task_idx: int, client: Any) -> Dict[str, Any]:
         """
         Runs the interaction loop for a single environment instance using the provided client.
@@ -304,6 +358,7 @@ class OpenManusAgent:
                     'position_ids': current_position_ids
                 }) # may need to put this on the correct device
 
+                # <<< FIX: Pad batch to match world size if needed >>>
                 world_size = self.actor_rollout_wg.world_size
                 original_size = 1 # We know batch size is 1 here
                 padded_gen_input_proto = gen_input_proto
@@ -319,7 +374,7 @@ class OpenManusAgent:
                     # Copy meta_info if needed
                     if hasattr(gen_input_proto, 'meta_info'):
                          padded_gen_input_proto.meta_info = gen_input_proto.meta_info.copy()
-
+                # <<< END FIX >>>
 
                 # --- Prepare Generation Config --- 
                 generation_config = GenerationConfig(
@@ -330,17 +385,21 @@ class OpenManusAgent:
                     do_sample=True
                 )
 
+                # <<< FIX: Move generation_config into meta_info >>>
                 if not hasattr(padded_gen_input_proto, 'meta_info'):
                     padded_gen_input_proto.meta_info = {}
                 padded_gen_input_proto.meta_info['generation_config'] = generation_config
+                # <<< END FIX >>>
 
                 # Generation happens on the actor worker group's device
                 gen_output_proto = self.actor_rollout_wg.generate_sequences(padded_gen_input_proto)
                 # response_ids = gen_output_proto.batch['response_ids'] # Original line causing KeyError
                 response_ids = gen_output_proto.batch['responses'] # Use the correct key ('responses') assuming it holds IDs
 
+                # <<< FIX: Remove padding from response_ids if padding was added >>>
                 if padding_size > 0:
                      response_ids = response_ids[:-padding_size]
+                # <<< END FIX >>>
 
                 # Decode the response IDs to get the text for the trajectory
                 response_text = self.tokenizer.decode(response_ids[0], skip_special_tokens=True)
@@ -354,12 +413,14 @@ class OpenManusAgent:
 
                 # Execute environment step using the provided client
                 if action_text is None: action_text = ""
+                # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Action: {action_text}")
+                # next_obs_text, reward, done, info = client.step(action_text) # Original unpacking (fails)
                 step_output = client.step(action_text)
                 next_obs_text = step_output.state
                 reward = step_output.reward
                 done = step_output.done
                 info = {} # Initialize info as empty dict, as StepOutput doesn't explicitly return it
-                print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Env Step Result: Reward={reward}, Done={done}, Info={info}")
+                # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Env Step Result: Reward={reward}, Done={done}, Info={info}")
 
                 # Store the reward from this specific step
                 step_rewards.append(reward)
@@ -373,8 +434,8 @@ class OpenManusAgent:
 
                 # Process next observation
                 if not done:
-                    print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Next Obs: {next_obs_text[:100]}...")
-                    trajectory.append({"from": "env", "value": next_obs_text})
+                    # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Next Obs: {next_obs_text[:100]}...")
+                    trajectory.append({"from": "human", "value": next_obs_text})
                     next_obs_ids = self.tokenizer(next_obs_text, return_tensors='pt', add_special_tokens=False)['input_ids']
                     # Ensure tensors are concatenated on the same device (e.g., CPU or model's device if needed later)
                     current_input_ids = torch.cat([
@@ -383,7 +444,7 @@ class OpenManusAgent:
                         next_obs_ids.to(response_ids.device) # Move to same device
                     ], dim=1)
                 else:
-                    print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Done received.")
+                    # print(f"[Agent._run_single_rollout][{task_idx}][Turn {t+1}] Done received.")
                     break
 
         except Exception as e:
@@ -427,13 +488,28 @@ class OpenManusAgent:
 
         print(f"[Agent.run_llm_loop] Starting rollout for batch size: {batch_size} using {num_clients} clients.")
 
+        # --- Setup Visualization ---
+        trajectory = self._setup_visualization()
+
+        # --- Extract Task Indices ---
+        if 'idx' in gen_batch.meta_info:
+            task_idxs = gen_batch.meta_info['idx']
+            if isinstance(task_idxs, torch.Tensor):
+                task_idxs = task_idxs.tolist()
+            if len(task_idxs) != batch_size:
+                 print(f"[Agent.run_llm_loop] Warning: Mismatch between batch size ({batch_size}) and provided indices ({len(task_idxs)}). Using range(batch_size)." )
+                 task_idxs = list(range(batch_size))
+        else:
+            print("[Agent.run_llm_loop] Warning: 'idx' not found in gen_batch.meta_info. Using range(batch_size)." )
+            task_idxs = list(range(batch_size))
+
         # --- Parallel Rollout Execution ---
         futures = {}
         rollout_results_list = [None] * batch_size  # Preallocate list to store results in order
 
         # Submit tasks to the thread pool, distributing across clients
         for i in range(batch_size):
-            task_idx = i
+            task_idx = task_idxs[i]
             initial_prompt = initial_prompts_ids[i:i+1]  # Keep batch dim
 
             # Select a client for this task (round-robin)
@@ -456,17 +532,29 @@ class OpenManusAgent:
                 completed_count += 1
                 # print(f"Completed task {original_index + 1}/{batch_size}") # Optional progress logging
 
+                # If visualization is enabled, update trajectory
+                # Note: Visualization logic might need adjustment if envs are not easily accessible
+                # or if you want per-client visualization. Current logic assumes a single env list.
+                # Consider passing necessary env state back from _run_single_rollout if needed.
+                # if trajectory and original_index < len(trajectory):
+                #     # This part might be tricky with multiple clients unless you manage env state carefully
+                #     pass # Placeholder for potential visualization update logic
+
             except Exception as e:
-                print(f"[Agent.run_llm_loop] Error collecting result for batch index {original_index} (task_idx {original_index}): {e}")
+                print(f"[Agent.run_llm_loop] Error collecting result for batch index {original_index} (task_idx {task_idxs[original_index]}): {e}")
                 print(traceback.format_exc())
                 # Store a placeholder or error indicator
                 rollout_results_list[original_index] = {
                     'trajectory': [], 'step_rewards': [], 'reward': 0.0,
-                    'turns': 0, 'env_score': 0.0, 'task_idx': original_index,
+                    'turns': 0, 'env_score': 0.0, 'task_idx': task_idxs[original_index],
                     'error': str(e)
                 }
 
         print(f"[Agent.run_llm_loop] Collected results from {completed_count}/{batch_size} rollouts.")
+
+        # Save trajectory visualizations (if implemented and needed)
+        # if output_dir and trajectory:
+        #     self._save_trajectory(trajectory, output_dir, global_steps)
 
         # Filter out potential None entries if some tasks failed critically
         valid_results = [res for res in rollout_results_list if res is not None]
@@ -678,56 +766,30 @@ class OpenManusAgent:
             batch_token_level_rewards.append(token_level_rewards) # Store calculated rewards
 
             # --- FIX: Extract and pad response-only tokens ---
-            # The issue is related to the mismatch between self.config.max_response_length and the actual 
-            # length of response segments in the conversation. Let's ensure they match to avoid dimension mismatch.
             response_segments = []
             total_response_len = 0
-            
             for r_start, r_end in agent_indices_in_padded:
                 segment = full_input_ids[0, r_start : r_end + 1]
                 response_segments.append(segment)
                 total_response_len += segment.shape[0]
             
-            # Get the configured response length from config
-            configured_resp_len = self.config.max_response_length
-            
             if response_segments:
-                # Concatenate all response segments
                 response_only_ids_cat = torch.cat(response_segments, dim=0).unsqueeze(0) # Shape (1, total_response_len)
-                resp_pad_len = max(0, configured_resp_len - total_response_len)
-                
+                resp_pad_len = max(0, self.config.max_response_length - total_response_len)
                 if resp_pad_len > 0:
-                    # Pad to configured length if shorter
                     resp_pad = torch.full((1, resp_pad_len), self.tokenizer.pad_token_id, dtype=torch.long, device=response_only_ids_cat.device)
                     response_only_ids_padded = torch.cat([response_only_ids_cat, resp_pad], dim=1)
-                    print(f"[Agent._convert_rollout] Padded response from {total_response_len} to {configured_resp_len}")
-                elif total_response_len > configured_resp_len:
-                    # Truncate if response is too long (this is important to match the expected length)
-                    print(f"[Agent._convert_rollout] Truncating response from {total_response_len} to {configured_resp_len}")
-                    response_only_ids_padded = response_only_ids_cat[:, :configured_resp_len]
                 else:
-                    # No adjustment needed
-                    response_only_ids_padded = response_only_ids_cat
-                    
-                # Double-check the final shape meets expectations
-                if response_only_ids_padded.shape[1] != configured_resp_len:
-                    print(f"[Agent._convert_rollout] WARNING: Response length mismatch: got {response_only_ids_padded.shape[1]}, expected {configured_resp_len}")
-                    # Force correction if still wrong
-                    if response_only_ids_padded.shape[1] < configured_resp_len:
-                        extra_pad = torch.full((1, configured_resp_len - response_only_ids_padded.shape[1]), 
-                                              self.tokenizer.pad_token_id, dtype=torch.long, 
-                                              device=response_only_ids_padded.device)
-                        response_only_ids_padded = torch.cat([response_only_ids_padded, extra_pad], dim=1)
-                    else:
-                        response_only_ids_padded = response_only_ids_padded[:, :configured_resp_len]
+                    # Truncate if response is too long
+                    response_only_ids_padded = response_only_ids_cat[:, :self.config.max_response_length]
             else:
                 # Handle case with no agent responses (e.g., empty trajectory)
-                print(f"[Agent._convert_rollout] No agent responses found for item, creating empty response of length {configured_resp_len}")
-                response_only_ids_padded = torch.full((1, configured_resp_len), 
-                                                     self.tokenizer.pad_token_id, dtype=torch.long, 
-                                                     device=full_input_ids.device)
+                response_only_ids_padded = torch.full((1, self.config.max_response_length), self.tokenizer.pad_token_id, dtype=torch.long, device=full_input_ids.device)
             
             # Append to batch list (this will be concatenated later)
+            # Ensure batch_responses list is initialized outside the loop
+            if 'batch_responses' not in locals() and 'batch_responses' not in globals():
+                 batch_responses = [] # Initialize here if first iteration
             batch_responses.append(response_only_ids_padded)
             # --- END FIX ---
 
@@ -797,7 +859,7 @@ class OpenManusAgent:
                 print("[Agent._convert_rollout] Could not convert env_scores to tensor, keeping original list.")
                 data_proto.meta_info["env_scores"] = batch_meta_info["env_score"]
 
-        print(f"[Agent._convert_rollout] Final batch shapes: input_ids={final_batch['input_ids'].shape}, token_level_rewards={final_batch['token_level_rewards'].shape}, responses={final_batch['responses'].shape}")
+        print(f"[Agent._convert_rollout] Final batch shapes: input_ids={final_batch['input_ids'].shape}, token_level_rewards={final_batch['token_level_rewards'].shape}")
         return data_proto
 
 
