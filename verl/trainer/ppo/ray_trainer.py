@@ -1407,39 +1407,23 @@ class RayPPOTrainer(object):
                     
                     with _timer('compute_values', timing_raw):
                         try:
-                            # Get worker info to determine the correct device
-                            worker_device_info = None
-                            if hasattr(self.critic_wg, 'get_worker_info') and callable(getattr(self.critic_wg, 'get_worker_info')):
-                                try:
-                                    worker_device_info = ray.get(self.critic_wg.get_worker_info.remote())
-                                    worker_device = worker_device_info.get('device', 'cuda')
-                                    print(f"[DEBUG] Critic worker device: {worker_device}")
-                                except Exception as e:
-                                    print(f"[WARNING] Failed to get worker device info: {e}")
-                                    worker_device = 'cuda' # Default to cuda if we can't get worker info
-                            else:
-                                worker_device = 'cuda' # Default to cuda
+                            # REMOVED: Logic to get worker device and move tensors to CUDA
+                            # TaskRunner should not perform device placement.
                             
-                            # Check that tensors are on the correct device
+                            # Check current device for logging purposes
                             ref_tensor = None
+                            current_device = 'cpu' # Default assumption
                             for key in ['input_ids', 'attention_mask', 'position_ids']:
                                 if key in batch.batch:
                                     ref_tensor = batch.batch[key]
+                                    current_device = ref_tensor.device
                                     break
                             
                             if ref_tensor is not None:
-                                current_device = ref_tensor.device
                                 print(f"[DEBUG] Current batch tensor device: {current_device}")
-                                
-                                # If not on CUDA, move to CUDA before sending to critic worker
-                                if 'cuda' not in str(current_device):
-                                    print(f"[DEBUG] Moving batch tensors from {current_device} to {worker_device}")
-                                    for key, tensor in batch.batch.items():
-                                        if isinstance(tensor, torch.Tensor):
-                                            batch.batch[key] = tensor.to(worker_device)
                             
-                            # Call critic worker to compute values
-                            print(f"[DEBUG] Sending batch to critic_wg.compute_values...")
+                            # Call critic worker to compute values - pass tensors as they are
+                            print(f"[DEBUG] Sending batch to critic_wg.compute_values (tensors on {current_device})...")
                             values_output = self.critic_wg.compute_values(batch)
                             
                             # Check if values were returned correctly
