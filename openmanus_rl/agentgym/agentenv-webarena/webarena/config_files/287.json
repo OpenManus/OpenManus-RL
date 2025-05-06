@@ -1,0 +1,29 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 287,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "How much time does it take from Pittsburgh to Philadelphia by car?",
+  "instantiation_dict": {},
+  "intent": "How much time does it take from Pittsburgh to Philadelphia by car?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "5h 47min"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "5h 47min"
+  },
+  "intent_template_id": 47
+}

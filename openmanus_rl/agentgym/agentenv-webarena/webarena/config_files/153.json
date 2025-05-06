@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 153,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "What is the minimum travel time by car from {{location1}} to {{location2}}?",
+  "instantiation_dict": {
+    "location1": "REI",
+    "location2": "CMU"
+  },
+  "intent": "What is the minimum travel time by car from REI to CMU?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "7min"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "7min"
+  },
+  "intent_template_id": 36
+}

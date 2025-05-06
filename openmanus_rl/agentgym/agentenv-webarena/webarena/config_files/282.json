@@ -1,0 +1,39 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 282,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "List the full product names of slide slippers from Nike and tell me the price range of the available products",
+  "instantiation_dict": {},
+  "intent": "List the full product names of slide slippers from Nike and tell me the price range of the available products",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Nike Men's Air Max Camden Slide Sandal",
+        "Nike Men's Benassi JDI Fanny Pack Slides",
+        "Nike Victori One Mens Comfort Slide Cn9675-003 (Midnight Navy/Midnight Navy/White, Numeric_10)",
+        "Nike Offcourt Slide Mens Bq4639-002 Size 12",
+        "Nike Jordan Men's Break Slide Red AR6374-602",
+        "Nike Victori One Slide Mens Style : Dd9559-300",
+        "Nike Men's Benassi Solarsoft Slide Athletic Sandal (Black/White, numeric_14)",
+        "Nike Men's Benassi Solarsoft Slide Athletic Sandal (Midnight Navy/Blue, numeric_8)",
+        "Nike womens Benassi Just Do It",
+        "27.6",
+        "90.65"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "These models are availiable: Nike Men's Air Max Camden Slide Sandal Nike Men's Benassi JDI Fanny Pack Slides Nike Victori One Mens Comfort Slide Cn9675-003 (Midnight Navy/Midnight Navy/White, Numeric_10) Nike Offcourt Slide Mens Bq4639-002 Size 12 Nike Jordan Men's Break Slide Red AR6374-602 Nike Victori One Slide Mens Style : Dd9559-300 Nike Men's Benassi Solarsoft Slide Athletic Sandal (Black/White, numeric_14) Nike Men's Benassi Solarsoft Slide Athletic Sandal (Midnight Navy/Blue, numeric_8) Nike womens Benassi Just Do It   The price ranges from $27.6 to $90.65"
+  },
+  "intent_template_id": 204
+}

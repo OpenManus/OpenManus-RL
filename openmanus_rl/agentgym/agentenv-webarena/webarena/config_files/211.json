@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 211,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Find the customer name and email with phone number {{PhoneNum}}",
+  "instantiation_dict": {
+    "PhoneNum": "8015551212"
+  },
+  "intent": "Find the customer name and email with phone number 8015551212",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Sean Miller",
+        "sean.miller@gmail.com"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Sean Miller, sean.miller@gmail.com"
+  },
+  "intent_template_id": 364
+}

@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "gitlab",
+    "reddit"
+  ],
+  "task_id": 791,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab.reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Make a folder named {{directory}} on the {{gitlab_repo}} repo and include a file called urls.txt that consists of the links to the 5 most recent posts from {{subreddit}}.",
+  "instantiation_dict": {
+    "directory": "car",
+    "subreddit": "cars",
+    "gitlab_repo": "gimmiethat.space"
+  },
+  "intent": "Make a folder named car on the gimmiethat.space repo and include a file called urls.txt that consists of the links to the 5 most recent posts from cars.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "the subreddit does not exist",
+    "reference_answer_raw_annotation": "N/A"
+  },
+  "intent_template_id": 84
+}

@@ -1,0 +1,34 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 460,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/418/",
+  "geolocation": null,
+  "intent_template": "{{action}} the price of this product by {{amount}}",
+  "instantiation_dict": {
+    "amount": "15%",
+    "action": "Reduce"
+  },
+  "intent": "Reduce the price of this product by 15%",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/418/",
+        "locator": "document.querySelector('[name=\"product[price]\"').value",
+        "required_contents": {
+          "exact_match": "38.25"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 247
+}

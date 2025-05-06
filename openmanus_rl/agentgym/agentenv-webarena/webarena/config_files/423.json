@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 423,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Mark all {{brand}} shirts on sale",
+  "instantiation_dict": {
+    "brand": "Hollister"
+  },
+  "intent": "Mark all Hollister shirts on sale",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/126/",
+        "locator": "document.querySelector('input[name=\"product[sale]\"]').value",
+        "required_contents": {
+          "exact_match": "1"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 237
+}

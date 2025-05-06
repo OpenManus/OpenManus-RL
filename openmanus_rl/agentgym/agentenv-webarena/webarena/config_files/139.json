@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 139,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "What is the estimated driving time between {{city1}} and {{city2}}?",
+  "instantiation_dict": {
+    "city1": "the hometown of Joe Biden",
+    "city2": "Bridgeport"
+  },
+  "intent": "What is the estimated driving time between the hometown of Joe Biden and Bridgeport?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "3h 20min"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "3h 20min"
+  },
+  "intent_template_id": 51
+}

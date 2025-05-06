@@ -1,0 +1,48 @@
+{
+  "sites": [
+    "shopping",
+    "reddit"
+  ],
+  "task_id": 671,
+  "require_login": true,
+  "storage_state": "./.auth/reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Gather the titles of {{product}} reviews with {{rating}} rating from OneStopShop, and post them in the games subreddit under the title \"real user feedback on {{product}}\"",
+  "instantiation_dict": {
+    "product": "Sony Computer Entertainment VR",
+    "rating": "2 stars and less"
+  },
+  "intent": "Gather the titles of Sony Computer Entertainment VR reviews with 2 stars and less rating from OneStopShop, and post them in the games subreddit under the title \"real user feedback on Sony Computer Entertainment VR\"",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/gaming",
+    "program_html": [
+      {
+        "url": "func:reddit_get_post_url('__last_url__')",
+        "locator": "document.querySelector('.submission__title').outerText",
+        "required_contents": {
+          "exact_match": "real user feedback on Sony Computer Entertainment VR"
+        }
+      },
+      {
+        "url": "func:reddit_get_post_url('__last_url__')",
+        "locator": "document.querySelector('.submission__body').outerText",
+        "required_contents": {
+          "must_include": [
+            "didn't last a year without issues",
+            "Disappointing. Didn't last long before it stopped powering on and needed to be sent in for repair.",
+            "Received used items!!"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 101
+}

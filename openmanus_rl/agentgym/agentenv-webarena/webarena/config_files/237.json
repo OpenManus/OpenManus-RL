@@ -1,0 +1,36 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 237,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Where is the nearest {{location}} from {{location2}} {{condition}}",
+  "instantiation_dict": {
+    "location": "gas station",
+    "location2": "CMU",
+    "condition": ""
+  },
+  "intent": "Where is the nearest gas station from CMU ",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Sunoco",
+        "North Craig Street",
+        "North Oakland",
+        "Pittsburgh"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Sunoco, North Craig Street, North Oakland, Pittsburgh, Allegheny County, 15213, United States"
+  },
+  "intent_template_id": 39
+}

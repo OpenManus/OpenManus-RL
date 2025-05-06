@@ -1,0 +1,38 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 547,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Add a new {{option}} option {{value}} to the {{base_setting}} of {{product}}",
+  "instantiation_dict": {
+    "option": "color",
+    "value": "brown",
+    "base_setting": "size S",
+    "product": "Phoebe Zipper Sweatshirt"
+  },
+  "intent": "Add a new color option brown to the size S of Phoebe Zipper Sweatshirt",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/1130/",
+        "locator": "document.querySelector('[data-index=\"configurable\"').outerText",
+        "required_contents": {
+          "must_include": [
+            "Phoebe Zipper Sweatshirt-S-Brown"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 252
+}

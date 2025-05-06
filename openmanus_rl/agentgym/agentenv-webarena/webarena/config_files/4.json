@@ -1,0 +1,34 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 4,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "What are the top-{{n}} best-selling product in {{period}}",
+  "instantiation_dict": {
+    "n": 3,
+    "period": "Jan 2023"
+  },
+  "intent": "What are the top-3 best-selling product in Jan 2023",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Impulse Duffle",
+        "Overnight Duffle",
+        "Hawkeye Yoga Short-32-Blue"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Impulse Duffle, Overnight Duffle, Hawkeye Yoga Short-32-Blue"
+  },
+  "intent_template_id": 279
+}

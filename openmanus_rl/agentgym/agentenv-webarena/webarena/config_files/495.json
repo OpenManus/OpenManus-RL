@@ -1,0 +1,34 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 495,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Notify {{name}} in their most recent pending order with message \"{{message}}\"",
+  "instantiation_dict": {
+    "name": "Lily Potter",
+    "message": "Thanks, your order is ready to be shipped!"
+  },
+  "intent": "Notify Lily Potter in their most recent pending order with message \"Thanks, your order is ready to be shipped!\"",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/sales/order/view/order_id/303/",
+        "locator": "document.querySelector(\"#order_history_block\").querySelector(\".note-list\").firstElementChild.querySelector(\".note-list-comment\").outerText",
+        "required_contents": {
+          "exact_match": "Thanks, your order is ready to be shipped!"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 280
+}

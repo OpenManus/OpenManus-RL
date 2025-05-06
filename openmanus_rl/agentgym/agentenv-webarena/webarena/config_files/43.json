@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 43,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "List the top {{n}} search terms in my store",
+  "instantiation_dict": {
+    "n": "3"
+  },
+  "intent": "List the top 3 search terms in my store",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "hollister",
+        "Joust Bag",
+        "Antonia Racer Tank"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "hollister, Joust Bag, Antonia Race Tank"
+  },
+  "intent_template_id": 285
+}

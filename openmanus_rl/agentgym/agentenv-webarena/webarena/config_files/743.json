@@ -1,0 +1,46 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 743,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create a new {{scope}} project \"web_arena\" and add {{account_list}} as members",
+  "instantiation_dict": {
+    "scope": "public",
+    "account_list": "Abishek, Vinta"
+  },
+  "intent": "Create a new public project \"web_arena\" and add Abishek, Vinta as members",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/web_arena",
+        "locator": "document.querySelector('.visibility-icon').getAttribute('title')",
+        "required_contents": {
+          "must_include": [
+            "public"
+          ]
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/web_arena/-/project_members",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "@abisubramanya27",
+            "@vinta"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 332
+}

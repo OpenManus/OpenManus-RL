@@ -1,0 +1,38 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 543,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Update the product description of {{product}} to highlight the real user positive reviews by quoting the comments",
+  "instantiation_dict": {
+    "product": "Bella Tank"
+  },
+  "intent": "Update the product description of Bella Tank to highlight the real user positive reviews by quoting the comments",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/../bella-tank.html",
+        "locator": "document.querySelector('.data.item.content').outerText + (document.querySelector('.product.attribute.overview [itemprop=\"description\"]')?.outerText || '')",
+        "required_contents": {
+          "must_include": [
+            "Good choice for working out and stylin' enough to wear when I'm hanging with friends on hot days",
+            "Also washes really well",
+            "Always a sweet n sporty look for the gym",
+            "Keeps me cool and the seams don't rub up against me like some of my other tanks"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 251
+}

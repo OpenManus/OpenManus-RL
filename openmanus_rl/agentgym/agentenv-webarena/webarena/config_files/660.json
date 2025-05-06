@@ -1,0 +1,56 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 660,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create an issue in {{repo}} repo with title \"{{issue}}\". Assign the issue to {{account}}. Set due date to be {{due}}",
+  "instantiation_dict": {
+    "repo": "dotfiles",
+    "issue": "add support for oh-my-zsh",
+    "account": "Abishek",
+    "due": "July 18 2033"
+  },
+  "intent": "Create an issue in dotfiles repo with title \"add support for oh-my-zsh\". Assign the issue to Abishek. Set due date to be July 18 2033",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/dotfiles/-/tree/main",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('[data-qa-selector=\"title_content\"]').outerText",
+        "required_contents": {
+          "exact_match": "add support for oh-my-zsh"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[data-testid=\"sidebar-due-date\"').outerText",
+        "required_contents": {
+          "must_include": [
+            "Jul 18, 2033"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('.block.assignee').outerText",
+        "required_contents": {
+          "must_include": [
+            "Abishek S"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 327
+}

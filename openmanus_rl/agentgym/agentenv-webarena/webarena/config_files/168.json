@@ -1,0 +1,29 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 168,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Tell me the full names of the repositories where I made contributions and they got {{description}} stars?",
+  "instantiation_dict": {
+    "description": "more than 100"
+  },
+  "intent": "Tell me the full names of the repositories where I made contributions and they got more than 100 stars?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "No repo found",
+    "reference_answer_raw_annotation": "No repo found"
+  },
+  "intent_template_id": 289
+}

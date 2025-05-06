@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 140,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "What is the estimated driving time between {{city1}} and {{city2}}?",
+  "instantiation_dict": {
+    "city1": "the city of Niagara Falls",
+    "city2": "the city of Yale University"
+  },
+  "intent": "What is the estimated driving time between the city of Niagara Falls and the city of Yale University?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "8h 33min"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "8h 33min"
+  },
+  "intent_template_id": 51
+}

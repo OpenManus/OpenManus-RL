@@ -1,0 +1,42 @@
+{
+  "sites": [
+    "gitlab",
+    "wikipedia"
+  ],
+  "task_id": 557,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create a repo named {{name}} with {{topics}} in a README file",
+  "instantiation_dict": {
+    "name": "nolan_old_fans",
+    "topics": "movies directed by Christopher Nolan before 2010"
+  },
+  "intent": "Create a repo named nolan_old_fans with movies directed by Christopher Nolan before 2010 in a README file",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/nolan_old_fans/-/raw/main/README.md",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "Following",
+            "Memento",
+            "Insomnia",
+            "Batman Begins",
+            "The Prestige",
+            "The Dark Knight"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 87
+}

@@ -1,0 +1,56 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 658,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create an issue in {{repo}} repo with title \"{{issue}}\". Assign the issue to {{account}}. Set due date to be {{due}}",
+  "instantiation_dict": {
+    "repo": "a11yproject",
+    "issue": "401 bad gateway",
+    "account": "Roshanjossey",
+    "due": "the end of 2030"
+  },
+  "intent": "Create an issue in a11yproject repo with title \"401 bad gateway\". Assign the issue to Roshanjossey. Set due date to be the end of 2030",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/a11yproject/a11yproject.com/-/issues",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('[data-qa-selector=\"title_content\"]').outerText",
+        "required_contents": {
+          "exact_match": "401 bad gateway"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[data-testid=\"sidebar-due-date\"').outerText",
+        "required_contents": {
+          "must_include": [
+            "Dec 31, 2030"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('.block.assignee').outerText",
+        "required_contents": {
+          "must_include": [
+            "Roshan Jossey"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 327
+}

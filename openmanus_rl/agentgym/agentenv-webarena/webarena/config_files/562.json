@@ -1,0 +1,42 @@
+{
+  "sites": [
+    "gitlab",
+    "reddit"
+  ],
+  "task_id": 562,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab.reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "create a repository named {{name}} that includes a README file with the links to the most active {{num}} DIY ideas on DIY subreddit?",
+  "instantiation_dict": {
+    "name": "Awesome_DIY_ideas",
+    "num": 6
+  },
+  "intent": "create a repository named Awesome_DIY_ideas that includes a README file with the links to the most active 6 DIY ideas on DIY subreddit?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/Awesome_DIY_ideas/-/raw/main/README.md",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/DIY/118903/separate-glued-plastic-parts",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/DIY/118923/how-would-you-fix-this-dryer-vent-mess",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/DIY/118935/basement-bulkhead-soffit-wall-framing",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/DIY/118904/ge-water-heater-pilot-light-won-t-stay-lit",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/DIY/118960/attempting-to-move-a-wall-outlet-in-my-basement-a-few-inches",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/DIY/118931/afci-outlet-question"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 88
+}

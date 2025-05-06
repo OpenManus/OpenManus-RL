@@ -1,0 +1,28 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 301,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Show the most recent {{status}} order",
+  "instantiation_dict": {
+    "status": "processing"
+  },
+  "intent": "Show the most recent processing order",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "there is no order in processing"
+  },
+  "intent_template_id": 180
+}

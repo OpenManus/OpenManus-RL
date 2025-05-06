@@ -1,0 +1,52 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 757,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Show me the path and travel time from {{city1}} to {{city2}}.",
+  "instantiation_dict": {
+    "city1": "home of the 1980 Super Bowl champions",
+    "city2": "home of the 1991 Super Bowl champions"
+  },
+  "intent": "Show me the path and travel time from home of the 1980 Super Bowl champions to home of the 1991 Super Bowl champions.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector(\"div#content select.routing_engines\").selectedIndex",
+        "required_contents": {
+          "exact_match": "1"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"route_from\"').value",
+        "required_contents": {
+          "must_include": [
+            "Pittsburgh"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"route_to\"').value",
+        "required_contents": {
+          "must_include": [
+            "New York"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 42
+}

@@ -1,0 +1,34 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 204,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Get the {{attribute}} of the {{status}} order",
+  "instantiation_dict": {
+    "attribute": "product name and discounted price (low to high)",
+    "status": "most recent completed"
+  },
+  "intent": "Get the product name and discounted price (low to high) of the most recent completed order",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "Rapha Sports Short: $35",
+        "Thorpe Track Pant: $54.4",
+        "Mach Street Sweatshirt: $62"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Rapha Sports Short: $35 Thorpe Track Pant: $54.4 Mach Street Sweatshirt: $62"
+  },
+  "intent_template_id": 366
+}

@@ -1,0 +1,40 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 800,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "create a new group \"{{name}}\" with members {{members}}",
+  "instantiation_dict": {
+    "name": "x-lab",
+    "members": "JonasVautherin, dilipchandima, dawiss1337, bmyun, DCMJY"
+  },
+  "intent": "create a new group \"x-lab\" with members JonasVautherin, dilipchandima, dawiss1337, bmyun, DCMJY",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/groups/x-lab/-/group_members",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "@JonasVautherin",
+            "@dilipchandima",
+            "@dawiss1337",
+            "@bmyun",
+            "@DCMJY"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 600
+}

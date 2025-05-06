@@ -1,0 +1,52 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 764,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Find the walkway to the closest {{store}} from {{location}}.",
+  "instantiation_dict": {
+    "store": "Target",
+    "location": "401 Shady Ave, Pittsburgh"
+  },
+  "intent": "Find the walkway to the closest Target from 401 Shady Ave, Pittsburgh.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector(\"div#content select.routing_engines\").selectedIndex",
+        "required_contents": {
+          "exact_match": "2"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"route_from\"').value",
+        "required_contents": {
+          "must_include": [
+            "401, Shady Avenue, Shadyside"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"route_to\"').value",
+        "required_contents": {
+          "must_include": [
+            "Target, 6231, Penn Avenue, East Liberty"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 75
+}
