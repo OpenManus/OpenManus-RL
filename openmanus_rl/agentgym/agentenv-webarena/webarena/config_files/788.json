@@ -1,0 +1,35 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 788,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/amwhalen/archive-my-tweets/-/tree/github/fork/chtitux/addRssFeed",
+  "geolocation": null,
+  "intent_template": "Tell me the {{attribute}} of the contributor who has the most commits to branch {{branch_name}}",
+  "instantiation_dict": {
+    "branch_name": "php52",
+    "attribute": "full name, gitlab account name, location and email address"
+  },
+  "intent": "Tell me the full name, gitlab account name, location and email address of the contributor who has the most commits to branch php52",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Andrew M. Whalen",
+        "amwhalen",
+        "Massachusetts",
+        "github@amwhalen.com"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Andrew M. Whalen, amwhalen, Massachusetts, github@amwhalen.com"
+  },
+  "intent_template_id": 316
+}

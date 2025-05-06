@@ -1,0 +1,39 @@
+{
+  "sites": [
+    "reddit"
+  ],
+  "task_id": 612,
+  "require_login": true,
+  "storage_state": "./.auth/reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999",
+  "geolocation": null,
+  "intent_template": "Post a review of my recent reading \"{{book}}\" in the r/books with my comment \"{{content}}\".",
+  "instantiation_dict": {
+    "book": "big little lies",
+    "content": "can't stop it"
+  },
+  "intent": "Post a review of my recent reading \"big little lies\" in the r/books with my comment \"can't stop it\".",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/books",
+    "program_html": [
+      {
+        "url": "func:reddit_get_post_url('__last_url__')",
+        "locator": "document.querySelector('.submission__inner').outerText",
+        "required_contents": {
+          "must_include": [
+            "big little lies",
+            "can't stop it"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 9
+}

@@ -1,0 +1,35 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 394,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Fork {{repo}}.",
+  "instantiation_dict": {
+    "repo": "2019-nCov"
+  },
+  "intent": "Fork 2019-nCov.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/2019-nCov",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "2019-nCov"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 352
+}

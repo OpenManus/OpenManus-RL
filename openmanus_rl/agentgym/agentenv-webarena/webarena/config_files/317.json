@@ -1,0 +1,34 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 317,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "List the {{attribute}} of the top 3 contributors to {{repo}} repo, ranked by the number of commits?",
+  "instantiation_dict": {
+    "repo": "metaseq",
+    "attribute": "name and number of commits"
+  },
+  "intent": "List the name and number of commits of the top 3 contributors to metaseq repo, ranked by the number of commits?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Susan Zhang: 70",
+        "Stephen Roller: 51",
+        "Peter Albert: 12"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Susan Zhang: 70, Stephen Roller: 51, Peter Albert: 12"
+  },
+  "intent_template_id": 324
+}

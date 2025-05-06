@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 169,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Tell me the full names of the repositories where I made contributions and they got {{description}} stars?",
+  "instantiation_dict": {
+    "description": "the most"
+  },
+  "intent": "Tell me the full names of the repositories where I made contributions and they got the most stars?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "a11yproject.com",
+        "design"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "a11yproject.com, Primer/design"
+  },
+  "intent_template_id": 289
+}

@@ -1,0 +1,56 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 808,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create an issue in {{repo}} repo with title \"{{issue}}\". Assign the issue to {{account}}. Set due date to be {{due}}",
+  "instantiation_dict": {
+    "repo": "cloud-to-butt",
+    "issue": "Let's keep the project alive",
+    "account": "myself",
+    "due": "the end of Q1 2033"
+  },
+  "intent": "Create an issue in cloud-to-butt repo with title \"Let's keep the project alive\". Assign the issue to myself. Set due date to be the end of Q1 2033",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/cloud-to-butt/-/issues",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('[data-qa-selector=\"title_content\"]').outerText",
+        "required_contents": {
+          "exact_match": "Let's keep the project alive"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[data-testid=\"sidebar-due-date\"').outerText",
+        "required_contents": {
+          "must_include": [
+            "Mar 31, 2033"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('.block.assignee').outerText",
+        "required_contents": {
+          "must_include": [
+            "Byte Blaze"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 327
+}

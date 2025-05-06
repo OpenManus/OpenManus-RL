@@ -1,0 +1,39 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 579,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Add the following users to my {{repo}} as {{role}}: {{user_list}}",
+  "instantiation_dict": {
+    "repo": "time tracking tool",
+    "role": "guest",
+    "user_list": [
+      "yjlou"
+    ]
+  },
+  "intent": "Add the following users to my time tracking tool as guest: ['yjlou']",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/timeit/-/project_members",
+        "locator": "func:gitlab_get_project_memeber_role(__page__, 'yjlou')",
+        "required_contents": {
+          "must_include": [
+            "Guest"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 351
+}

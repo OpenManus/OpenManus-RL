@@ -1,0 +1,31 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 12,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Tell me the the number of reviews that our store received by far that mention term \"{{term}}\"",
+  "instantiation_dict": {
+    "term": "satisfied"
+  },
+  "intent": "Tell me the the number of reviews that our store received by far that mention term \"satisfied\"",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "2"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "2"
+  },
+  "intent_template_id": 288
+}

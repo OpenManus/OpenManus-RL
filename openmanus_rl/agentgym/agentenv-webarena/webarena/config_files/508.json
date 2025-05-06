@@ -1,0 +1,36 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 508,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Buy the highest rated product from the {{product_category}} category within a budget {{dollar_value}}.",
+  "instantiation_dict": {
+    "product_category": "NS switch pouch",
+    "dollar_value": "under 60"
+  },
+  "intent": "Buy the highest rated product from the NS switch pouch category within a budget under 60.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "func:shopping_get_latest_order_url()",
+        "locator": "document.querySelector(\".order-details-items.ordered\").outerText",
+        "required_contents": {
+          "must_include": [
+            "B07116LGP6"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 172
+}

@@ -1,0 +1,43 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 707,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Today is 3/15/2023, generate a {{report}} {{time_span}}",
+  "instantiation_dict": {
+    "report": "sales order report",
+    "time_span": "for last year"
+  },
+  "intent": "Today is 3/15/2023, generate a sales order report for last year",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/reports/report_sales/sales",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('[id=\"sales_report_from\"').value",
+        "required_contents": {
+          "exact_match": "1/1/2022"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[id=\"sales_report_to\"').value",
+        "required_contents": {
+          "exact_match": "12/31/2022"
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 268
+}

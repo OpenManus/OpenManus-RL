@@ -1,0 +1,45 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 744,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create a new {{scope}} project \"AutoAGI\" and add {{account_list}} as members",
+  "instantiation_dict": {
+    "scope": "public",
+    "account_list": "primer"
+  },
+  "intent": "Create a new public project \"AutoAGI\" and add primer as members",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/AutoAGI",
+        "locator": "document.querySelector('.visibility-icon').getAttribute('title')",
+        "required_contents": {
+          "must_include": [
+            "public"
+          ]
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/AutoAGI/-/project_members",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "@primer"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 332
+}

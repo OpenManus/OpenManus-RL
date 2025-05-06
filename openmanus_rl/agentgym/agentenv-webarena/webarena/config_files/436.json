@@ -1,0 +1,36 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 436,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "I previously ordered some {{product}} {{time}} and later cancelled. Can you reorder it for me?",
+  "instantiation_dict": {
+    "product": "a mattress foundation",
+    "time": "around Feb or March 2023"
+  },
+  "intent": "I previously ordered some a mattress foundation around Feb or March 2023 and later cancelled. Can you reorder it for me?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "func:shopping_get_latest_order_url()",
+        "locator": "document.querySelector(\".order-details-items.ordered\").outerText",
+        "required_contents": {
+          "must_include": [
+            "B07DFJ5XKH"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 156
+}

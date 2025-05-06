@@ -1,0 +1,36 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 480,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Invite {{collaborator_account_list}} as collaborator to {{repo}}",
+  "instantiation_dict": {
+    "collaborator_account_list": "yjlou",
+    "repo": "solarized-prism-theme"
+  },
+  "intent": "Invite yjlou as collaborator to solarized-prism-theme",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/solarized-prism-theme/-/project_members",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "yjlou"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 293
+}

@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 138,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "What is the estimated driving time between {{city1}} and {{city2}}?",
+  "instantiation_dict": {
+    "city1": "the big apple",
+    "city2": "the city with the most authentic Philly cheesesteaks"
+  },
+  "intent": "What is the estimated driving time between the big apple and the city with the most authentic Philly cheesesteaks?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "1h 58min"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "1h 58min"
+  },
+  "intent_template_id": 51
+}

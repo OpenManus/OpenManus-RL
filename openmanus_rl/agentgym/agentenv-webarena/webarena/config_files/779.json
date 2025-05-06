@@ -1,0 +1,49 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 779,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "{{action}} the price of {{config}} by {{amount}}",
+  "instantiation_dict": {
+    "amount": "15%",
+    "action": "Reduce",
+    "config": "yellow shirts from Gwyn Endurance in all size below L"
+  },
+  "intent": "Reduce the price of yellow shirts from Gwyn Endurance in all size below L by 15%",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/1559/",
+        "locator": "document.querySelector('[name=\"product[price]\"').value",
+        "required_contents": {
+          "exact_match": "20.40"
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/1562/",
+        "locator": "document.querySelector('[name=\"product[price]\"').value",
+        "required_contents": {
+          "exact_match": "20.40"
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/1565/",
+        "locator": "document.querySelector('[name=\"product[price]\"').value",
+        "required_contents": {
+          "exact_match": "20.40"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 742
+}

@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 133,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "How many commits did {{user}} make to {{repo}} on {{date}}?",
+  "instantiation_dict": {
+    "user": "Eric",
+    "repo": "a11yproject",
+    "date": "3/2"
+  },
+  "intent": "How many commits did Eric make to a11yproject on 3/2?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "2"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "2"
+  },
+  "intent_template_id": 322
+}

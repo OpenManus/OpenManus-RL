@@ -1,0 +1,43 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 551,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Add new {{option}} {{value}} to {{base_setting}} of {{product}}",
+  "instantiation_dict": {
+    "option": "size",
+    "value": "30 and 31",
+    "base_setting": "all color variants",
+    "product": "Diana Tights"
+  },
+  "intent": "Add new size 30 and 31 to all color variants of Diana Tights",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/1854/",
+        "locator": "document.querySelector('[data-index=\"configurable\"').outerText",
+        "required_contents": {
+          "must_include": [
+            "Tights-30-Blue",
+            "Tights-30-Black",
+            "Tights-30-Orange",
+            "Tights-31-Blue",
+            "Tights-31-Black",
+            "Tights-31-Orange"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 252
+}

@@ -1,0 +1,35 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 74,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Given the following locations, {{place_list}}, what would be the optimal route to travel through them all in order to minimize total travel time? Please note the journey begins at the first place listed.",
+  "instantiation_dict": {
+    "place_list": [
+      "Carnegie Mellon University",
+      "apple store shadyside",
+      "starbucks on craig street"
+    ]
+  },
+  "intent": "Given the following locations, ['Carnegie Mellon University', 'apple store shadyside', 'starbucks on craig street'], what would be the optimal route to travel through them all in order to minimize total travel time? Please note the journey begins at the first place listed.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "The order is Carnegie Mellon University, starbucks on forbes ave, apple store shadyside"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Carnegie Mellon University, starbucks on forbes ave, apple store shadyside"
+  },
+  "intent_template_id": 65
+}

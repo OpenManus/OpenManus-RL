@@ -1,0 +1,39 @@
+{
+  "sites": [
+    "gitlab",
+    "reddit"
+  ],
+  "task_id": 564,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab.reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "create a repository named {{name}} that includes a README file with the links to the most active {{num}} DIY ideas on DIY subreddit?",
+  "instantiation_dict": {
+    "name": "live_a_life",
+    "num": 3
+  },
+  "intent": "create a repository named live_a_life that includes a README file with the links to the most active 3 DIY ideas on DIY subreddit?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/live_a_life/-/raw/main/README.md",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/DIY/118903/separate-glued-plastic-parts",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/DIY/118923/how-would-you-fix-this-dryer-vent-mess",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/DIY/118935/basement-bulkhead-soffit-wall-framing"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 88
+}

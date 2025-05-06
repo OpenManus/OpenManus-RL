@@ -1,0 +1,42 @@
+{
+  "sites": [
+    "gitlab",
+    "reddit"
+  ],
+  "task_id": 552,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab.reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create a folder named {{directory}} in {{gitlab_repo}} repo. Within it, create a file named urls.txt that contains the URLs of the 5 most recent posts from the {{subreddit}}?",
+  "instantiation_dict": {
+    "directory": "real_space",
+    "subreddit": "space",
+    "gitlab_repo": "gimmiethat.space"
+  },
+  "intent": "Create a folder named real_space in gimmiethat.space repo. Within it, create a file named urls.txt that contains the URLs of the 5 most recent posts from the space?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/gimmiethat.space/-/raw/main/real_space/urls.txt",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/space/134164/scientists-erupt-at-nasa-gutting-funding-for-crucial-venus",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/space/134163/virgin-orbit-fails-to-secure-funding-will-cease-operations",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/space/134162/nasa-to-name-artemis-2-crew-next-week-the-first-moon",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/space/134161/bent-light-in-deep-space-reveals-one-of-the-biggest-black",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/space/134160/seti-s-new-machine-learning-algorithm-works-like-google-s"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 84
+}

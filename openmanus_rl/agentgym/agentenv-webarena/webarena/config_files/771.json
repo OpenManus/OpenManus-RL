@@ -1,0 +1,45 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 771,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Approve the positive reviews to display in our store.",
+  "instantiation_dict": {},
+  "intent": "Approve the positive reviews to display in our store.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/review/product/edit/id/352",
+        "locator": "document.querySelector('[name=\"status_id\"').value",
+        "required_contents": {
+          "exact_match": "1"
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/review/product/edit/id/349",
+        "locator": "document.querySelector('[name=\"status_id\"').value",
+        "required_contents": {
+          "exact_match": "1"
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/review/product/edit/id/347",
+        "locator": "document.querySelector('[name=\"status_id\"').value",
+        "required_contents": {
+          "exact_match": "1"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 243
+}

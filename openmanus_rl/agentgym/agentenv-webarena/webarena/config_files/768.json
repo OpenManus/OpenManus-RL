@@ -1,0 +1,41 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 768,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "{{quantity}} {{product}} arrived, update the stock",
+  "instantiation_dict": {
+    "quantity": "5",
+    "product": "blue Cronus yoga pants with size 33"
+  },
+  "intent": "5 blue Cronus yoga pants with size 33 arrived, update the stock",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/872/",
+        "locator": "document.querySelector('[name=\"product[quantity_and_stock_status][qty]\"').value",
+        "required_contents": {
+          "exact_match": "5"
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/872/",
+        "locator": "document.querySelector('[name=\"product[quantity_and_stock_status][is_in_stock]\"').value",
+        "required_contents": {
+          "exact_match": "1"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 241
+}

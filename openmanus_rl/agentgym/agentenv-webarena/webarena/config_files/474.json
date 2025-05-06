@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 474,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Cancel order {{id}}",
+  "instantiation_dict": {
+    "id": "305"
+  },
+  "intent": "Cancel order 305",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/sales/order/view/order_id/305/",
+        "locator": "document.querySelector(\"#order_status\").outerText",
+        "required_contents": {
+          "exact_match": "Canceled"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 257
+}

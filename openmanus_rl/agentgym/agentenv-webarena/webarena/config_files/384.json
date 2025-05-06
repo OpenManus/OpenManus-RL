@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 384,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "List the customer names who complain about the quality of EYZUTAK phone cases",
+  "instantiation_dict": {},
+  "intent": "List the customer names who complain about the quality of EYZUTAK phone cases",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Lisa Lee",
+        "Evelyn Kurver",
+        "Amanda",
+        "N Randall"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Lisa Lee, Evelyn Kurver, Amanda, N Randall"
+  },
+  "intent_template_id": 666
+}

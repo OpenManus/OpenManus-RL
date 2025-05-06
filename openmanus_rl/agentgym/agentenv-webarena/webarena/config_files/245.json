@@ -1,0 +1,30 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 245,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Show me the {{information}} of the customer who is the most unhappy with {{product}}",
+  "instantiation_dict": {
+    "information": "name",
+    "product": "Antonia racer tank"
+  },
+  "intent": "Show me the name of the customer who is the most unhappy with Antonia racer tank",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "exact_match": "Shaunte"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Shaunte"
+  },
+  "intent_template_id": 244
+}

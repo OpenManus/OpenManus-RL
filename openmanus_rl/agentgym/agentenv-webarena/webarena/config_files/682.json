@@ -1,0 +1,39 @@
+{
+  "sites": [
+    "reddit",
+    "gitlab"
+  ],
+  "task_id": 682,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab.reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999",
+  "geolocation": null,
+  "intent_template": "Find a GitLab repository related to {{topic}} and make a Reddit post linking to it in a relevant subreddit",
+  "instantiation_dict": {
+    "topic": "chatGPT"
+  },
+  "intent": "Find a GitLab repository related to chatGPT and make a Reddit post linking to it in a relevant subreddit",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/machinelearning |OR| http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/singularity |OR| http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/deeplearning |OR| http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/technology",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('.submission__inner').outerText",
+        "required_contents": {
+          "must_include": [
+            "chatgpt",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/convexegg/chatgpt"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 116
+}

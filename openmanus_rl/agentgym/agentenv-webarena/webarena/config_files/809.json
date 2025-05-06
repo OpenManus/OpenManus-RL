@@ -1,0 +1,56 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 809,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create an issue in {{repo}} repo with title \"{{issue}}\". Assign the issue to {{account}}. Set due date to be {{due}}",
+  "instantiation_dict": {
+    "repo": "a11yproject",
+    "issue": "404 for many URLs",
+    "account": "myself",
+    "due": "2030-1-3"
+  },
+  "intent": "Create an issue in a11yproject repo with title \"404 for many URLs\". Assign the issue to myself. Set due date to be 2030-1-3",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/a11yproject/a11yproject.com/-/issues",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('[data-qa-selector=\"title_content\"]').outerText",
+        "required_contents": {
+          "exact_match": "404 for many URLs"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[data-testid=\"sidebar-due-date\"').outerText",
+        "required_contents": {
+          "must_include": [
+            "Jan 3, 2030"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('.block.assignee').outerText",
+        "required_contents": {
+          "must_include": [
+            "Byte Blaze"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 327
+}

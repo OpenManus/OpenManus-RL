@@ -1,0 +1,40 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 770,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "We've received {{quantity}}, update the inventory.",
+  "instantiation_dict": {
+    "quantity": "12 white Cora parachute pant of size 28 and 56 blue of size 29"
+  },
+  "intent": "We've received 12 white Cora parachute pant of size 28 and 56 blue of size 29, update the inventory.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/1836/",
+        "locator": "document.querySelector('[name=\"product[quantity_and_stock_status][qty]\"').value",
+        "required_contents": {
+          "exact_match": "112"
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/1838/",
+        "locator": "document.querySelector('[name=\"product[quantity_and_stock_status][qty]\"').value",
+        "required_contents": {
+          "exact_match": "156"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 241
+}

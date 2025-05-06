@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 416,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Go to the merge request on {{topic}} I have to review, find if the author of the merge request responded at the end, and reply \"Thank you\" if he did. Otherwise remind him with a simple @.",
+  "instantiation_dict": {
+    "topic": "wcag"
+  },
+  "intent": "Go to the merge request on wcag I have to review, find if the author of the merge request responded at the end, and reply \"Thank you\" if he did. Otherwise remind him with a simple @.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/a11yproject/a11yproject.com/-/merge_requests/1270",
+        "locator": "document.querySelector('[id=\"notes-list\"').lastElementChild.querySelector('.timeline-discussion-body').outerText",
+        "required_contents": {
+          "exact_match": "Thank you"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 360
+}

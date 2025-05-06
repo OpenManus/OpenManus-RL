@@ -1,0 +1,36 @@
+{
+  "sites": [
+    "reddit"
+  ],
+  "task_id": 410,
+  "require_login": true,
+  "storage_state": "./.auth/reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/singularity/69404/this-is-how-chatgpt-sees-itself",
+  "geolocation": null,
+  "intent_template": "Reply to {{position_description}} in this post with \"{{content_description}}\"",
+  "instantiation_dict": {
+    "position_description": "the first reply",
+    "content_description": "don't panic"
+  },
+  "intent": "Reply to the first reply in this post with \"don't panic\"",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/singularity/69404/-/comment/1042264",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "don't panic"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 23
+}

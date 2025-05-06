@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 150,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "What is the {{option}} configuration of the {{product}} I bought {{time}}",
+  "instantiation_dict": {
+    "option": "price",
+    "product": "fake tree",
+    "time": "Jan 2023"
+  },
+  "intent": "What is the price configuration of the fake tree I bought Jan 2023",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "260.69"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "260.69"
+  },
+  "intent_template_id": 155
+}

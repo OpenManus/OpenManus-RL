@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 89,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Which US states border {{state}}?",
+  "instantiation_dict": {
+    "state": "Connecticut"
+  },
+  "intent": "Which US states border Connecticut?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Rhode Island",
+        "Massachusetts",
+        "New York"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Rhode Island, Massachusetts, New York"
+  },
+  "intent_template_id": 67
+}

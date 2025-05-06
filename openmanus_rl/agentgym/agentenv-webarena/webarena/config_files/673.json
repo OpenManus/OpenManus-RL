@@ -1,0 +1,50 @@
+{
+  "sites": [
+    "shopping",
+    "reddit"
+  ],
+  "task_id": 673,
+  "require_login": true,
+  "storage_state": "./.auth/reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Gather the titles of {{product}} reviews with {{rating}} rating from OneStopShop, and post them in the games subreddit under the title \"real user feedback on {{product}}\"",
+  "instantiation_dict": {
+    "product": "Racing Wheel Overdrive for Xbox X",
+    "rating": "1 star"
+  },
+  "intent": "Gather the titles of Racing Wheel Overdrive for Xbox X reviews with 1 star rating from OneStopShop, and post them in the games subreddit under the title \"real user feedback on Racing Wheel Overdrive for Xbox X\"",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/gaming",
+    "program_html": [
+      {
+        "url": "func:reddit_get_post_url('__last_url__')",
+        "locator": "document.querySelector('.submission__title').outerText",
+        "required_contents": {
+          "exact_match": "real user feedback on Racing Wheel Overdrive for Xbox X"
+        }
+      },
+      {
+        "url": "func:reddit_get_post_url('__last_url__')",
+        "locator": "document.querySelector('.submission__body').outerText",
+        "required_contents": {
+          "must_include": [
+            "Unable to set neutral steering",
+            "Doesn\u2019t work with PC",
+            "Crazy problems in automatic mode",
+            "pedals stopped working",
+            "Only works with certain games"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 101
+}

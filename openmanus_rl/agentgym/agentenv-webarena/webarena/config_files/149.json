@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 149,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "What is the {{option}} configuration of the {{product}} I bought {{time}}",
+  "instantiation_dict": {
+    "option": "color",
+    "product": "artifical plants",
+    "time": "Feb 2023"
+  },
+  "intent": "What is the color configuration of the artifical plants I bought Feb 2023",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Green-vines"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Green-vines"
+  },
+  "intent_template_id": 155
+}

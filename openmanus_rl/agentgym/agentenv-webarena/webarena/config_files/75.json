@@ -1,0 +1,35 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 75,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Given the following locations, {{place_list}}, what would be the optimal route to travel through them all in order to minimize total travel time? Please note the journey begins at the first place listed.",
+  "instantiation_dict": {
+    "place_list": [
+      "Massachusetts Institute of Technology",
+      "Harvard University",
+      "Boston Logan International Airport"
+    ]
+  },
+  "intent": "Given the following locations, ['Massachusetts Institute of Technology', 'Harvard University', 'Boston Logan International Airport'], what would be the optimal route to travel through them all in order to minimize total travel time? Please note the journey begins at the first place listed.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "The order is Massachusetts Institute of Technology, Harvard University, Boston Logan International Airport"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Massachusetts Institute of Technology, Harvard University, Boston Logan International Airport"
+  },
+  "intent_template_id": 65
+}

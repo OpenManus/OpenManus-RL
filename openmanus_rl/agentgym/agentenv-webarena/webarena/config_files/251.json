@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 251,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Tell me the coordinates of {{location}} in DD format",
+  "instantiation_dict": {
+    "location": "bus stop on the Carnegie art museum side of the street near CMU"
+  },
+  "intent": "Tell me the coordinates of bus stop on the Carnegie art museum side of the street near CMU in DD format",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "40.444",
+        "-79.948"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "40.4443, -79.94889"
+  },
+  "intent_template_id": 46
+}

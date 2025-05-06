@@ -1,0 +1,37 @@
+{
+  "sites": [
+    "reddit"
+  ],
+  "task_id": 731,
+  "require_login": true,
+  "storage_state": "./.auth/reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999",
+  "geolocation": null,
+  "intent_template": "Edit my post on {{post}} by adding a line to the body that says \"{{content}}\"",
+  "instantiation_dict": {
+    "post": "Nvidia RTX 4090",
+    "content": "EDIT: This news aged well"
+  },
+  "intent": "Edit my post on Nvidia RTX 4090 by adding a line to the body that says \"EDIT: This news aged well\"",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/MachineLearning/1/nvidia-rtx-4090",
+        "locator": "document.querySelector('.submission__body').outerText",
+        "required_contents": {
+          "must_include": [
+            "EDIT: This news aged well",
+            "Crazy device for ML!"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 27
+}
