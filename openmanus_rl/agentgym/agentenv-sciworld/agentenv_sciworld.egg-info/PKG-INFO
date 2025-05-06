@@ -1,0 +1,26 @@
+Metadata-Version: 2.1
+Name: agentenv_sciworld
+Version: 0.0.1
+Author-email: zsxmwjz <13816862266@163.com>
+License: MIT
+Requires-Python: ~=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi
+Requires-Dist: uvicorn
+Requires-Dist: scienceworld
+
+# Agent Environments - SciWorld
+
+## Setup
+Before running: You will have to have Java 1.8+ installed on your system (shipped with most linux distributions).
+``` sh
+conda create --name agentenv-sciworld python=3.8
+conda activate agentenv-sciworld
+pip install -e .
+```
+
+## Launch
+
+``` sh
+sciworld --host 0.0.0.0 --port 36001
+```

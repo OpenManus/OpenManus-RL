@@ -1,0 +1,27 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 166,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/sensodyne-repair-protect-whitening-toothpaste-with-fluoride-3-4-oz-pack-of-3.html",
+  "geolocation": null,
+  "intent_template": "What are the main criticisms of this product? Please extract the relevant sentences.",
+  "instantiation_dict": {},
+  "intent": "What are the main criticisms of this product? Please extract the relevant sentences.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "there is no existing criticism",
+    "reference_answer_raw_annotation": "N/A"
+  },
+  "intent_template_id": 136
+}

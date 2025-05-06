@@ -1,0 +1,37 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 680,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Lookup orders that are {{status}}",
+  "instantiation_dict": {
+    "status": "on hold"
+  },
+  "intent": "Lookup orders that are on hold",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/sales/order/",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector(\"div.admin__data-grid-filters-current\").outerText",
+        "required_contents": {
+          "must_include": [
+            "On Hold"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 253
+}

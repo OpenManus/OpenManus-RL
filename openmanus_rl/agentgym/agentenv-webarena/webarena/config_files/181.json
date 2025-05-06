@@ -1,0 +1,30 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 181,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Open my latest created issue that has {{keyword}} in its title to check if it is closed",
+  "instantiation_dict": {
+    "keyword": "theme editor"
+  },
+  "intent": "Open my latest created issue that has theme editor in its title to check if it is closed",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match",
+      "url_match"
+    ],
+    "reference_answers": {
+      "exact_match": "No"
+    },
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/a11y-syntax-highlighting/-/issues/1",
+    "program_html": [],
+    "reference_answer_raw_annotation": "Not closed",
+    "string_note": ""
+  },
+  "intent_template_id": 500
+}

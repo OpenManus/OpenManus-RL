@@ -1,0 +1,36 @@
+{
+  "sites": [
+    "reddit"
+  ],
+  "task_id": 714,
+  "require_login": true,
+  "storage_state": "./.auth/reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999",
+  "geolocation": null,
+  "intent_template": "Thumbs down the top {{k}} post ever in {{subreddit}}.",
+  "instantiation_dict": {
+    "subreddit": "gadgets",
+    "k": "1"
+  },
+  "intent": "Thumbs down the top 1 post ever in gadgets.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/gadgets/19459/a-custom-gaming-pc-built-inside-a-vintage-1940s-motorola",
+        "locator": "document.querySelector('div.submission__vote').querySelector('form').getAttribute('class')",
+        "required_contents": {
+          "must_include": [
+            "vote vote--user-downvoted"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 24
+}

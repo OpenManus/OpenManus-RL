@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 453,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Disable {{product}} from the site, they are facing some quality issues.",
+  "instantiation_dict": {
+    "product": "Teton pullover hoodie"
+  },
+  "intent": "Disable Teton pullover hoodie from the site, they are facing some quality issues.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/78/",
+        "locator": "document.querySelector('[name=\"product[status]\"').value",
+        "required_contents": {
+          "exact_match": "2"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 242
+}

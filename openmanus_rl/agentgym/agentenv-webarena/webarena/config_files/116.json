@@ -1,0 +1,39 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 116,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Show me the name of the customers who have expressed dissatisfaction with {{product}}?",
+  "instantiation_dict": {
+    "product": "tanks products"
+  },
+  "intent": "Show me the name of the customers who have expressed dissatisfaction with tanks products?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Alexander",
+        "Carma",
+        "Dominic",
+        "Merrie",
+        "Monroe",
+        "Scotty",
+        "Shaunte",
+        "Teofila",
+        "Valorie"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Alexander, Carma, Dominic, Merrie, Monroe, Scotty, Shaunte, Teofila, Valorie"
+  },
+  "intent_template_id": 245
+}

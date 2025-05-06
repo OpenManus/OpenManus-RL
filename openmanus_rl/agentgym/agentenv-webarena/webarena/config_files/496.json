@@ -1,0 +1,37 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 496,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Update order #{{order}} with the {{service}} tracking number {{tracking}}",
+  "instantiation_dict": {
+    "tracking": "8974568499",
+    "order": "299",
+    "service": "Federal Express"
+  },
+  "intent": "Update order #299 with the Federal Express tracking number 8974568499",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/sales/order/commentsHistory/order_id/299/active_tab/order_shipments/",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "Tracking number 8974568499 for Federal Express assigned"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 284
+}

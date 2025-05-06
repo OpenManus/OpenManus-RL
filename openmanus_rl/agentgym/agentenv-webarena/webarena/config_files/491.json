@@ -1,0 +1,29 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 491,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Notify {{name}} in their most recent pending order with message \"{{message}}\"",
+  "instantiation_dict": {
+    "name": "Sarah Miller",
+    "message": "the order is ready to be shipped soon!"
+  },
+  "intent": "Notify Sarah Miller in their most recent pending order with message \"the order is ready to be shipped soon!\"",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "System message: We cannot add order history."
+  },
+  "intent_template_id": 280
+}

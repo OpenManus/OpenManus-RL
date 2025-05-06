@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 518,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/sceptre-e195bd-srr-19-inch-720p-led-tv-true-black-2017.html",
+  "geolocation": null,
+  "intent_template": "Add this product to my wishlist",
+  "instantiation_dict": {},
+  "intent": "Add this product to my wishlist",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/wishlist/",
+        "locator": "document.querySelector('.products-grid.wishlist').outerText",
+        "required_contents": {
+          "must_include": [
+            "Sceptre E195BD-SRR 19-Inch 720P LED TV, True Black (2017)"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 196
+}

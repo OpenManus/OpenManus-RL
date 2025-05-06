@@ -1,0 +1,27 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 368,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "find discounted items.",
+  "instantiation_dict": {},
+  "intent": "find discounted items.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "There is no function to show only discount items",
+    "reference_answer_raw_annotation": "There is no function to show only discount items."
+  },
+  "intent_template_id": 188
+}

@@ -1,0 +1,37 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 464,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Update the product description of {{product}} to highlight the real user positive reviews by quoting the comments",
+  "instantiation_dict": {
+    "product": "Antonia Racer Tank"
+  },
+  "intent": "Update the product description of Antonia Racer Tank to highlight the real user positive reviews by quoting the comments",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/../antonia-racer-tank.html",
+        "locator": "document.querySelector('.data.item.content').outerText + (document.querySelector('.product.attribute.overview [itemprop=\"description\"]')?.outerText || '')",
+        "required_contents": {
+          "must_include": [
+            "This is in regular rotation at the gym",
+            "Its colorful and looks kinda cute under my exercise tanks",
+            "it's very stylish for yoga or something else low impact"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 251
+}

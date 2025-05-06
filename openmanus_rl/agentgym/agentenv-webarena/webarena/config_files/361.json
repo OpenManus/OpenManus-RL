@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 361,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Show me the {{info}} for order number {{order_number}}.",
+  "instantiation_dict": {
+    "info": "order statuses",
+    "order_number": "170 and 189"
+  },
+  "intent": "Show me the order statuses for order number 170 and 189.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "170: cancelled",
+        "189: pending"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "170: cancelled, 189: pending"
+  },
+  "intent_template_id": 206
+}

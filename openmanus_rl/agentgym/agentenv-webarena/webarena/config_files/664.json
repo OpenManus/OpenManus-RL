@@ -1,0 +1,38 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 664,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Open an issue to {{issue}} in {{repo}}.",
+  "instantiation_dict": {
+    "repo": "awesome-python",
+    "issue": "ask their plans on adding Python 3.11 related resources"
+  },
+  "intent": "Open an issue to ask their plans on adding Python 3.11 related resources in awesome-python.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/vinta/awesome-python/-/issues",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('.detail-page-description').outerText",
+        "required_contents": {
+          "must_include": [
+            "Python 3.11"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 328
+}

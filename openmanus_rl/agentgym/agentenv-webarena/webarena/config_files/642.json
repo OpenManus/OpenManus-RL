@@ -1,0 +1,41 @@
+{
+  "sites": [
+    "reddit"
+  ],
+  "task_id": 642,
+  "require_login": true,
+  "storage_state": "./.auth/reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999",
+  "geolocation": null,
+  "intent_template": "Post a notice on a virtual meetup for {{interest}} enthusiasts on {{date}} in the {{subreddit}} subreddit",
+  "instantiation_dict": {
+    "interest": "Big little lies",
+    "date": "Sep 10th",
+    "subreddit": "books"
+  },
+  "intent": "Post a notice on a virtual meetup for Big little lies enthusiasts on Sep 10th in the books subreddit",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/books",
+    "program_html": [
+      {
+        "url": "func:reddit_get_post_url('__last_url__')",
+        "locator": "document.querySelector('.submission__inner').outerText",
+        "required_contents": {
+          "must_include": [
+            "Big little lies",
+            "Sep 10th",
+            "virtual meetup"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 16
+}

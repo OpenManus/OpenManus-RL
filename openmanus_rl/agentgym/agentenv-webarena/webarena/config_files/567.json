@@ -1,0 +1,37 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 567,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Invite {{collaborator_account_list}} as collaborator to {{repo}} repo",
+  "instantiation_dict": {
+    "collaborator_account_list": "Jakub Klinkovsk\u00fd and Beno\u00eet Blanchon",
+    "repo": "gimmiethat.space"
+  },
+  "intent": "Invite Jakub Klinkovsk\u00fd and Beno\u00eet Blanchon as collaborator to gimmiethat.space repo",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/gimmiethat.space/-/project_members",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "@lahwaacz",
+            "@bblanchon"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 293
+}

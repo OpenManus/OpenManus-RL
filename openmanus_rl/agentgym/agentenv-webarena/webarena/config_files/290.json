@@ -1,0 +1,34 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 290,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Tell me the {{attribute}} of the customer who has the most cancellations in the history",
+  "instantiation_dict": {
+    "attribute": "product SKUs in the most recent cancelled orders"
+  },
+  "intent": "Tell me the product SKUs in the most recent cancelled orders of the customer who has the most cancellations in the history",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "WSH09-29-White",
+        "WSH09-28-Green",
+        "MSH11-34-Blue",
+        "WP09-29-Purple"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "WSH09-29-White,WSH09-28-Green,MSH11-34-Blue,WP09-29-Purple"
+  },
+  "intent_template_id": 234
+}

@@ -1,0 +1,36 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 6,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "What are the top-{{n}} best-selling product in {{year}}",
+  "instantiation_dict": {
+    "n": 5,
+    "year": 2023
+  },
+  "intent": "What are the top-5 best-selling product in 2023",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Sprite Yoga Strap 6 foot",
+        "Overnight Duffle",
+        "Ida Workout Parachute Pant-29-Purple",
+        "Hawkeye Yoga Short-32-Blue",
+        "Sprite Stasis Ball 65 cm"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Sprite Yoga Strap 6 foot, Overnight Duffle, Ida Workout Parachute Pant-29-Purple, Hawkeye Yoga Short-32-Blue, Sprite Stasis Ball 65 cm"
+  },
+  "intent_template_id": 279
+}

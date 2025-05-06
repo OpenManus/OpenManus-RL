@@ -1,0 +1,37 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 35,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "I will arrive {{place}} soon. Provide the name of a {{target1}} in the vicinity, if available. Then, tell me the {{information}} to {{target2}} from the hotel.",
+  "instantiation_dict": {
+    "place": "Pittsburgh Airport",
+    "target1": "Hyatt hotel",
+    "information": "the minimal driving time",
+    "target2": "a supermarket"
+  },
+  "intent": "I will arrive Pittsburgh Airport soon. Provide the name of a Hyatt hotel in the vicinity, if available. Then, tell me the the minimal driving time to a supermarket from the hotel.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Hyatt Regency Pittsburgh International Airport"
+      ],
+      "fuzzy_match": [
+        "Time: 15min"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Hyatt Regency Pittsburgh International Airport Time: 15min"
+  },
+  "intent_template_id": 78
+}

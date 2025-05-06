@@ -1,0 +1,31 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 322,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "How much refund I should expect from my order canlled in {{time}} if I cannot get the shipping fee refunded?",
+  "instantiation_dict": {
+    "time": "May 2023"
+  },
+  "intent": "How much refund I should expect from my order canlled in May 2023 if I cannot get the shipping fee refunded?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "350.42"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "350.42"
+  },
+  "intent_template_id": 160
+}

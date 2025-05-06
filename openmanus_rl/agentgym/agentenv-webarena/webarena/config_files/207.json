@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 207,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/a11yproject/a11yproject.com",
+  "geolocation": null,
+  "intent_template": "How many commits did {{user}} make on {{date}} in total?",
+  "instantiation_dict": {
+    "user": "Eric and Kilian",
+    "date": "1/3/2023"
+  },
+  "intent": "How many commits did Eric and Kilian make on 1/3/2023 in total?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "1"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "1"
+  },
+  "intent_template_id": 320
+}

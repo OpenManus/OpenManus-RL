@@ -1,0 +1,29 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 293,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Show me the command to clone {{repo}} with SSH.",
+  "instantiation_dict": {
+    "repo": "Super_Awesome_Robot"
+  },
+  "intent": "Show me the command to clone Super_Awesome_Robot with SSH.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "exact_match": "git clone ssh://git@metis.lti.cs.cmu.edu:2222/convexegg/super_awesome_robot.git"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "git clone ssh://git@metis.lti.cs.cmu.edu:2222/convexegg/super_awesome_robot.git"
+  },
+  "intent_template_id": 329
+}

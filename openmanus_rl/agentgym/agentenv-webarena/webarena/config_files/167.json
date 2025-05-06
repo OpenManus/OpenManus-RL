@@ -1,0 +1,34 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 167,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/photosmart-plus-b209-clr-inkjetfb-p-s-c-usb-wrls-1.html",
+  "geolocation": null,
+  "intent_template": "What are the main criticisms of this product? Please extract the relevant sentences.",
+  "instantiation_dict": {},
+  "intent": "What are the main criticisms of this product? Please extract the relevant sentences.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "The wireless connection works on a whim (about 40% of the time I've owned it)",
+        "It seems to constantly run out of ink",
+        "Cartridge prices are less than some printers I've had",
+        "This printer seems to have more reasons NOT to work (none that are findable or correctable) Ex: error boxes saying that it's out of paper when it automatically switches to photo printing for some reason",
+        "Scanner is as slow as my first scanner I ever owned in the mid-90's",
+        "For the $176 I paid, there isn't even a fax component on it. I guess the \"PLUS\" part of it's name is in reference to the migraines it causes when you can't figure out the new reason why it's not working for the 10th time in the past 2 months."
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "The wireless connection works on a whim (about 40% of the time I've owned it). It seems to constantly run out of ink. Cartridge prices are less than some printers I've had, but now I understand why. This printer seems to have more reasons NOT to work (none that are findable or correctable) Ex: error boxes saying that it's out of paper when it automatically switches to photo printing for some reason. Scanner is as slow as my first scanner I ever owned in the mid-90's. For the $176 I paid, there isn't even a fax component on it. I guess the \"PLUS\" part of it's name is in reference to the migraines it causes when you can't figure out the new reason why it's not working for the 10th time in the past 2 months."
+  },
+  "intent_template_id": 136
+}

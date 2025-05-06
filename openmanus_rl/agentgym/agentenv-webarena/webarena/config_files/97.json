@@ -1,0 +1,30 @@
+{
+  "sites": [
+    "map",
+    "wikipedia"
+  ],
+  "task_id": 97,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Tell me the distance to drive from Carnegie Mellon University to the top computer science school in massachusetts",
+  "instantiation_dict": {},
+  "intent": "Tell me the distance to drive from Carnegie Mellon University to the top computer science school in massachusetts",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "914km"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "914 km"
+  },
+  "intent_template_id": 120
+}

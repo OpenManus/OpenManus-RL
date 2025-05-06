@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 435,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/35-ft-hdmi-cable-gearit-pro-series-hdmi-cable-35-feet-high-speed-ethernet-4k-resolution-3d-video-and-arc-audio-return-channel-hdmi-cable-white.html |AND| http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/dp-to-hdmi-cable-6ft-2-pack-fosmon-gold-plated-displayport-to-hdmi-cable-1080p-full-hd-for-pcs-to-hdtv-monitor-projector-with-hdmi-port.html",
+  "geolocation": null,
+  "intent_template": "Add the product with the lowest per unit price from my open tabs to the shopping cart",
+  "instantiation_dict": {},
+  "intent": "Add the product with the lowest per unit price from my open tabs to the shopping cart",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/checkout/cart",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "DP to HDMI Cable 6FT (2 Pack), Fosmon Gold Plated Displayport to HDMI Cable 1080p Full HD for PCs to HDTV, Monitor, Projector with HDMI Port"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 145
+}

@@ -1,0 +1,27 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 325,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Show me the \"{{product}}\" listings by {{sorting_order}}.",
+  "instantiation_dict": {
+    "product": "mouth night guard",
+    "sorting_order": "descending price"
+  },
+  "intent": "Show me the \"mouth night guard\" listings by descending price.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/catalogsearch/result/index/?q=mouth%20night%20guard%20&product_list_order=price",
+    "program_html": [],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 208
+}

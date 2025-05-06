@@ -1,0 +1,39 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 538,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Modify the address of order #{{order_id}} to {{address}}",
+  "instantiation_dict": {
+    "order_id": "299",
+    "address": "456 Oak Avenue, Apartment 5B, New York, NY, 10001"
+  },
+  "intent": "Modify the address of order #299 to 456 Oak Avenue, Apartment 5B, New York, NY, 10001",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/sales/order/view/order_id/299",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "456 Oak Avenue",
+            "Apartment 5B",
+            "New York",
+            "10001"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 240
+}

@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 19,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Compare the time for walking and driving route from {{start}} to {{end}}",
+  "instantiation_dict": {
+    "start": "Carnegie Science Center",
+    "end": "Carnegie Mellon University"
+  },
+  "intent": "Compare the time for walking and driving route from Carnegie Science Center to Carnegie Mellon University",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "driving: 12min",
+        "walking: 1h 44min."
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "driving: 12min, walking: 1h 44min."
+  },
+  "intent_template_id": 73
+}

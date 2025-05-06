@@ -1,0 +1,40 @@
+{
+  "sites": [
+    "reddit"
+  ],
+  "task_id": 634,
+  "require_login": true,
+  "storage_state": "./.auth/reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999",
+  "geolocation": null,
+  "intent_template": "Ask for product recommendations for {{category}} within a budget of {{price}} in {{subreddit}}",
+  "instantiation_dict": {
+    "category": "used iphone",
+    "price": "$1000",
+    "subreddit": "r/iphone"
+  },
+  "intent": "Ask for product recommendations for used iphone within a budget of $1000 in r/iphone",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/iphone",
+    "program_html": [
+      {
+        "url": "func:reddit_get_post_url('__last_url__')",
+        "locator": "document.querySelector('.submission__inner').outerText",
+        "required_contents": {
+          "must_include": [
+            "1000",
+            "used iphone"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 15
+}

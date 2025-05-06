@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 8,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Tell me the full address of all {{airport_type}} that are within a driving distance of {{radius}} to {{start}}",
+  "instantiation_dict": {
+    "airport_type": "international airports",
+    "start": "Carnegie Mellon University",
+    "radius": "5 km"
+  },
+  "intent": "Tell me the full address of all international airports that are within a driving distance of 5 km to Carnegie Mellon University",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "There is no airport within 5 km of Carnegie Mellon University"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "There is no airport within 5 km of Carnegie Mellon University"
+  },
+  "intent_template_id": 79
+}

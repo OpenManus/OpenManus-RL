@@ -1,0 +1,37 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 802,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "create a new group \"{{name}}\" with members {{members}}",
+  "instantiation_dict": {
+    "name": "coding_friends",
+    "members": "qhduan, Agnes-U"
+  },
+  "intent": "create a new group \"coding_friends\" with members qhduan, Agnes-U",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/groups/coding_friends/-/group_members",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "@qhduan",
+            "@Agnes-U"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 600
+}

@@ -1,0 +1,30 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 789,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create an issue {{issue}} in {{repo}}.",
+  "instantiation_dict": {
+    "repo": "huggingface dataset",
+    "issue": "asking about do they have any plan on supporting Webagent in the next quater"
+  },
+  "intent": "Create an issue asking about do they have any plan on supporting Webagent in the next quater in huggingface dataset.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "huggingface repo does not exist",
+    "reference_answer_raw_annotation": "N/A"
+  },
+  "intent_template_id": 328
+}

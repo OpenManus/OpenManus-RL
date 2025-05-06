@@ -1,0 +1,38 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 661,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Open an issue to {{issue}} in {{repo}}.",
+  "instantiation_dict": {
+    "repo": "ChatGPT",
+    "issue": "report the issue of connection refused"
+  },
+  "intent": "Open an issue to report the issue of connection refused in ChatGPT.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/convexegg/chatgpt/-/issues",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('.detail-page-description').outerText",
+        "required_contents": {
+          "must_include": [
+            "connection refused"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 328
+}

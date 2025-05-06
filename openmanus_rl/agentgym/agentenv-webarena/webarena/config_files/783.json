@@ -1,0 +1,34 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 783,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Add the following users to repo {{repo}} as {{role}}: {{user_list}}",
+  "instantiation_dict": {
+    "repo": "kkroening/ffmpeg-python",
+    "role": "maintainer",
+    "user_list": [
+      "yjlou",
+      "a11yproject"
+    ]
+  },
+  "intent": "Add the following users to repo kkroening/ffmpeg-python as maintainer: ['yjlou', 'a11yproject']",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "not the owner of the repo so cannot add maintainer",
+    "reference_answer_raw_annotation": "N/A"
+  },
+  "intent_template_id": 351
+}

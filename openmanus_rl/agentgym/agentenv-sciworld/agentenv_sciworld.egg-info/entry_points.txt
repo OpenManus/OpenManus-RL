@@ -1,0 +1,2 @@
+[console_scripts]
+sciworld = agentenv_sciworld:launch

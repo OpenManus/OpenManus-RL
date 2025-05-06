@@ -3,13 +3,30 @@ import re
 import os
 import pandas as pd
 from collections import defaultdict
+import numpy as np
 
-# Define environments to extract
+# Define environments to extract with correct naming
 ENVIRONMENTS = [
-    "alworld", "babyai", "lmrlgym_maze", "lmrlgum_wordle", 
+    "alfworld", "babyai", "maze", "wordle", 
     "sciworld", "sqlgym", "textcraft", "movie", 
-    "todo", "weather", "webshop"
+    "todo", "weather", "webshop", "webarena"
 ]
+
+# Environment ID mapping (map item_id prefixes to standard environment names)
+ENV_ID_MAPPING = {
+    "alfworld": ["alfworld", "alworld"],  # Fix potential typo in original code
+    "babyai": ["babyai"],
+    "maze": ["lmrlgym_maze", "maze"],
+    "wordle": ["lmrlgum_wordle", "wordle"],
+    "sciworld": ["sciworld"],
+    "sqlgym": ["sqlgym"],
+    "textcraft": ["textcraft"],
+    "movie": ["movie"],
+    "todo": ["todo"],
+    "weather": ["weather"],
+    "webshop": ["webshop"],
+    "webarena": ["webarena"]
+}
 
 def make_prefix(question, environment):
     """
@@ -105,74 +122,148 @@ def process_group_data(group_name, group_samples):
     
     return processed_data
 
-def group_samples_by_environment(data, environments):
+def group_samples_by_environment(data, env_mapping):
     """
     Group data samples by their environment based on item_id.
     
     Args:
         data: Dataset samples
-        environments: List of environment names to look for
+        env_mapping: Dictionary mapping environment names to potential ID prefixes
         
     Returns:
         Dictionary with environment names as keys and sample lists as values
     """
     env_groups = defaultdict(list)
-    prefix_pattern = re.compile(r'^([^\d]+)')  # Regex to extract prefix before numbers
     
     for sample in data:
         item_id = sample['item_id']
         
-        # Extract item_id prefix until digits start
-        match = prefix_pattern.match(item_id)
-        if match:
-            item_id_prefix = match.group(1)
-        else:
-            item_id_prefix = item_id
+        # Check which environment this sample belongs to
+        matched = False
+        for env_name, prefixes in env_mapping.items():
+            for prefix in prefixes:
+                if prefix in item_id:
+                    env_groups[env_name].append(sample)
+                    matched = True
+                    break
+            if matched:
+                break
         
-        # Check if item_id contains any of the specified environments
-        for env in environments:
-            if env in item_id:
-                env_groups[env].append(sample)
-                break  # If matched to one environment, don't check others
+        # If not matched to any known environment, use a fallback
+        if not matched:
+            print(f"Warning: Could not match sample with item_id '{item_id}' to any environment")
     
     return env_groups
 
-def save_environment_data(env_groups, output_dir, txt_output_dir):
+def split_data(samples, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1, random_seed=42):
     """
-    Save grouped data to parquet and txt files.
+    Split data into train, validation, and test sets.
     
     Args:
-        env_groups: Dictionary of environment groups
-        output_dir: Directory to save parquet files
-        txt_output_dir: Directory to save txt files
+        samples: List of data samples
+        train_ratio: Ratio of training samples (default 0.8)
+        val_ratio: Ratio of validation samples (default 0.1)
+        test_ratio: Ratio of test samples (default 0.1)
+        random_seed: Random seed for reproducibility
+        
+    Returns:
+        Dictionary with 'train', 'validation', 'test' keys containing corresponding samples
     """
-    # Create output directories
-    os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(txt_output_dir, exist_ok=True)
+    assert abs(train_ratio + val_ratio + test_ratio - 1.0) < 1e-10, "Ratios must sum to 1"
     
-    # Save each environment group as parquet and txt
-    for env, samples in env_groups.items():
-        print(f"Processing group: {env}")
+    # Set random seed for reproducibility
+    np.random.seed(random_seed)
+    
+    # Shuffle indices
+    indices = np.random.permutation(len(samples))
+    
+    # Calculate split sizes
+    n_train = int(len(samples) * train_ratio)
+    n_val = int(len(samples) * val_ratio)
+    
+    # Split indices
+    train_indices = indices[:n_train]
+    val_indices = indices[n_train:n_train + n_val]
+    test_indices = indices[n_train + n_val:]
+    
+    # Create splits
+    splits = {
+        'train': [samples[i] for i in train_indices],
+        'validation': [samples[i] for i in val_indices],
+        'test': [samples[i] for i in test_indices],
+    }
+    
+    return splits
+
+def save_environment_data(env_groups, output_base_dir):
+    """
+    Save environment data to separate directories with train/test/validation splits.
+    
+    Args:
+        env_groups: Dictionary with environment name as key and samples as value
+        output_base_dir: Base directory where environment subdirectories will be created
+    """
+    # Ensure base output directory exists
+    os.makedirs(output_base_dir, exist_ok=True)
+    
+    # Process each environment group
+    for env_name, samples in env_groups.items():
+        if not samples:
+            print(f"Warning: No samples found for environment '{env_name}'. Skipping.")
+            continue
+            
+        print(f"Processing environment: {env_name} with {len(samples)} samples")
+        
+        # Create environment subdirectory
+        env_dir = os.path.join(output_base_dir, env_name)
+        os.makedirs(env_dir, exist_ok=True)
         
         # Process samples for this environment
-        processed_samples = process_group_data(env, samples)
+        processed_samples = process_group_data(env_name, samples)
         
-        # Convert processed data to DataFrame
-        df = pd.DataFrame(processed_samples)
+        # Split data into train/validation/test sets
+        if len(processed_samples) < 3:
+            print(f"Warning: Only {len(processed_samples)} samples for {env_name}, using all for train")
+            splits = {
+                'train': processed_samples,
+                'validation': processed_samples[:1],  # Use first sample for both val and test
+                'test': processed_samples[:1]         # if there's only one or two samples
+            }
+        else:
+            # Adjust split ratios for very small datasets
+            if len(processed_samples) < 10:
+                # For small datasets, ensure at least 1 sample in each split
+                train_ratio = max(0.6, 1 - 2/len(processed_samples))
+                val_ratio = test_ratio = (1 - train_ratio) / 2
+                print(f"Adjusted split ratios for small dataset: train={train_ratio:.2f}, val={val_ratio:.2f}, test={test_ratio:.2f}")
+            else:
+                train_ratio, val_ratio, test_ratio = 0.8, 0.1, 0.1
+                
+            splits = split_data(
+                processed_samples, 
+                train_ratio=train_ratio,
+                val_ratio=val_ratio,
+                test_ratio=test_ratio
+            )
         
-        # Generate file paths
-        parquet_file_path = os.path.join(output_dir, f"{env}.parquet")
-        txt_file_path = os.path.join(txt_output_dir, f"{env}.txt")
-        
-        # Save as Parquet file
-        df.to_parquet(parquet_file_path)
-        print(f"Saved data for environment '{env}' to {parquet_file_path}")
-        
-        # Save as TXT file
-        with open(txt_file_path, 'w', encoding='utf-8') as txt_file:
-            for sample in processed_samples:
-                txt_file.write(str(sample) + '\n')
-        print(f"Saved data for environment '{env}' to {txt_file_path}")
+        # Save each split
+        for split_name, split_samples in splits.items():
+            if not split_samples:
+                print(f"Warning: No samples in {split_name} split for {env_name}")
+                continue
+                
+            # Convert to DataFrame
+            df = pd.DataFrame(split_samples)
+            
+            # Define output filename based on split
+            if split_name == 'validation':
+                output_file = os.path.join(env_dir, "val.parquet")
+            else:
+                output_file = os.path.join(env_dir, f"{split_name}.parquet")
+                
+            # Save to parquet
+            df.to_parquet(output_file)
+            print(f"Saved {len(split_samples)} samples to {output_file}")
 
 def main():
     """
@@ -181,23 +272,19 @@ def main():
     # Load the dataset
     print("Loading dataset...")
     dataset = load_dataset("AgentGym/AgentTraj-L")
-    train_data = dataset['train']
+    data = dataset['train']
     
-    # Group samples by environment
+    # Group samples by environment using the ID mapping
     print("Grouping samples by environment...")
-    env_groups = group_samples_by_environment(train_data, ENVIRONMENTS)
+    env_groups = group_samples_by_environment(data, ENV_ID_MAPPING)
     
     # Print group statistics
     for env, samples in env_groups.items():
         print(f"Environment: {env}, Number of samples: {len(samples)}")
     
-    # Save grouped data
-    print("Saving environment data...")
-    save_environment_data(
-        env_groups, 
-        output_dir='output_env_groups',
-        txt_output_dir='output_txt_files'
-    )
+    # Save environment data to appropriate directories
+    print("Saving environment data with train/val/test splits...")
+    save_environment_data(env_groups, output_base_dir='./')
     
     print("Processing complete!")
 

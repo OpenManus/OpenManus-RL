@@ -1,0 +1,30 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 253,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "What is the {{information}} of {{location}}",
+  "instantiation_dict": {
+    "location": "Carnegie Mellon Caf\u00e9",
+    "information": "phone number"
+  },
+  "intent": "What is the phone number of Carnegie Mellon Caf\u00e9",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "There is no such information in the map",
+    "reference_answer_raw_annotation": "N/A"
+  },
+  "intent_template_id": 501
+}

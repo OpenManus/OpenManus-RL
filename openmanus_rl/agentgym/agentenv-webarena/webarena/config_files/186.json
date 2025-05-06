@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 186,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Give me the {{Attribute}} of the products that have {{N}} units left",
+  "instantiation_dict": {
+    "Attribute": "product names and the sizes",
+    "N": "2-3"
+  },
+  "intent": "Give me the product names and the sizes of the products that have 2-3 units left",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "Eos V-Neck Hoodie: S",
+        "Minera Luma Tech V-Tee: XS"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Eos V-Neck Hoodie: S Minera Luma Tech V-Tee: XS"
+  },
+  "intent_template_id": 368
+}

@@ -1,0 +1,35 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 485,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "{{name}} wants to check my dotfile configurations. Please invite him to the repo as a guest.",
+  "instantiation_dict": {
+    "name": "Vinta"
+  },
+  "intent": "Vinta wants to check my dotfile configurations. Please invite him to the repo as a guest.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/dotfiles/-/project_members",
+        "locator": "func:gitlab_get_project_memeber_role(__page__, 'vinta')",
+        "required_contents": {
+          "must_include": [
+            "Guest"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 294
+}
