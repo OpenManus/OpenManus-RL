@@ -1,84 +1,79 @@
-[tool.poetry]
-name = "openmanus-rl"
-version = "0.0.1"
-description = "RL framework for OpenManus"
-authors = ["OpenManus-RL team"]
-license = "Apache 2.0 License"
-readme = "README.md"
 
-[tool.poetry.dependencies]
-python = ">=3.10, <3.12"
-accelerate = "1.4.0"
-bitsandbytes = ">=0.43.0"
-datasets = ">=3.2.0"
-deepspeed = "0.15.4"
-distilabel = { version = ">=1.5.2", extras = ["vllm", "ray", "openai"] }
-e2b-code-interpreter = ">=1.0.5"
-einops = ">=0.8.0"
-hf_transfer = "*"
-huggingface-hub = { version = ">=0.19.2,<1.0", extras = ["cli"] }
-langdetect = "*"
-latex2sympy2_extended = ">=1.0.6"
-liger_kernel = "0.5.3"
-lighteval = { git = "https://github.com/huggingface/lighteval.git", rev = "ed084813e0bd12d82a06d9f913291fdbee774905" }
-math-verify = "0.5.2"
-packaging = ">=23.0"
-parameterized = ">=0.9.0"
-peft = ">=0.14.0"
-python-dotenv = "*"
-safetensors = ">=0.3.3"
-sentencepiece = ">=0.1.99"
-torch = "2.5.1"
-transformers = "4.49.0"
-vllm = "0.7.2"
-wandb = ">=0.19.1"
-trl = { git = "https://github.com/huggingface/trl.git", rev = "69ad852e5654a77f1695eb4c608906fe0c7e8624" }
-
-[tool.poetry.group.dev.dependencies]
-flake8 = ">=6.0.0"
-isort = ">=5.12.0"
-ruff = ">=0.9.0"
-
-[tool.poetry.group.test.dependencies]
-pytest = "*"
-
+# -------------------------------
+# build-system
+# -------------------------------
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = [
+    "setuptools>=61.0",
+    "wheel"
+]
+build-backend = "setuptools.build_meta"
 
-[tool.mypy]
-ignore_missing_imports = true
-check_untyped_defs = true
-follow_imports = "normal"
-strict = true
-plugins = ["pydantic.mypy"]
+# -------------------------------
+# project (PEP 621 metadata)
+# -------------------------------
+[project]
+name = "verl"
+# We'll mark the version as "dynamic" because it's read from the file "verl/version/version" 
+# (PEP 621 calls this "dynamic version"). 
+# The actual version is specified in the [tool.setuptools.dynamic] section below.
+dynamic = ["version"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = "test_*.py"
+description = "veRL: Volcano Engine Reinforcement Learning for LLM"
+license = {file = "LICENSE"}  # or "Apache-2.0", if you prefer an SPDX identifier
+readme = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.8"
 
-[tool.codespell]
-ignore-words-list = "dout, te, indicies, astroid"
-skip = ["data"]
+authors = [
+  { name = "Bytedance - Seed - MLSys", email = "zhangchi.usc1992@bytedance.com" },
+  { name = "Bytedance - Seed - MLSys", email = "gmsheng@connect.hku.hk" },
+]
 
-[tool.isort]
-profile = "black"
-use_parentheses = true
-skip_gitignore = true
-multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = 0
-line_length = 88
+# Dependencies corresponding to install_requires in setup.py
+dependencies = [
+    "accelerate",
+    "codetiming",
+    "datasets",
+    "dill",
+    "hydra-core",
+    "numpy",
+    "pybind11",
+    "ray",
+    "tensordict",
+    "transformers<4.48",
+    "vllm<=0.6.3",
+]
 
-[tool.black]
-line-length = 88
-target-version = ['py37', 'py38', 'py39', 'py310']
+# Optional dependencies (extras_require in setup.py)
+[project.optional-dependencies]
+test = [
+  "pytest", "yapf"
+]
 
-[tool.ruff]
-line-length = 88
-fix = true
-target-version = "py310"
+# URLs
+[project.urls]
+Homepage = "https://github.com/volcengine/verl"
 
-[tool.ruff.format]
-quote-style = "single"
-indent-style = "space"
+# -------------------------------
+# tool.setuptools - Additional config
+# -------------------------------
+[tool.setuptools]
+# True means `setuptools` will attempt to include all relevant files in package_data automatically.
+# This corresponds to `include_package_data=True` in setup.py.
+include-package-data = true
+
+# We read the version from a file in 'verl/version/version'
+[tool.setuptools.dynamic]
+version = {file = "verl/version/version"}
+
+# If you need to mimic `package_dir={'': '.'}`:
+[tool.setuptools.package-dir]
+"" = "."
+
+# If you need to include specific non-Python data (like YAML files or version file):
+# This is the rough equivalent of package_data={'': ['version/*'], 'verl': ['trainer/config/*.yaml']}
+[tool.setuptools.package-data]
+verl = [
+  "version/*",
+  "trainer/config/*.yaml"
+]

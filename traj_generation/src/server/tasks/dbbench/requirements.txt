@@ -1,2 +1,0 @@
-mysql-connector-python==8.0.33
-docker==6.1.2

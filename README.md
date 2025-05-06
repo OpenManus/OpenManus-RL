@@ -212,7 +212,7 @@ First, create a conda environment and activate it:
 
 ```bash
 # Create a new conda environment
-conda create -n openmanus-rl python=3.11 -y
+conda create -n openmanus-rl python=3.10 -y
 conda activate openmanus-rl
 ```
 
@@ -220,23 +220,16 @@ Then, install the required dependencies:
 
 ```bash
 # Install PyTorch with CUDA support
-pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cu121
+pip3 install torch torchvision
 
 # Install vllm for efficient inference
-pip3 install vllm==0.6.3
-
 # Install the main package
-pip install -e .
+pip install -e .[vllm]
 
 # flash attention 2
 pip3 install flash-attn --no-build-isolation
 pip install wandb
-pip install agentenv
 
-cd openmanus_rl
-cd agentgym
-cd agentenv
-pip install -e .
 ```
 
 ## Environment Setup
