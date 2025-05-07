@@ -29,3 +29,5 @@ data/output_txt_files/
 outputs/
 wandb/
 logs/
+verl_checkpoints/
+verl.egg-info/

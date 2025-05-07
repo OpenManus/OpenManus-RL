@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Configuration (defaults, can be overridden via env vars) ---
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-1,2,3,4}
 WAND_PROJECT=${WAND_PROJECT:-'OpenManus-rl'}
 export BASE_MODEL=${BASE_MODEL:-'Qwen/Qwen2.5-3B'}
 AGENTGYM_HOST=${AGENTGYM_HOST:-'0.0.0.0'} # Default to 0.0.0.0 for external access
@@ -99,32 +99,6 @@ case $AGENTGYM_ENV_NAME in
         echo "Error: Unsupported environment name '$AGENTGYM_ENV_NAME'"; usage;;
 esac
 
-# --- Environment Dependency Installation (in‑place) ---
-ENV_SETUP_DIR="openmanus_rl/agentgym/agentenv-${AGENTGYM_ENV_NAME}"
-if [ -d "$ENV_SETUP_DIR" ]; then
-    echo -e "\n[Setup] Preparing AgentGym environment '$AGENTGYM_ENV_NAME' from $ENV_SETUP_DIR ..."
-    pushd "$ENV_SETUP_DIR" > /dev/null || { echo "Failed to enter $ENV_SETUP_DIR"; exit 1; }
-
-    # install requirements
-    if [ -f "requirements.txt" ]; then
-        echo "[Setup] Installing Python requirements ..."
-        pip install --no-cache-dir -r requirements.txt
-    fi
-    # run setup.sh
-    if [ -f "setup.sh" ]; then
-        echo "[Setup] Running setup.sh ..."
-        bash setup.sh
-    fi
-    # editable install
-    if [ -f "setup.py" ] || [ -f "pyproject.toml" ]; then
-        echo "[Setup] Installing environment package (editable) ..."
-        pip install -e .
-    fi
-    popd > /dev/null
-    echo "[Setup] Environment '$AGENTGYM_ENV_NAME' ready."
-else
-    echo "[Setup] WARNING: $ENV_SETUP_DIR not found; skipping env‑specific installation."
-fi
 
 # --- Start AgentGym Servers in Dedicated Environment ---
 TARGET_ENV_NAME="agentenv-${AGENTGYM_ENV_NAME}"
@@ -314,8 +288,8 @@ hydra_overrides=(
     "actor_rollout_ref.actor.optim.lr=1e-6"
     "actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.95"
     "actor_rollout_ref.actor.use_kl_loss=true"
-    "actor_rollout_ref.actor.ppo_mini_batch_size=256"
-    "actor_rollout_ref.actor.ppo_micro_batch_size=64"
+    "actor_rollout_ref.actor.ppo_mini_batch_size=32"
+    "actor_rollout_ref.actor.ppo_micro_batch_size=32"
     "actor_rollout_ref.actor.fsdp_config.param_offload=true"
     "actor_rollout_ref.actor.fsdp_config.grad_offload=true"
     "actor_rollout_ref.actor.fsdp_config.optimizer_offload=true"
@@ -346,7 +320,7 @@ hydra_overrides=(
     "+trainer.val_only=false"
     "+trainer.val_before_train=true"
     "trainer.default_hdfs_dir=null"
-    "trainer.n_gpus_per_node=8"
+    "trainer.n_gpus_per_node=4"
     "trainer.nnodes=1"
     "trainer.save_freq=100"
     "trainer.test_freq=50"
