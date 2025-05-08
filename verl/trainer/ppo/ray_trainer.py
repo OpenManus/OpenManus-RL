@@ -980,14 +980,6 @@ class RayPPOTrainer(object):
                 print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Initial Batch Info:")
                 print(f"  Batch Keys & Shapes & Devices:")
                 # Check if batch attribute exists, is not None, and is not empty
-                if hasattr(batch, 'batch') and batch.batch is not None and not batch.batch.is_empty():
-                    for key, tensor in batch.batch.items():
-                        if isinstance(tensor, torch.Tensor):
-                            print(f"    {key}: shape={tensor.shape}, dtype={tensor.dtype}, device={tensor.device}")
-                        else:
-                             print(f"    {key}: type={type(tensor)}") 
-                else:
-                    print("    Batch is empty or None.")
                 print(f"  Meta Info Keys: {list(batch.meta_info.keys()) if hasattr(batch, 'meta_info') else 'N/A'}")
                 print(f"  Non-Tensor Batch Keys: {list(batch.non_tensor_batch.keys()) if hasattr(batch, 'non_tensor_batch') else 'N/A'}")
                 # --- End Debug Print ---
@@ -1022,14 +1014,6 @@ class RayPPOTrainer(object):
                             print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Input gen_batch to run_llm_loop:")
                             print(f"  Batch Keys & Shapes & Devices:")
                             # Check if batch attribute exists, is not None, and is not empty
-                            if hasattr(gen_batch, 'batch') and gen_batch.batch is not None and not gen_batch.batch.is_empty():
-                                for key, tensor in gen_batch.batch.items():
-                                    if isinstance(tensor, torch.Tensor):
-                                        print(f"    {key}: shape={tensor.shape}, dtype={tensor.dtype}, device={tensor.device}")
-                                    else:
-                                         print(f"    {key}: type={type(tensor)}") 
-                            else:
-                                print("    Batch is empty or None.")
                             print(f"  Meta Info Keys: {list(gen_batch.meta_info.keys()) if hasattr(gen_batch, 'meta_info') else 'N/A'}")
                             # --- End Debug Print ---
                             try:
@@ -1043,14 +1027,6 @@ class RayPPOTrainer(object):
                                 print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Output final_gen_batch_output from run_llm_loop:")
                                 print(f"  Batch Keys & Shapes & Devices:")
                                 # Check if batch attribute exists, is not None, and is not empty
-                                if hasattr(final_gen_batch_output, 'batch') and final_gen_batch_output.batch is not None and not final_gen_batch_output.batch.is_empty():
-                                    for key, tensor in final_gen_batch_output.batch.items():
-                                        if isinstance(tensor, torch.Tensor):
-                                            print(f"    {key}: shape={tensor.shape}, dtype={tensor.dtype}, device={tensor.device}")
-                                        else:
-                                             print(f"    {key}: type={type(tensor)}") 
-                                else:
-                                    print("    Batch is empty or None.")
                                 print(f"  Meta Info Keys: {list(final_gen_batch_output.meta_info.keys()) if hasattr(final_gen_batch_output, 'meta_info') else 'N/A'}")
                                 # --- End Debug Print ---
                             except Exception as e:
@@ -1103,14 +1079,6 @@ class RayPPOTrainer(object):
                                 print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Input padded_batch_for_logp to compute_log_prob:")
                                 print(f"  Batch Keys & Shapes & Devices:")
                                 # Check if batch attribute exists, is not None, and is not empty
-                                if hasattr(padded_batch_for_logp, 'batch') and padded_batch_for_logp.batch is not None and not padded_batch_for_logp.batch.is_empty():
-                                    for key, tensor in padded_batch_for_logp.batch.items():
-                                        if isinstance(tensor, torch.Tensor):
-                                            print(f"    {key}: shape={tensor.shape}, dtype={tensor.dtype}, device={tensor.device}")
-                                        else:
-                                             print(f"    {key}: type={type(tensor)}") 
-                                else:
-                                    print("    Batch is empty or None.")
                                 print(f"  Meta Info: {padded_batch_for_logp.meta_info if hasattr(padded_batch_for_logp, 'meta_info') else 'N/A'}")
                                 # --- End Debug Print ---
                                 print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Calling actor_rollout_wg.compute_log_prob...") # DEBUG
@@ -1189,15 +1157,6 @@ class RayPPOTrainer(object):
                         print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Input batch to compute_ref_log_prob:")
                         print(f"  Batch Keys & Shapes & Devices:")
                         # Check if batch attribute exists, is not None, and is not empty
-                        if hasattr(batch, 'batch') and batch.batch is not None and not batch.batch.is_empty():
-                            for key, tensor in batch.batch.items():
-                                if isinstance(tensor, torch.Tensor):
-                                    print(f"    {key}: shape={tensor.shape}, dtype={tensor.dtype}, device={tensor.device}")
-                                else:
-                                     print(f"    {key}: type={type(tensor)}") 
-                        else:
-                            print("    Batch is empty or None.")
-                        print(f"  Meta Info: {batch.meta_info if hasattr(batch, 'meta_info') else 'N/A'}")
                         # --- End Debug Print ---
                         ref_log_prob_output = self.ref_policy_wg.compute_ref_log_prob(batch)
                         batch = batch.union(ref_log_prob_output)
@@ -1241,11 +1200,6 @@ class RayPPOTrainer(object):
                         # --- Debug print the temporary object --- 
                         print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: TEMPORARY Input critic_input_proto to compute_values:")
                         print(f"  Batch Keys & Shapes & Devices:")
-                        if hasattr(critic_input_proto, 'batch') and critic_input_proto.batch is not None and not critic_input_proto.batch.is_empty():
-                            for key, tensor in critic_input_proto.batch.items():
-                                print(f"    {key}: shape={tensor.shape}, dtype={tensor.dtype}, device={tensor.device}")
-                        else:
-                            print("    Batch is empty or None.")
                         print(f"  Meta Info: {critic_input_proto.meta_info}")
                         # --- End Debug print --- 
 
@@ -1255,10 +1209,6 @@ class RayPPOTrainer(object):
 
                         # --- Debug Print: Output from compute_values --- 
                         print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Output from compute_values:")
-                        if hasattr(values_output, 'batch') and values_output.batch:
-                             print(f"    values: shape={values_output.batch['values'].shape}, dtype={values_output.batch['values'].dtype}, device={values_output.batch['values'].device}")
-                        else:
-                            print("    Values output batch is empty or None.")
                         # --- End Debug Print ---
                         batch = batch.union(values_output)
                         print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Critic values computed and merged.") # DEBUG
@@ -1311,17 +1261,6 @@ class RayPPOTrainer(object):
                     print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Input batch to compute_advantage:")
                     print(f"  Batch Keys & Shapes & Devices:")
                     # Check if batch attribute exists, is not None, and is not empty
-                    if hasattr(batch, 'batch') and batch.batch is not None and not batch.batch.is_empty():
-                        for key, tensor in batch.batch.items():
-                            if isinstance(tensor, torch.Tensor):
-                                print(f"    {key}: shape={tensor.shape}, dtype={tensor.dtype}, device={tensor.device}")
-                            else:
-                                 print(f"    {key}: type={type(tensor)}") 
-                    else:
-                        print("    Batch is empty or None.")
-                    print(f"  Meta Info: {batch.meta_info if hasattr(batch, 'meta_info') else 'N/A'}")
-                    print(f"  Non-Tensor Batch Keys: {list(batch.non_tensor_batch.keys()) if hasattr(batch, 'non_tensor_batch') else 'N/A'}")
-                    # --- End Debug Print ---
                     batch = compute_advantage(batch,
                                               adv_estimator=adv_estimator,
                                               gamma=self.config.algorithm.get('gamma', 1.0),
@@ -1337,15 +1276,6 @@ class RayPPOTrainer(object):
                         print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Input batch to update_critic:")
                         print(f"  Batch Keys & Shapes & Devices:")
                         # Check if batch attribute exists, is not None, and is not empty
-                        if hasattr(batch, 'batch') and batch.batch is not None and not batch.batch.is_empty():
-                            for key, tensor in batch.batch.items():
-                                if isinstance(tensor, torch.Tensor):
-                                    print(f"    {key}: shape={tensor.shape}, dtype={tensor.dtype}, device={tensor.device}")
-                                else:
-                                     print(f"    {key}: type={type(tensor)}") 
-                        else:
-                            print("    Batch is empty or None.")
-                        print(f"  Meta Info: {batch.meta_info if hasattr(batch, 'meta_info') else 'N/A'}")
                         # --- End Debug Print ---
                         critic_output = self.critic_wg.update_critic(batch) # Returns DataProto with metrics
                         if hasattr(critic_output, 'meta_info') and 'metrics' in critic_output.meta_info:
@@ -1380,15 +1310,6 @@ class RayPPOTrainer(object):
                         print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Input batch to update_actor:")
                         print(f"  Batch Keys & Shapes & Devices:")
                         # Check if batch attribute exists, is not None, and is not empty
-                        if hasattr(batch, 'batch') and batch.batch is not None and not batch.batch.is_empty():
-                            for key, tensor in batch.batch.items():
-                                if isinstance(tensor, torch.Tensor):
-                                    print(f"    {key}: shape={tensor.shape}, dtype={tensor.dtype}, device={tensor.device}")
-                                else:
-                                     print(f"    {key}: type={type(tensor)}") 
-                        else:
-                            print("    Batch is empty or None.")
-                        print(f"  Meta Info: {batch.meta_info if hasattr(batch, 'meta_info') else 'N/A'}")
                         # --- End Debug Print ---
                         actor_output = self.actor_rollout_wg.update_actor(batch) # Returns DataProto with metrics
                         if hasattr(actor_output, 'meta_info') and 'metrics' in actor_output.meta_info:
