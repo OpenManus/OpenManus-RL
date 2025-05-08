@@ -20,6 +20,7 @@ from typing import Iterable
 import torch
 import torch.distributed
 from torch import nn, optim
+import tensordict
 
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 

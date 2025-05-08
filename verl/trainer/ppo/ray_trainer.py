@@ -908,8 +908,11 @@ class RayPPOTrainer(object):
                          print(f"[Trainer] Warning: Could not aggregate non-tensor metric '{k}': {e}")
 
 
-            self.logger.log(aggregated_metrics, step=self.global_steps)
-            print(f"[Trainer] Standard Validation Metrics: {aggregated_metrics}")
+            if aggregated_metrics:
+                self.logger.log(aggregated_metrics, step=self.global_steps)
+                print(f"[Trainer] Standard Validation Metrics: {aggregated_metrics}")
+            else:
+                print(f"[Trainer] Warning: No standard validation metrics were aggregated.")
             return aggregated_metrics
 
     def verify_worker_cuda_setup(self, worker_name, worker_group):
@@ -1327,31 +1330,47 @@ class RayPPOTrainer(object):
 
                         if not final_gen_batch_output or final_gen_batch_output.batch is None or final_gen_batch_output.batch.is_empty():
                             print(f"[Trainer.fit][STEP {self.global_steps}][ERROR] AgentGym rollout returned empty batch. Skipping step.")
-                            continue # Skip to next training batch
+                            # Instead of continue, raise an error to halt if this is unexpected
+                            raise RuntimeError(f"AgentGym rollout returned empty batch at step {self.global_steps}")
 
                         # Add log probs (needed for PPO loss calculation later)
                         print(f"[Trainer.fit][STEP {self.global_steps}] Computing log probabilities")
                         with torch.no_grad(), _timer('logp', timing_raw):
                             if 'input_ids' in final_gen_batch_output.batch:
+                                actor_rollout_world_size = self.actor_rollout_wg.world_size
+                                print(f"[Trainer.fit][STEP {self.global_steps}] ActorRollout world size for padding: {actor_rollout_world_size}")
+
+                                padded_batch_for_logp, pad_size_logp = pad_dataproto_to_divisor(
+                                    final_gen_batch_output, 
+                                    actor_rollout_world_size
+                                )
+                                if pad_size_logp > 0:
+                                    print(f"[Trainer.fit][STEP {self.global_steps}] Padded batch for compute_log_prob by {pad_size_logp} samples.")
+
                                 logp_mbs = self.config.actor_rollout_ref.rollout.log_prob_micro_batch_size
-                                final_gen_batch_output.meta_info['micro_batch_size'] = logp_mbs
+                                padded_batch_for_logp.meta_info['micro_batch_size'] = logp_mbs
                                 temperature = self.config.actor_rollout_ref.rollout.temperature
-                                final_gen_batch_output.meta_info['temperature'] = temperature
+                                padded_batch_for_logp.meta_info['temperature'] = temperature
                                 use_dyn_bsz = self.config.actor_rollout_ref.rollout.log_prob_use_dynamic_bsz
-                                final_gen_batch_output.meta_info['use_dynamic_bsz'] = use_dyn_bsz
-                                print(f"[Trainer.fit][STEP {self.global_steps}] Calling actor_rollout_wg.compute_log_prob...")
+                                padded_batch_for_logp.meta_info['use_dynamic_bsz'] = use_dyn_bsz
+                                
+                                print(f"[Trainer.fit][STEP {self.global_steps}] Calling actor_rollout_wg.compute_log_prob with (potentially) padded batch...")
                                 try:
-                                    output_logp = self.actor_rollout_wg.compute_log_prob(final_gen_batch_output)
+                                    output_logp_padded = self.actor_rollout_wg.compute_log_prob(padded_batch_for_logp)
+                                    
+                                    output_logp = unpad_dataproto(output_logp_padded, pad_size=pad_size_logp)
+                                    if pad_size_logp > 0:
+                                        print(f"[Trainer.fit][STEP {self.global_steps}] Unpadded log_prob output.")
+
                                     final_gen_batch_output = final_gen_batch_output.union(output_logp)
                                     print(f"[Trainer.fit][STEP {self.global_steps}] Log probabilities computed successfully")
                                 except Exception as e:
                                     print(f"[Trainer.fit][STEP {self.global_steps}][ERROR] Error computing log probabilities: {e}")
-                                    import traceback
                                     traceback.print_exc()
-                                    continue # Skip to next batch if compute_log_prob failed
+                                    raise # Re-raise to halt execution
                             else:
                                 print(f"[Trainer.fit][STEP {self.global_steps}][ERROR] Cannot compute log probabilities, 'input_ids' not found in batch")
-                                continue # Skip this batch
+                                raise RuntimeError("Cannot compute log_prob, input_ids missing") # Halt execution
 
                         batch = final_gen_batch_output
                         print(f"[Trainer.fit][STEP {self.global_steps}] Setting up token_level_scores")
@@ -1520,7 +1539,7 @@ class RayPPOTrainer(object):
                             print(f"[Trainer.fit][STEP {self.global_steps}][ERROR] Error applying KL penalty: {e}")
                             import traceback
                             traceback.print_exc()
-                            # Continue anyway, this isn't critical
+                            # Continue anyway, this isn't critical - Keeping this as continue, as KL might not be essential
 
                 # --- Compute Critic Values ---
                 if self.use_critic:
@@ -1551,22 +1570,21 @@ class RayPPOTrainer(object):
                                 print(f"[Trainer.fit][STEP {self.global_steps}][ERROR] Error updating critic: {e}")
                                 import traceback
                                 traceback.print_exc()
-                                continue  # Skip to next batch if critic update failed
+                                raise # Re-raise to halt execution
                 else:
-                    print(f"[Trainer.fit][STEP {self.global_steps}] Skipping critic update (not enabled for {adv_estimator})")
+                    print(f"[Trainer.fit][STEP {self.global_steps}] Skipping critic update (not enabled for {adv_estimator}) or missing required data")
 
                 # --- Update Actor --- 
                 print(f"[Trainer.fit][STEP {self.global_steps}] Updating actor model")
                 if self.config.trainer.critic_warmup <= self.global_steps:
                     if 'advantages' not in batch.batch or 'old_log_probs' not in batch.batch:
                         print(f"[Trainer.fit][STEP {self.global_steps}][ERROR] Missing 'advantages' or 'old_log_probs' in batch, required for actor update. Skipping actor update.")
-                        continue  # We change this from a warning to error and skip the batch
+                        # Instead of continue, raise an error
+                        raise RuntimeError("Missing required data for actor update")
                     else:
                         with _timer('update_actor', timing_raw):
                             print(f"[Trainer.fit][STEP {self.global_steps}] Calling actor_rollout_wg.update_actor...")
                             try:
-                                # First check if state_masking is enabled and create loss mask if needed
-                                # This logic should remain as it manipulates the batch content before sending
                                 if self.is_agentgym_run and hasattr(self.config.actor_rollout_ref.actor, 'state_masking') and self.config.actor_rollout_ref.actor.state_masking:
                                     print(f"[Trainer.fit][STEP {self.global_steps}] State masking is enabled, creating loss_mask")
                                     batch, actor_metrics = self._create_loss_mask(batch, metrics)
@@ -1576,19 +1594,13 @@ class RayPPOTrainer(object):
                                     response_length = batch.batch['responses'].shape[-1]
                                     batch.batch['loss_mask'] = torch.ones_like(batch.batch['attention_mask'][:, -response_length:])
 
-                                # REMOVED: Explicit device checking and moving logic before calling worker
-                                # The worker itself should handle device placement.
-                                
-                                # Log tensor devices for debugging purposes before sending
                                 loss_mask_device = batch.batch['loss_mask'].device
                                 adv_device = batch.batch['advantages'].device 
                                 old_log_probs_device = batch.batch['old_log_probs'].device
                                 print(f"[DEBUG] Pre-actor update tensor devices (in TaskRunner): loss_mask={loss_mask_device}, advantages={adv_device}, old_log_probs={old_log_probs_device}")
                                 
-                                # Call update_actor
                                 actor_output = self.actor_rollout_wg.update_actor(batch)
                                 
-                                # Process results
                                 actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                                 metrics.update(actor_output_metrics)
                                 print(f"[Trainer.fit][STEP {self.global_steps}] Actor model updated successfully")
@@ -1596,7 +1608,7 @@ class RayPPOTrainer(object):
                                 print(f"[Trainer.fit][STEP {self.global_steps}][ERROR] Error updating actor: {e}")
                                 import traceback
                                 traceback.print_exc()
-                                continue  # Skip to next batch if actor update failed
+                                raise # Re-raise to halt execution
                 else:
                     print(f"[Trainer.fit][STEP {self.global_steps}] Skipping actor update (in critic warmup phase)")
 
@@ -1611,6 +1623,8 @@ class RayPPOTrainer(object):
                             print(f"[Trainer.fit][STEP {self.global_steps}][ERROR] Error saving checkpoint: {e}")
                             import traceback
                             traceback.print_exc()
+                            # Saving checkpoint might fail due to FS issues, allow continuation but log error
+                            # raise # Optional: Uncomment to halt on checkpoint save failure
 
             # --- Collect and Log Metrics ---
             print(f"[Trainer.fit][STEP {self.global_steps}] Collecting and logging metrics")
