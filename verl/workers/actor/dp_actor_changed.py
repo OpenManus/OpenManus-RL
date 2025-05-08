@@ -32,6 +32,7 @@ from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 import verl.utils.torch_functional as verl_F
 
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
+import tensordict
 
 __all__ = ['DataParallelPPOActor']
 
@@ -61,21 +62,17 @@ class DataParallelPPOActor(BasePPOActor):
             entropy: # (bs, response_len)
             log_probs: # (bs, response_len)
         """
-        print(f"[DP_Actor._forward_micro_batch] Entered. use_remove_padding={self.use_remove_padding}, use_ulysses_sp={self.use_ulysses_sp}")
         response_length = micro_batch['responses'].size(-1)
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             input_ids = micro_batch['input_ids']
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch['attention_mask']
             position_ids = micro_batch['position_ids']
-            print(f"[DP_Actor._forward_micro_batch] input_ids device: {input_ids.device}, shape: {input_ids.shape}")
 
             if self.use_remove_padding:
-                print(f"[DP_Actor._forward_micro_batch] Using remove_padding.")
                 input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
                                                            attention_mask)  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
-                print(f"[DP_Actor._forward_micro_batch] input_ids_rmpad shape after unpad: {input_ids_rmpad.shape}")
 
                 # unpad the position_ids to align the rotary
                 position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."),
@@ -86,13 +83,11 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # pad and slice the inputs if sp > 1
                 if self.use_ulysses_sp:
-                    print(f"[DP_Actor._forward_micro_batch] Using Ulysses SP. SP size: {self.ulysses_sequence_parallel_size}")
                     input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, \
                                                                                                 position_ids_rmpad, \
                                                                                                 sp_size=self.ulysses_sequence_parallel_size)
                     input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(input_ids_rmpad_rolled, None,
                                                                                 self.ulysses_sequence_parallel_size)
-                    print(f"[DP_Actor._forward_micro_batch] input_ids_rmpad shape after SP slice: {input_ids_rmpad.shape}, pad_size: {pad_size}")
 
                 input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
 
@@ -102,7 +97,6 @@ class DataParallelPPOActor(BasePPOActor):
                                            position_ids=position_ids_rmpad,
                                            use_cache=False)  # prevent model thinks we are generating
                 logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
-                print(f"[DP_Actor._forward_micro_batch] logits_rmpad device: {logits_rmpad.device}, shape: {logits_rmpad.shape}")
 
                 logits_rmpad.div_(temperature)
 
@@ -114,7 +108,6 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
-                    print(f"[DP_Actor._forward_micro_batch] Gathering outputs for SP.")
                     # gather and unpad for the ulysses sp
                     log_probs = gather_outpus_and_unpad(log_probs, gather_dim=0, unpad_dim=0, padding_size=pad_size)
                     entropy_rmpad = gather_outpus_and_unpad(entropy_rmpad,
@@ -130,41 +123,32 @@ class DataParallelPPOActor(BasePPOActor):
                                            indices=indices,
                                            batch=batch_size,
                                            seqlen=seqlen)
-                print(f"[DP_Actor._forward_micro_batch] full_log_probs shape after pad_input: {full_log_probs.shape}")
 
                 # only return response part:
                 entropy = full_entropy.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
 
             else:  # not using rmpad and no ulysses sp
-                print(f"[DP_Actor._forward_micro_batch] Not using remove_padding.")
                 output = self.actor_module(input_ids=input_ids,
                                            attention_mask=attention_mask,
                                            position_ids=position_ids,
                                            use_cache=False)  # prevent model thinks we are generating
                 logits = output.logits
-                print(f"[DP_Actor._forward_micro_batch] logits device: {logits.device}, shape: {logits.shape}")
                 logits.div_(temperature)
                 logits = logits[:, -response_length - 1:-1]  # (bsz, response_length)
                 log_probs = logprobs_from_logits(logits, micro_batch['responses'])
                 entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
-                print(f"[DP_Actor._forward_micro_batch] log_probs shape: {log_probs.shape}, entropy shape: {entropy.shape}")
-            
-            print(f"[DP_Actor._forward_micro_batch] Exiting.")
+
             return entropy, log_probs
 
     def _optimizer_step(self):
-        print(f"[DP_Actor._optimizer_step] Entered.")
         assert self.config.grad_clip is not None
 
         if isinstance(self.actor_module, FSDP):
-            print(f"[DP_Actor._optimizer_step] Clipping grad norm for FSDP module.")
             grad_norm = self.actor_module.clip_grad_norm_(max_norm=self.config.grad_clip)
         else:
-            print(f"[DP_Actor._optimizer_step] Clipping grad norm for standard module.")
             grad_norm = torch.nn.utils.clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
         self.actor_optimizer.step()
-        print(f"[DP_Actor._optimizer_step] Optimizer step done. Grad norm: {grad_norm}. Exiting.")
         return grad_norm
 
     def compute_log_prob(self, data: DataProto) -> torch.Tensor:
@@ -185,60 +169,93 @@ class DataParallelPPOActor(BasePPOActor):
         Returns:
             torch.Tensor: the log_prob tensor
         """
-        print(f"[DP_Actor.compute_log_prob] Entered. Data meta_info: {data.meta_info}")
         # set to eval
-        print(f"[DP_Actor.compute_log_prob] Setting actor_module to eval mode.")
         self.actor_module.eval()
-        print(f"[DP_Actor.compute_log_prob] actor_module is in eval mode: {not self.actor_module.training}")
 
         micro_batch_size = data.meta_info['micro_batch_size']
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
         use_dynamic_bsz = data.meta_info['use_dynamic_bsz']
 
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
+        
+        # --- DEBUG: Log device before select ---
+        original_device = 'Unknown'
+        if 'input_ids' in data.batch:
+            original_device = data.batch['input_ids'].device
+        print(f"[DP_Actor.compute_log_prob] Original data device: {original_device}")
+            
         batch = data.select(batch_keys=select_keys).batch
-        print(f"[DP_Actor.compute_log_prob] Selected batch keys. input_ids shape: {batch['input_ids'].shape}, responses shape: {batch['responses'].shape}")
+        
+        # --- DEBUG: Log device after select ---
+        select_device = 'Unknown'
+        if 'input_ids' in batch:
+            select_device = batch['input_ids'].device
+        print(f"[DP_Actor.compute_log_prob] Device after select: {select_device}")
+            
+        # Move data to CPU for splitting
+        print(f"[DP_Actor.compute_log_prob] Moving batch to CPU before split")
+        batch_cpu_dict = {k: v.to('cpu') if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        batch_cpu = tensordict.TensorDict(source=batch_cpu_dict, batch_size=batch.batch_size)
+        print(f"[DP_Actor.compute_log_prob] Created TensorDict on CPU with batch_size={batch_cpu.batch_size}")
 
         if use_dynamic_bsz:
             # split using dynamic bsz
             max_token_len = data.meta_info['max_token_len'] * self.ulysses_sequence_parallel_size
-            print(f"[DP_Actor.compute_log_prob] Using dynamic batch size. max_token_len (incl. SP): {max_token_len}")
-            micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+            print(f"[DP_Actor.compute_log_prob] Using dynamic batch size with max_token_len={max_token_len}")
+            micro_batches, indices = rearrange_micro_batches(batch=batch_cpu, max_token_len=max_token_len)
         else:
-            print(f"[DP_Actor.compute_log_prob] Using fixed micro_batch_size: {micro_batch_size}")
-            micro_batches = batch.split(micro_batch_size)
+            print(f"[DP_Actor.compute_log_prob] Using fixed batch size with micro_batch_size={micro_batch_size}")
+            micro_batches = batch_cpu.split(micro_batch_size)
 
         log_probs_lst = []
-        print(f"[DP_Actor.compute_log_prob] Starting micro-batch loop for {len(micro_batches)} micro-batches.")
-        for i, micro_batch_data in enumerate(micro_batches):
-            print(f"[DP_Actor.compute_log_prob] Processing micro-batch {i+1}/{len(micro_batches)}. Device of input_ids: {micro_batch_data['input_ids'].device}")
+        for mb_idx, micro_batch in enumerate(micro_batches):
+            # --- DEBUG: Log micro_batch device before moving to CUDA ---
+            mb_device = 'Unknown'
+            if 'input_ids' in micro_batch:
+                mb_device = micro_batch['input_ids'].device
+            print(f"[DP_Actor.compute_log_prob] Micro-batch {mb_idx} device before potential CUDA move: {mb_device}")
+            
+            # Conditionally move to CUDA if available
+            target_device = torch.device(f'cuda:{torch.cuda.current_device()}') if torch.cuda.is_available() else torch.device('cpu')
+            needs_move = False
+            if 'input_ids' in micro_batch:
+                if micro_batch['input_ids'].device != target_device:
+                    needs_move = True
+            
+            if needs_move and torch.cuda.is_available():
+                print(f"[DP_Actor.compute_log_prob] Moving micro-batch {mb_idx} to {target_device}")
+                micro_batch = micro_batch.to(target_device)
+                # --- DEBUG: Log micro_batch device after moving to CUDA ---
+                after_device = 'Unknown'
+                if 'input_ids' in micro_batch:
+                    after_device = micro_batch['input_ids'].device
+                print(f"[DP_Actor.compute_log_prob] Micro-batch {mb_idx} device after move: {after_device}")
+            
             with torch.no_grad():
-                _, log_probs = self._forward_micro_batch(micro_batch_data, temperature=temperature)
+                _, log_probs = self._forward_micro_batch(micro_batch, temperature=temperature)
+                # --- DEBUG: Log log_probs device ---
+                print(f"[DP_Actor.compute_log_prob] Log probs device for micro-batch {mb_idx}: {log_probs.device}")
             log_probs_lst.append(log_probs)
-        print(f"[DP_Actor.compute_log_prob] Micro-batch loop finished.")
+            
+        print(f"[DP_Actor.compute_log_prob] Concatenating {len(log_probs_lst)} micro-batches")
         log_probs = torch.concat(log_probs_lst, dim=0)
+        print(f"[DP_Actor.compute_log_prob] Concatenated log_probs device: {log_probs.device}")
 
         if use_dynamic_bsz:
-            print(f"[DP_Actor.compute_log_prob] Reverting dynamic batch size ordering.")
             indices = list(itertools.chain.from_iterable(indices))
             assert len(indices) == log_probs.size(0), f"{len(indices)} vs. {log_probs.size()}"
-            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long, device=log_probs.device)
             log_probs = log_probs[revert_indices]
-        
-        print(f"[DP_Actor.compute_log_prob] Exiting. Final log_probs shape: {log_probs.shape}")
+
         return log_probs
 
     def update_policy(self, data: DataProto):
-        print(f"[DP_Actor.update_policy] Entered. Data meta_info: {data.meta_info}")
         # make sure we are in training mode
-        print(f"[DP_Actor.update_policy] Setting actor_module to train mode.")
         self.actor_module.train()
-        print(f"[DP_Actor.update_policy] actor_module is in train mode: {self.actor_module.training}")
 
         assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size == 0
         self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
-        print(f"[DP_Actor.update_policy] Grad accumulation: {self.gradient_accumulation}, Temp: {temperature}")
 
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
         if self.config.state_masking:
@@ -246,55 +263,77 @@ class DataParallelPPOActor(BasePPOActor):
         if self.config.use_kl_loss:
             select_keys.append('ref_log_prob')
         batch = data.select(batch_keys=select_keys).batch
-        print(f"[DP_Actor.update_policy] Selected batch keys for training. input_ids shape: {batch['input_ids'].shape}")
+        
+        # --- DEBUG and FIX: Log device information and move data to CPU before split ---
+        print(f"[DP_Actor.update_policy] Moving batch to CPU before split")
+        batch_device = 'Unknown'
+        if 'input_ids' in batch:
+            batch_device = batch['input_ids'].device
+        print(f"[DP_Actor.update_policy] Device BEFORE move to CPU: {batch_device}")
+        
+        # Fix: First create a dictionary with CPU tensors, then create a TensorDict
+        batch_cpu_dict = {k: v.to('cpu') if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        batch_cpu = tensordict.TensorDict(source=batch_cpu_dict, batch_size=batch.batch_size)
+        print(f"[DP_Actor.update_policy] Created TensorDict on CPU with batch_size={batch_cpu.batch_size}")
 
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
-        dataloader = batch.split(self.config.ppo_mini_batch_size)
-        print(f"[DP_Actor.update_policy] Created dataloader for {len(dataloader)} mini-batches.")
+        print(f"[DP_Actor.update_policy] Device for split: cpu")
+        dataloader = batch_cpu.split(self.config.ppo_mini_batch_size)
+        print(f"[DP_Actor.update_policy] Dataloader created after split")
 
         metrics = {}
-        for batch_idx, mini_batch_data_container in enumerate(dataloader):
-            print(f"[DP_Actor.update_policy] Processing mini-batch {batch_idx+1}/{len(dataloader)}.")
+        for batch_idx, data in enumerate(dataloader):
+            # --- DEBUG: Log mini-batch device ---
+            mb_device = 'Unknown'
+            if 'input_ids' in data:
+                mb_device = data['input_ids'].device
+            print(f"[DP_Actor.update_policy] Mini-batch {batch_idx} device: {mb_device}")
+            
             # split batch into micro_batches
-            # mini_batch = mini_batch_data_container # already a TensorDict from split
+            mini_batch = data
             if self.config.use_dynamic_bsz:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                print(f"[DP_Actor.update_policy] Using dynamic micro-batch for mini-batch {batch_idx+1}. max_token_len: {max_token_len}")
-                micro_batches, _ = rearrange_micro_batches(batch=mini_batch_data_container, max_token_len=max_token_len)
+                micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
             else:
                 # split batch into micro_batches
-                fixed_micro_batch_size = self.config.ppo_micro_batch_size
-                print(f"[DP_Actor.update_policy] Using fixed micro-batch size for mini-batch {batch_idx+1}: {fixed_micro_batch_size}")
-                micro_batches = mini_batch_data_container.split(fixed_micro_batch_size)
-            
-            print(f"[DP_Actor.update_policy] Mini-batch {batch_idx+1} split into {len(micro_batches)} micro-batches.")
-            self.actor_optimizer.zero_grad()
-            print(f"[DP_Actor.update_policy] Optimizer zero_grad done for mini-batch {batch_idx+1}.")
+                micro_batches = mini_batch.split(self.config.ppo_micro_batch_size)
 
-            for i, micro_batch_data in enumerate(micro_batches):
-                print(f"[DP_Actor.update_policy] Forward/Backward for micro-batch {i+1}/{len(micro_batches)} of mini-batch {batch_idx+1}.")
-                # Ensure data is on CUDA for the forward pass, FSDP handles sharding.
-                # Verl's default behavior might keep it on CPU if offloading is used, then FSDP moves shards.
-                # For direct model call, it must be on the device FSDP expects for its root module or where computation occurs.
-                # If not using FSDP, or if FSDP is parameter-only offload, this explicit .cuda() is important.
-                micro_batch_data_cuda = micro_batch_data.cuda() 
-                print(f"[DP_Actor.update_policy] Micro-batch {i+1} input_ids device: {micro_batch_data_cuda['input_ids'].device}")
+            self.actor_optimizer.zero_grad()
+
+            for micro_batch_idx, data in enumerate(micro_batches):
+                # --- DEBUG: Log micro-batch device before moving to CUDA ---
+                before_cuda_device = 'Unknown'
+                if 'input_ids' in data:
+                    before_cuda_device = data['input_ids'].device
+                print(f"[DP_Actor.update_policy] Micro-batch {batch_idx}-{micro_batch_idx} device BEFORE .cuda(): {before_cuda_device}")
                 
-                responses = micro_batch_data_cuda['responses']
+                # Conditionally move data to CUDA
+                if torch.cuda.is_available():
+                    data = data.cuda()  # actor device is cpu when using offload
+                    
+                    # --- DEBUG: Log micro-batch device after moving to CUDA ---
+                    after_cuda_device = 'Unknown'
+                    if 'input_ids' in data:
+                        after_cuda_device = data['input_ids'].device
+                    print(f"[DP_Actor.update_policy] Micro-batch {batch_idx}-{micro_batch_idx} device AFTER .cuda(): {after_cuda_device}")
+                else:
+                    print(f"[DP_Actor.update_policy] CUDA not available, staying on CPU")
+                
+                responses = data['responses']
                 response_length = responses.size(1)
-                attention_mask = micro_batch_data_cuda['attention_mask']
+                attention_mask = data['attention_mask']
                 response_mask = attention_mask[:, -response_length:]
                 if self.config.state_masking:
-                    response_mask = micro_batch_data_cuda['loss_mask']
-                old_log_prob = micro_batch_data_cuda['old_log_probs']
-                advantages = micro_batch_data_cuda['advantages']
+                    response_mask = data['loss_mask']
+                old_log_prob = data['old_log_probs']
+                advantages = data['advantages']
 
                 clip_ratio = self.config.clip_ratio
                 entropy_coeff = self.config.entropy_coeff
 
                 # all return: (bsz, response_length)
-                entropy, log_prob = self._forward_micro_batch(micro_batch=micro_batch_data_cuda, temperature=temperature)
+                entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature)
 
                 pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
                                                                               log_prob=log_prob,
@@ -306,10 +345,9 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # compute policy loss
                 policy_loss = pg_loss - entropy_loss * entropy_coeff
-                print(f"[DP_Actor.update_policy] Micro-batch {i+1} losses: pg_loss={pg_loss.item():.4f}, entropy_loss={entropy_loss.item():.4f}, policy_loss={policy_loss.item():.4f}")
 
                 if self.config.use_kl_loss:
-                    ref_log_prob = micro_batch_data_cuda['ref_log_prob']
+                    ref_log_prob = data['ref_log_prob']
                     # compute kl loss
                     kld = core_algos.kl_penalty(logprob=log_prob,
                                                 ref_logprob=ref_log_prob,
@@ -319,26 +357,20 @@ class DataParallelPPOActor(BasePPOActor):
                     policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                     metrics['actor/kl_loss'] = kl_loss.detach().item()
                     metrics['actor/kl_coef'] = self.config.kl_loss_coef
-                    print(f"[DP_Actor.update_policy] Micro-batch {i+1} KL loss: {kl_loss.item():.4f}, updated policy_loss: {policy_loss.item():.4f}")
 
                 loss = policy_loss / self.gradient_accumulation
-                print(f"[DP_Actor.update_policy] Micro-batch {i+1} final loss (for backward): {loss.item():.4f}")
                 loss.backward()
-                print(f"[DP_Actor.update_policy] Micro-batch {i+1} backward pass done.")
 
-                current_metrics_data = {
+                data = {
                     'actor/entropy_loss': entropy_loss.detach().item(),
                     'actor/pg_loss': pg_loss.detach().item(),
                     'actor/pg_clipfrac': pg_clipfrac.detach().item(),
                     'actor/ppo_kl': ppo_kl.detach().item(),
                 }
-                append_to_dict(metrics, current_metrics_data)
+                append_to_dict(metrics, data)
 
             grad_norm = self._optimizer_step()
-            optimizer_step_metrics = {'actor/grad_norm': grad_norm.detach().item()}
-            append_to_dict(metrics, optimizer_step_metrics)
-            print(f"[DP_Actor.update_policy] Optimizer step done for mini-batch {batch_idx+1}. Grad norm: {grad_norm.item():.4f}")
-
+            data = {'actor/grad_norm': grad_norm.detach().item()}
+            append_to_dict(metrics, data)
         self.actor_optimizer.zero_grad()
-        print(f"[DP_Actor.update_policy] Final optimizer zero_grad. Exiting. Metrics: {metrics}")
         return metrics
