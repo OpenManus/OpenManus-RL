@@ -739,6 +739,13 @@ class CriticWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
+        # === Add Debug Log HERE ===
+        print(f"[FSDP_CriticWorker.compute_values @ Rank {self.rank}] Received data. Meta Info: {data.meta_info}")
+        if 'micro_batch_size' in data.meta_info:
+            print(f"[FSDP_CriticWorker.compute_values @ Rank {self.rank}] micro_batch_size in received meta_info: {data.meta_info['micro_batch_size']}")
+        else:
+            print(f"[FSDP_CriticWorker.compute_values @ Rank {self.rank}] WARNING: 'micro_batch_size' NOT FOUND in received meta_info!")
+        # === End Debug Log ===
         data = data.to('cuda')
 
         if self._is_offload_param:
@@ -746,17 +753,19 @@ class CriticWorker(Worker):
                                      device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
         micro_batch_size = self.config.forward_micro_batch_size
+        if micro_batch_size == 0:
+            micro_batch_size = 1
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['max_token_len'] = self.config.forward_max_token_len_per_gpu
         data.meta_info['use_dynamic_bsz'] = self.config.use_dynamic_bsz
         # perform forward computation
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
-            values = self.critic.compute_values(data=data)
-            output = DataProto.from_dict(tensors={'values': values})
+            output = self.critic.compute_values(data=data) 
+            # No need to recreate a DataProto
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
-        # output = output.to('cpu')
+        output = output.to('cpu')
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
         torch.cuda.empty_cache()
@@ -764,6 +773,9 @@ class CriticWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_critic(self, data: DataProto):
+        # === Add Debug Log HERE ===
+        print(f"[FSDP_CriticWorker.update_critic @ Rank {self.rank}] Received data. Meta Info: {data.meta_info}")
+        # === End Debug Log ===
         data = data.to('cuda')
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.critic_module,
