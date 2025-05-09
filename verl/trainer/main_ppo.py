@@ -141,7 +141,7 @@ def main(config):
         env_vars_for_main_task['CUDA_VISIBLE_DEVICES'] = original_cuda_visible
 
     print(f"[main] Runtime env to be passed to main_task actor: {{'env_vars': {env_vars_for_main_task}}}")
-    ray.get(main_task.options(runtime_env={'env_vars': env_vars_for_main_task}).remote(config))
+    ray.get(main_task.remote(config))
     print("[main] main_task finished.")
     ray.shutdown()
     print("[main] Ray shutdown.")

@@ -1,16 +1,12 @@
 #!/bin/bash
 
 # --- Configuration (defaults, can be overridden via env vars) ---
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,5,9}
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-1,4,5}
 WAND_PROJECT=${WAND_PROJECT:-'OpenManus-rl'}
-export BASE_MODEL=${BASE_MODEL:-'Qwen/Qwen2.5-3B'}
+export BASE_MODEL=${BASE_MODEL:-'../model/Qwen2.5-3B'}
 AGENTGYM_HOST=${AGENTGYM_HOST:-'0.0.0.0'} # Default to 0.0.0.0 for external access
 AGENTGYM_SQL_BIRD_PATH=${AGENTGYM_SQL_BIRD_PATH:-} # Used only for sqlgym
-export NCCL_IB_DISABLE=1
-export NCCL_P2P_DISABLE=1
 export PYTHONPATH="./openmanus_rl/agentgym/agentenv:${PYTHONPATH}"
-export VLLM_ATTENTION_BACKEND=XFORMERS # vllm + qwen2-7b with flash_attn has some issues
-
 
 # --- Argument Parsing ---
 usage() {
@@ -230,6 +226,7 @@ export EXPERIMENT_NAME="OpenManus-rl-ppo-${BASE_MODEL##*/}-${AGENTGYM_ENV_NAME}$
 
 # --- Run PPO Training in Base Environment ---
 echo -e "\\n[Trainer] Running PPO training in base environment '$BASE_CONDA_ENV'..."
+export VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND:-XFORMERS}
 
 # Construct server base URL, adding path if needed
 AGENTGYM_SERVER_BASE="http://$AGENTGYM_HOST" # Base URL without port
@@ -284,7 +281,7 @@ hydra_overrides=(
     "data.env_ports=[${AGENTGYM_PORTS_STR}]"
     "data.train_data_num=null"
     "data.val_data_num=null"
-    "data.train_batch_size=6"
+    "data.train_batch_size=3"
     "data.val_batch_size=3"
     "data.max_prompt_length=4096"
     "data.max_response_length=1000"
@@ -297,8 +294,8 @@ hydra_overrides=(
     "actor_rollout_ref.model.enable_gradient_checkpointing=true"
     "actor_rollout_ref.model.use_remove_padding=True"
     "actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.95"
-    "actor_rollout_ref.actor.ppo_mini_batch_size=6"
-    "actor_rollout_ref.actor.ppo_micro_batch_size=6"
+    "actor_rollout_ref.actor.ppo_mini_batch_size=4"
+    "actor_rollout_ref.actor.ppo_micro_batch_size=4"
     "actor_rollout_ref.actor.fsdp_config.param_offload=true"
     "actor_rollout_ref.actor.fsdp_config.grad_offload=true"
     "actor_rollout_ref.actor.fsdp_config.optimizer_offload=true"
@@ -332,7 +329,7 @@ hydra_overrides=(
     "trainer.default_hdfs_dir=null"
     "trainer.n_gpus_per_node=3"
     "trainer.nnodes=1"
-    "trainer.save_freq=100"
+    "trainer.save_freq=1"
     "trainer.test_freq=50"
     "trainer.project_name=$WAND_PROJECT"
     "trainer.experiment_name=$EXPERIMENT_NAME"
