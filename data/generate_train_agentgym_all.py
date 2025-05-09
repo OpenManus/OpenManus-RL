@@ -41,6 +41,8 @@ def make_prefix(question, environment):
     """
     prefix = f"""You are an OpenManus agent tasked to solve the following problem.
 You must conduct reasoning inside <think> and </think> tags first every time you get new information.
+With the <think> tags, you aslo need to have a <memory> </memory> tag to record your memory, like update your memory with new information and summarize your memory with new experiences, 
+and you also need to have a <plan> </plan> tag to record your plan, like update your plan with new information and summarize your plan with new experiences.
 After reasoning, you can perform actions using <act> action_description </act> tags.
 When you have a final answer, provide it inside <answer> and </answer> tags, without detailed illustrations.
 
