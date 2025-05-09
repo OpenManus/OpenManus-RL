@@ -6,8 +6,6 @@ WAND_PROJECT=${WAND_PROJECT:-'OpenManus-rl'}
 export BASE_MODEL=${BASE_MODEL:-'Qwen/Qwen2.5-3B'}
 AGENTGYM_HOST=${AGENTGYM_HOST:-'0.0.0.0'} # Default to 0.0.0.0 for external access
 AGENTGYM_SQL_BIRD_PATH=${AGENTGYM_SQL_BIRD_PATH:-} # Used only for sqlgym
-export NCCL_IB_DISABLE=1
-export NCCL_P2P_DISABLE=1
 export PYTHONPATH="./openmanus_rl/agentgym/agentenv:${PYTHONPATH}"
 
 # --- Argument Parsing ---
