@@ -16,6 +16,7 @@ Implement a multiprocess PPOCritic
 """
 import itertools
 from typing import Iterable
+from collections import defaultdict
 
 import torch
 import torch.distributed
@@ -219,10 +220,48 @@ class DataParallelPPOCritic(BasePPOCritic):
         batch = data.select(batch_keys=select_keys).batch
         print(f"[DP_Critic.update_critic] Selected batch keys for training. input_ids shape: {batch['input_ids'].shape}")
         
-        # Split to make minibatch iterator for updating the actor
-        # See PPO paper for details. https://arxiv.org/abs/1707.06347
-        dataloader = batch.split(self.config.ppo_mini_batch_size)
-        print(f"[DP_Critic.update_critic] Created dataloader for {len(dataloader)} mini-batches.")
+        current_actual_batch_size = batch['input_ids'].shape[0]
+        configured_critic_ppo_mini_batch_size = self.config.ppo_mini_batch_size
+
+        dataloader = [] # Default to an empty dataloader
+
+        if current_actual_batch_size == 0:
+            print(f"[DP_Critic.update_critic] Current batch size is 0. Skipping PPO updates for this batch.")
+        else:
+            # Determine the effective mini-batch size for splitting.
+            # It should not be larger than the current actual batch size.
+            # It also shouldn't be less than 1 if there's data.
+            effective_mini_batch_size_for_split = min(current_actual_batch_size, configured_critic_ppo_mini_batch_size)
+            
+            if effective_mini_batch_size_for_split < 1: # Should ideally not happen if current_actual_batch_size > 0
+                print(f"[DP_Critic.update_critic] Warning: effective_mini_batch_size_for_split calculated as {effective_mini_batch_size_for_split} from current_actual_batch_size={current_actual_batch_size} and configured_critic_ppo_mini_batch_size={configured_critic_ppo_mini_batch_size}. Setting to 1.")
+                effective_mini_batch_size_for_split = 1
+
+
+            if effective_mini_batch_size_for_split < configured_critic_ppo_mini_batch_size:
+                print(f"[DP_Critic.update_critic] Adjusting PPO mini-batch size for critic update from configured {configured_critic_ppo_mini_batch_size} to actual {effective_mini_batch_size_for_split} due to small input batch size ({current_actual_batch_size}).")
+            
+            try:
+                dataloader = batch.split(effective_mini_batch_size_for_split)
+            except Exception as e:
+                print(f"[DP_Critic.update_critic] Error during batch.split with effective_mini_batch_size={effective_mini_batch_size_for_split}: {e}")
+                print(f"[DP_Critic.update_critic] Batch keys: {batch.keys()}, input_ids shape: {batch['input_ids'].shape if 'input_ids' in batch else 'N/A'}")
+                # Keep dataloader as empty list to skip epochs
+
+        # Try to log the number of mini-batches.
+        # Note: If dataloader is an iterator, len() might consume it or not be supported.
+        # The original code used len(), implying it might be a list or has __len__.
+        try:
+            num_minibatches = len(dataloader)
+            print(f"[DP_Critic.update_critic] Created dataloader for {num_minibatches} mini-batches.")
+        except TypeError:
+            # This happens if dataloader is an iterator without __len__
+            # To get the length, one would need to convert to list, consuming it.
+            # For now, we'll just note it's an iterator.
+            print(f"[DP_Critic.update_critic] Created dataloader (iterator type, length not directly logged to avoid consumption).")
+
+
+        metrics_to_avg = defaultdict(list)
 
         for batch_idx, mini_batch_data_container in enumerate(dataloader):
             print(f"[DP_Critic.update_critic] Processing mini-batch {batch_idx+1}/{len(dataloader)}.")
@@ -285,7 +324,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                     'critic/vf_clipfrac': vf_clipfrac.detach().item(),
                     'critic/vpred_mean': masked_mean(vpreds, eos_mask).detach().item(),
                 }
-                append_to_dict(metrics, loss_data_metrics)
+                append_to_dict(metrics_to_avg, loss_data_metrics)
 
             grad_norm = self._optimizer_step()
             optimizer_step_metrics = {'critic/grad_norm': grad_norm.detach().item()}
