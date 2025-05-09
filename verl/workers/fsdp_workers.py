@@ -18,6 +18,7 @@ The main entry point to run the PPO algorithm
 import logging
 import os
 import warnings
+import json
 
 import torch
 import torch.distributed
@@ -787,20 +788,36 @@ class CriticWorker(Worker):
         # perform forward computation
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
+            
+            actual_metrics_dict = {} # Initialize an empty dictionary
 
             with Timer(name='update_critic', logger=None) as timer:
-                metrics = self.critic.update_critic(data=data)
+                # result_proto is the DataProto object from self.critic.update_critic
+                result_proto = self.critic.update_critic(data=data)
             delta_time = timer.last
+
+            # Extract the metrics dictionary from the result_proto
+            if isinstance(result_proto, DataProto) and hasattr(result_proto, 'meta_info') and 'metrics' in result_proto.meta_info:
+                if isinstance(result_proto.meta_info['metrics'], dict):
+                    actual_metrics_dict = result_proto.meta_info['metrics']
+                else:
+                    print(f"[FSDP CriticWorker.update_critic] Warning: result_proto.meta_info['metrics'] is not a dict, it's a {type(result_proto.meta_info['metrics'])}. Initializing empty metrics dict.")
+            else:
+                print(f"[FSDP CriticWorker.update_critic] Warning: Could not extract metrics dict from result_proto. Initializing empty metrics dict. Result_proto type: {type(result_proto)}")
 
             global_num_tokens = data.meta_info['global_token_num']
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
-            metrics['mfu/critic'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
+            
+            # Now operate on the actual_metrics_dict
+            actual_metrics_dict['mfu/critic'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
 
             self.critic_lr_scheduler.step()
             lr = self.critic_lr_scheduler.get_last_lr()[0]
-            metrics['critic/lr'] = lr
+            # Operate on the extracted dict
+            actual_metrics_dict['critic/lr'] = lr 
 
-            output = DataProto(batch=None, meta_info={'metrics': metrics})
+            # Create the output DataProto using the modified actual_metrics_dict
+            output = DataProto(batch=None, meta_info={'metrics': actual_metrics_dict})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
         if self._is_offload_param:

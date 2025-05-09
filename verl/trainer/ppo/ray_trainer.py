@@ -101,62 +101,62 @@ from verl.utils.torch_functional import masked_mean
 
 
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty='kl'):
-    responses = data.batch['responses']
-    response_length = responses.size(1)
-    token_level_scores = data.batch['token_level_scores'] # Shape (batch_size, total_length)
-    total_length = token_level_scores.size(1)
-    # batch_size = data.batch.batch_size[0] # Get scalar batch size from TensorDict property
+    responses = data.batch['responses']  # Shape (B, L_resp)
+    response_length = responses.size(1)  # L_resp
+    token_level_scores = data.batch['token_level_scores']  # Shape (B, L_full)
+    
+    # Assuming old_log_probs and ref_log_prob are also L_full
+    old_log_probs_full = data.batch.get('old_log_probs')
+    ref_log_prob_full = data.batch.get('ref_log_prob')
 
-    # --- FIX: Get batch size from a tensor inside batch ---
-    # Using data.batch.batch_size directly might fail if TensorDict is empty or inconsistent during init
-    # It's safer to get it from a guaranteed tensor like input_ids or attention_mask if available
-    # However, batch_size for kl_ctrl update needs to be scalar sum of batch sizes across ranks
-    # Let's rely on the TensorDict property for now, assuming it's consistent by this point.
-    # If this causes issues later, we might need to pass effective batch size differently.
-    batch_size_scalar = data.batch.batch_size[0] # Get scalar batch size for kl_ctrl.update
-    # --- END FIX ---
+    attention_mask_full = data.batch['attention_mask']  # Shape (B, L_full)
+    # This mask is for the response part only
+    response_mask = attention_mask_full[:, -response_length:]  # Shape (B, L_resp)
 
-    # Get the attention mask for the full sequence
-    attention_mask = data.batch['attention_mask'] # Shape (batch_size, total_length)
-    # Extract the mask corresponding only to the response part
-    response_mask = attention_mask[:, -response_length:] # Shape (batch_size, response_length)
+    beta = 0.0
+    # Initialize with a tensor of correct shape and type for the case where KL is not computed.
+    kld_response_part_masked = torch.zeros_like(response_mask, dtype=token_level_scores.dtype, device=token_level_scores.device) 
+    
+    actual_kld_for_metric = 0.0
 
-    # compute kl between ref_policy and current policy
-    if 'ref_log_prob' in data.batch.keys() and 'old_log_probs' in data.batch.keys():
-        # Assuming old_log_probs and ref_log_prob have shape (batch_size, response_length)
-        kld = core_algos.kl_penalty(data.batch['old_log_probs'], data.batch['ref_log_prob'],
-                                    kl_penalty=kl_penalty)  # Shape (batch_size, response_length)
-        kld = kld * response_mask # Apply mask, shape remains (batch_size, response_length)
+    if ref_log_prob_full is not None and old_log_probs_full is not None:
+        # Calculate KLD over the full length first
+        kld_full = core_algos.kl_penalty(old_log_probs_full, ref_log_prob_full, kl_penalty=kl_penalty)  # Shape (B, L_full)
+        
+        # Slice KLD to the response part
+        kld_response_part = kld_full[:, -response_length:]  # Shape (B, L_resp)
+        
+        # Apply response_mask to the sliced KLD part
+        kld_response_part_masked = kld_response_part * response_mask  # Element-wise, shapes match
         beta = kl_ctrl.value
-    else:
-        beta = 0
-        # kld should have the same shape as the response part it would be subtracted from
-        kld = torch.zeros_like(response_mask, dtype=torch.float32) # Shape (batch_size, response_length)
+        
+        # For KL controller update and metric, use unmasked kld_response_part with response_mask
+        actual_kld_for_metric = masked_mean(kld_response_part, mask=response_mask, axis=-1) 
+        actual_kld_for_metric = torch.mean(actual_kld_for_metric, dim=0).item()
 
-    # Initialize token_level_rewards as a copy of scores (prompt rewards are scores)
-    token_level_rewards = token_level_scores.clone()
 
-    # --- FIX: Apply KL penalty only to the response part ---
-    # Extract the scores corresponding to the response tokens
-    response_scores = token_level_scores[:, -response_length:] # Shape (batch_size, response_length)
-    # Calculate the rewards for the response tokens
-    response_rewards = response_scores - beta * kld # Shape (batch_size, response_length)
-    # Place the calculated response rewards back into the full rewards tensor
-    # Ensure rewards are only applied where the response mask is 1
-    token_level_rewards[:, -response_length:][response_mask] = response_rewards[response_mask]
-    # --- END FIX ---
+    # Initialize token_level_rewards as a clone of full-length scores
+    token_level_rewards_full = token_level_scores.clone()  # Shape (B, L_full)
 
-    # Calculate current_kl based on the response part
-    current_kl = masked_mean(kld, mask=response_mask, axis=-1)  # average over sequence
-    current_kl = torch.mean(current_kl, dim=0).item()
-
+    # Slice scores to the response part
+    scores_response_part = token_level_scores[:, -response_length:]  # Shape (B, L_resp)
+    
+    # Calculate the rewards for the response tokens by subtracting scaled KLD
+    # kld_response_part_masked already incorporates the response_mask for zeroing out padded tokens
+    actual_response_rewards = scores_response_part - beta * kld_response_part_masked  # Shape (B, L_resp)
+    
+    # Place the calculated response rewards back into the correct segment of the full rewards tensor
+    # We view the response part of the full tensor and update it using the response_mask.
+    token_level_rewards_full_response_part_view = token_level_rewards_full[:, -response_length:]
+    token_level_rewards_full_response_part_view[response_mask] = actual_response_rewards[response_mask]
+    
     # Update KL controller
-    kl_ctrl.update(current_kl=current_kl, n_steps=batch_size_scalar) # Use scalar batch_size
+    current_batch_size = responses.shape[0] 
+    kl_ctrl.update(current_kl=actual_kld_for_metric, n_steps=current_batch_size)
 
-    # Update the DataProto with the final token_level_rewards
-    data.batch['token_level_rewards'] = token_level_rewards
+    data.batch['token_level_rewards'] = token_level_rewards_full
 
-    metrics = {'critic/kl': current_kl, 'critic/kl_coeff': beta}
+    metrics = {'critic/kl': actual_kld_for_metric, 'critic/kl_coeff': beta}
 
     return data, metrics
 
@@ -164,32 +164,50 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
 def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1):
     """
     Compute advantage estimates based on the specified estimator (GAE or GRPO).
-    Now with improved error handling and debugging.
+    Ensures inputs to core_algos.compute_gae_advantage_return are correctly sliced to response_length.
     """
     if adv_estimator == 'gae':
-        values = data.batch['values']
-        responses = data.batch['responses']
-        response_length = responses.size(-1)
-        attention_mask = data.batch['attention_mask']
-        response_mask = attention_mask[:, -response_length:]
-        token_level_rewards = data.batch['token_level_rewards']
-        advantages, returns = core_algos.compute_gae_advantage_return(token_level_rewards=token_level_rewards,
-                                                                    values=values,
-                                                                    eos_mask=response_mask,
-                                                                    gamma=gamma,
-                                                                    lam=lam)
+        values_full = data.batch['values'] # Expected Shape (B, L_full)
+        responses = data.batch['responses'] # Shape (B, L_resp)
+        response_length = responses.size(-1) # L_resp
+        
+        attention_mask_full = data.batch['attention_mask'] # Shape (B, L_full)
+        # This is the EoS mask for the response part
+        response_eos_mask = attention_mask_full[:, -response_length:] # Shape (B, L_resp)
+        
+        token_level_rewards_full = data.batch['token_level_rewards'] # Shape (B, L_full)
+
+        # Slice values and token_level_rewards to the response part
+        values_response_part = values_full[:, -response_length:] # Shape (B, L_resp)
+        token_level_rewards_response_part = token_level_rewards_full[:, -response_length:] # Shape (B, L_resp)
+
+        # Now all inputs to compute_gae_advantage_return are response-length
+        advantages, returns = core_algos.compute_gae_advantage_return(
+            token_level_rewards=token_level_rewards_response_part,
+            values=values_response_part,
+            eos_mask=response_eos_mask, # This is already the response-specific mask
+            gamma=gamma,
+            lam=lam
+        )
+        # advantages and returns will have shape (B, L_resp)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
     elif adv_estimator == 'grpo':
-        token_level_rewards = data.batch['token_level_rewards']
+        token_level_rewards_full = data.batch['token_level_rewards']
+        responses = data.batch['responses'] # L_resp
+        response_length = responses.size(-1) # L_resp
+        attention_mask_full = data.batch['attention_mask'] # L_full
+        response_eos_mask = attention_mask_full[:, -response_length:] # Shape (B, L_resp)
+        
+        token_level_rewards_response_part = token_level_rewards_full[:, -response_length:]
+
         index = data.non_tensor_batch['uid']
-        responses = data.batch['responses']
-        response_length = responses.size(-1)
-        attention_mask = data.batch['attention_mask']
-        response_mask = attention_mask[:, -response_length:]
-        advantages, returns = core_algos.compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards,
-                                                                        eos_mask=response_mask,
-                                                                        index=index)
+        
+        advantages, returns = core_algos.compute_grpo_outcome_advantage(
+            token_level_rewards=token_level_rewards_response_part,
+            eos_mask=response_eos_mask,
+            index=index
+        )
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
     else:
