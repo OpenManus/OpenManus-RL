@@ -42,8 +42,6 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 import re
 from openmanus_rl.llm_agent.openmanus import OpenManusAgent, AgentConfig
 from verl.utils.reward_score import SUPPORTED_REWARD_SCORE_FNS
-from verl.utils.reward_score.agentgym import compute_score as agentgym_compute_score
-from verl.utils.reward_score.reward_components import RewardComposer, GoalReward, LengthPenalty, FormatReward
 from verl.utils.tracking import Tracking
 
 import ray
@@ -518,51 +516,12 @@ class RayPPOTrainer(object):
 
         self._create_dataloader()
         self._init_logger()
-        self._init_reward_composer()
     
     def _init_logger(self):
         self.logger = Tracking(project_name=self.config.trainer.project_name,
                           experiment_name=self.config.trainer.experiment_name,
                           default_backend=self.config.trainer.logger,
                           config=OmegaConf.to_container(self.config, resolve=True))
-
-    def _init_reward_composer(self):
-        """Initializes the RewardComposer based on the configuration."""
-        components = []
-        cfg = self.reward_component_config
-        print(f"[Trainer._init_reward_composer] Initializing with config: {cfg}")
-
-        # --- Build Reward Components List --- 
-        # Example: Dynamically add components based on config
-        if cfg.get('goal_reward', {}).get('enabled', True):
-            components.append(GoalReward(weight=cfg['goal_reward'].get('weight', 1.0)))
-            print("  - Added GoalReward")
-
-        if cfg.get('length_penalty', {}).get('enabled', False):
-            lp_cfg = cfg['length_penalty']
-            components.append(LengthPenalty(
-                weight=lp_cfg.get('weight', -0.01),
-                max_length=lp_cfg.get('max_length', 500),
-                min_length=lp_cfg.get('min_length', 10),
-                penalty_type=lp_cfg.get('penalty_type', "linear")
-            ))
-            print("  - Added LengthPenalty")
-
-        if cfg.get('format_reward', {}).get('enabled', False):
-            fmt_cfg = cfg['format_reward']
-            # Get patterns specific to the current env or use default
-            patterns = fmt_cfg.get('patterns_by_env', {}).get(
-                self.config.data.env_name, # Assumes env_name is available in self.config.data
-                fmt_cfg.get('patterns_by_env', {}).get('default', [])
-            )
-            components.append(FormatReward(
-                weight=fmt_cfg.get('weight', 0.2),
-                required_patterns=patterns
-            ))
-            print(f"  - Added FormatReward with patterns: {patterns}")
-
-        self.reward_composer = RewardComposer(components=components)
-        print(f"[Trainer._init_reward_composer] Composer initialized with {len(components)} components.")
 
     def _create_dataloader(self):
         from torch.utils.data import DataLoader
