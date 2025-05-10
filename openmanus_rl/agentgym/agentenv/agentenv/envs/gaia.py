@@ -17,7 +17,7 @@ class GaiaEnvClient(BaseEnvClient):
     def __init__(
         self,
         server_url: str,
-        data_dir: str = "agentenv_gaia/data/",
+        data_dir: str = "agentenv-gaia/data/",
         level: str = "level1",
         dataset: str = "validation",
         tool_list: Optional[list] = None,
