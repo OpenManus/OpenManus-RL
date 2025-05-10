@@ -3,7 +3,7 @@
 # --- Configuration (defaults, can be overridden via env vars) ---
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-1,2,3} # change your GPU ID here
 WAND_PROJECT=${WAND_PROJECT:-'OpenManus-rl'}
-export BASE_MODEL=${BASE_MODEL:-'Qwen/Qwen2.5-3B'}
+export BASE_MODEL=${BASE_MODEL:-'../model/Qwen2.5-3B'}
 AGENTGYM_HOST=${AGENTGYM_HOST:-'0.0.0.0'} # Default to 0.0.0.0 for external access
 AGENTGYM_SQL_BIRD_PATH=${AGENTGYM_SQL_BIRD_PATH:-} # Used only for sqlgym
 export PYTHONPATH="./openmanus_rl/agentgym/agentenv:${PYTHONPATH}"
