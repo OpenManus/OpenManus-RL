@@ -29,16 +29,23 @@ import os
 import sys # For version printing
 import time # For potential use in main_task
 
+# Define known AgentGym envs centrally here (also defined in ray_trainer.py, ensure consistency)
+KNOWN_AGENTGYM_ENVS_MAIN_PPO = [
+    "webshop", "webarena", "maze", "wordle", "alfworld", 
+    "sciworld", "babyai", "textcraft", "weather", "movie", 
+    "academia", "todo", "sheet", "sqlgym"
+]
+
 def _select_rm_score_fn(data_source):
     # Define known AgentGym environment list
-    KNOWN_AGENTGYM_ENVS = [
-        "webshop", "webarena", "maze", "wordle", "alfworld", 
-        "sciworld", "babyai", "textcraft", "weather", "movie", 
-        "academia", "todo", "sheet", "sqlgym"
-    ]
+    # KNOWN_AGENTGYM_ENVS = [
+    #     "webshop", "webarena", "maze", "wordle", "alfworld", 
+    #     "sciworld", "babyai", "textcraft", "weather", "movie", 
+    #     "academia", "todo", "sheet", "sqlgym"
+    # ] # Use the module-level constant
     
     # Check if data source is an AgentGym environment
-    if data_source in KNOWN_AGENTGYM_ENVS:
+    if data_source in KNOWN_AGENTGYM_ENVS_MAIN_PPO: # Use the constant
         from verl.utils.reward_score import agentgym_compute_score # Specific import
         return agentgym_compute_score
     elif data_source in ['nq', 'triviaqa', 'popqa', 'hotpotqa', '2wikimultihopqa', 'musique', 'bamboogle']:
@@ -51,10 +58,11 @@ class RewardManager():
     """The reward manager.
     """
 
-    def __init__(self, tokenizer, num_examine, format_score=0.) -> None:
+    def __init__(self, tokenizer, num_examine, format_score=0., global_steps_provider=None) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.format_score = format_score
+        self.global_steps_provider = global_steps_provider # To get current global step for reward scheduling
 
     def __call__(self, data: DataProto):
         """We will expand this function gradually based on the available datasets"""
@@ -64,6 +72,12 @@ class RewardManager():
 
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
         already_print_data_sources = {}
+        
+        current_global_step = 0
+        if self.global_steps_provider is not None:
+            current_global_step = self.global_steps_provider()
+
+        sum_env_rewards_batch_tensor = data.meta_info.get('sum_step_rewards') # Tensor for the whole batch
 
         for i in range(len(data)):
             data_item = data[i]
@@ -79,7 +93,20 @@ class RewardManager():
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
             data_source = data_item.non_tensor_batch['data_source']
             compute_score_fn = _select_rm_score_fn(data_source)
-            score = compute_score_fn(solution_str=sequences_str, ground_truth=ground_truth, format_score=self.format_score)
+            
+            score_kwargs = {
+                'solution_str': sequences_str,
+                'ground_truth': ground_truth,
+                'step': current_global_step # Pass current global step
+            }
+
+            if data_source in KNOWN_AGENTGYM_ENVS_MAIN_PPO: # Use the constant
+                sum_env_rewards_for_item = 0.0
+                if sum_env_rewards_batch_tensor is not None and i < len(sum_env_rewards_batch_tensor):
+                    sum_env_rewards_for_item = sum_env_rewards_batch_tensor[i].item()
+                score_kwargs['sum_env_rewards'] = sum_env_rewards_for_item
+            
+            score = compute_score_fn(**score_kwargs)
             reward_tensor[i, valid_response_length - 1] = score
 
             if data_source not in already_print_data_sources:
@@ -245,12 +272,7 @@ def main_task(config):
     reward_fn = None
     val_reward_fn = None
     
-    KNOWN_AGENTGYM_ENVS = [
-        "webshop", "webarena", "maze", "wordle", "alfworld",
-        "sciworld", "babyai", "textcraft", "weather", "movie",
-        "academia", "todo", "sheet", "sqlgym"
-    ]
-    is_agentgym_run = config.data.env_name in KNOWN_AGENTGYM_ENVS
+    is_agentgym_run = config.data.env_name in KNOWN_AGENTGYM_ENVS_MAIN_PPO # Use the constant
     print(f"Environment: {config.data.env_name}, AgentGym run: {is_agentgym_run}")
 
     reward_component_config = OmegaConf.to_container(
@@ -261,11 +283,40 @@ def main_task(config):
     if not is_agentgym_run:
         print("Not an AgentGym run. Setting up RewardManager (if defined globally).")
         # Assuming RewardManager class is defined (as it is in this file)
-        reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0, format_score=config.get('format_score', 0.))
-        val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=1, format_score=config.get('format_score', 0.))
+        # Pass a lambda to provide global_steps to RewardManager if needed for scheduling
+        # trainer_instance_for_global_steps will be set later when RayPPOTrainer is initialized
+        trainer_instance_for_global_steps = [None] # Use a list to pass by reference essentially
+        reward_fn = RewardManager(
+            tokenizer=tokenizer, 
+            num_examine=0, 
+            format_score=config.get('format_score', 0.),
+            global_steps_provider=lambda: trainer_instance_for_global_steps[0].global_steps if trainer_instance_for_global_steps[0] else 0
+            )
+        val_reward_fn = RewardManager(
+            tokenizer=tokenizer, 
+            num_examine=1, 
+            format_score=config.get('format_score', 0.),
+            global_steps_provider=lambda: trainer_instance_for_global_steps[0].global_steps if trainer_instance_for_global_steps[0] else 0
+            )
         print("RewardManager loaded for train and validation.")
     else:
-        print("AgentGym run detected. Skipping RewardManager setup (AgentGym internal rewards or RewardComposer will be used).")
+        print("AgentGym run detected. RewardManager will be used, and agentgym_compute_score will handle specific logic including sum_env_rewards.")
+        # For AgentGym, RewardManager is still used, but its call to agentgym_compute_score
+        # will now include sum_env_rewards extracted from the batch data.
+        trainer_instance_for_global_steps = [None] # Use a list to pass by reference essentially
+        reward_fn = RewardManager(
+            tokenizer=tokenizer, 
+            num_examine=0, 
+            format_score=config.get('format_score', 0.), # format_score might be less relevant if agentgym handles its own
+            global_steps_provider=lambda: trainer_instance_for_global_steps[0].global_steps if trainer_instance_for_global_steps[0] else 0
+        )
+        val_reward_fn = RewardManager(
+            tokenizer=tokenizer, 
+            num_examine=1, 
+            format_score=config.get('format_score', 0.),
+            global_steps_provider=lambda: trainer_instance_for_global_steps[0].global_steps if trainer_instance_for_global_steps[0] else 0
+        )
+        print("RewardManager configured for AgentGym run.")
 
     print("Initializing ResourcePoolManager...")
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
@@ -284,6 +335,10 @@ def main_task(config):
         reward_component_config=reward_component_config,
     )
     print("RayPPOTrainer initialized.")
+
+    # Set the trainer instance for global_steps_provider after RayPPOTrainer is initialized
+    if trainer_instance_for_global_steps is not None: # Check if the list was created
+        trainer_instance_for_global_steps[0] = trainer
 
     # Timeout protection removed for now to simplify, can be added back
     print("Initializing workers (trainer.init_workers())...")
