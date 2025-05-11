@@ -18,6 +18,7 @@ The main entry point to run the PPO algorithm
 import logging
 import os
 import warnings
+import json
 
 import torch
 import torch.distributed
@@ -739,6 +740,13 @@ class CriticWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
+        # === Add Debug Log HERE ===
+        print(f"[FSDP_CriticWorker.compute_values @ Rank {self.rank}] Received data. Meta Info: {data.meta_info}")
+        if 'micro_batch_size' in data.meta_info:
+            print(f"[FSDP_CriticWorker.compute_values @ Rank {self.rank}] micro_batch_size in received meta_info: {data.meta_info['micro_batch_size']}")
+        else:
+            print(f"[FSDP_CriticWorker.compute_values @ Rank {self.rank}] WARNING: 'micro_batch_size' NOT FOUND in received meta_info!")
+        # === End Debug Log ===
         data = data.to('cuda')
 
         if self._is_offload_param:
@@ -746,17 +754,19 @@ class CriticWorker(Worker):
                                      device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
         micro_batch_size = self.config.forward_micro_batch_size
+        if micro_batch_size == 0:
+            micro_batch_size = 1
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['max_token_len'] = self.config.forward_max_token_len_per_gpu
         data.meta_info['use_dynamic_bsz'] = self.config.use_dynamic_bsz
         # perform forward computation
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
-            values = self.critic.compute_values(data=data)
-            output = DataProto.from_dict(tensors={'values': values})
+            output = self.critic.compute_values(data=data) 
+            # No need to recreate a DataProto
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
-        # output = output.to('cpu')
+        output = output.to('cpu')
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
         torch.cuda.empty_cache()
@@ -764,6 +774,9 @@ class CriticWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_critic(self, data: DataProto):
+        # === Add Debug Log HERE ===
+        print(f"[FSDP_CriticWorker.update_critic @ Rank {self.rank}] Received data. Meta Info: {data.meta_info}")
+        # === End Debug Log ===
         data = data.to('cuda')
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.critic_module,
@@ -775,20 +788,36 @@ class CriticWorker(Worker):
         # perform forward computation
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
+            
+            actual_metrics_dict = {} # Initialize an empty dictionary
 
             with Timer(name='update_critic', logger=None) as timer:
-                metrics = self.critic.update_critic(data=data)
+                # result_proto is the DataProto object from self.critic.update_critic
+                result_proto = self.critic.update_critic(data=data)
             delta_time = timer.last
+
+            # Extract the metrics dictionary from the result_proto
+            if isinstance(result_proto, DataProto) and hasattr(result_proto, 'meta_info') and 'metrics' in result_proto.meta_info:
+                if isinstance(result_proto.meta_info['metrics'], dict):
+                    actual_metrics_dict = result_proto.meta_info['metrics']
+                else:
+                    print(f"[FSDP CriticWorker.update_critic] Warning: result_proto.meta_info['metrics'] is not a dict, it's a {type(result_proto.meta_info['metrics'])}. Initializing empty metrics dict.")
+            else:
+                print(f"[FSDP CriticWorker.update_critic] Warning: Could not extract metrics dict from result_proto. Initializing empty metrics dict. Result_proto type: {type(result_proto)}")
 
             global_num_tokens = data.meta_info['global_token_num']
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
-            metrics['mfu/critic'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
+            
+            # Now operate on the actual_metrics_dict
+            actual_metrics_dict['mfu/critic'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
 
             self.critic_lr_scheduler.step()
             lr = self.critic_lr_scheduler.get_last_lr()[0]
-            metrics['critic/lr'] = lr
+            # Operate on the extracted dict
+            actual_metrics_dict['critic/lr'] = lr 
 
-            output = DataProto(batch=None, meta_info={'metrics': metrics})
+            # Create the output DataProto using the modified actual_metrics_dict
+            output = DataProto(batch=None, meta_info={'metrics': actual_metrics_dict})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
         if self._is_offload_param:

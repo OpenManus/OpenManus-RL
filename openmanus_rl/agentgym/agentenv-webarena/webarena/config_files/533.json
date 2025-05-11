@@ -1,0 +1,39 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 533,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Follow {{account_list}} on Gitlab",
+  "instantiation_dict": {
+    "account_list": [
+      "convexegg",
+      "yjlou"
+    ]
+  },
+  "intent": "Follow ['convexegg', 'yjlou'] on Gitlab",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/users/byteblaze/following",
+        "locator": "document.querySelector('.user-profile').outerText",
+        "required_contents": {
+          "must_include": [
+            "@convexegg",
+            "@yjlou"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 330
+}

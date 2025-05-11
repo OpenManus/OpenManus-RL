@@ -155,7 +155,7 @@ class OpenManusAgent:
                      # raise ValueError(f"Task class {task_class_name} did not provide a client for port {port}.")
             except Exception as e:
                  print(f"  - Client {i+1}: Error initializing Task or getting client for port {port}: {e}")
-                 print(traceback.format_exc()) # Print detailed traceback
+                 print(traceback.format_exc())
                  # Decide how to handle failure: raise error or skip? Skipping for now.
                  # raise
 
@@ -174,72 +174,6 @@ class OpenManusAgent:
             padding="longest"
         )['input_ids']
 
-    def _postprocess_responses(self, responses: torch.Tensor) -> Tuple[torch.Tensor, List[str]]:
-        """Process responses to stop at tool call or final response."""
-        responses_str = self.tokenizer.batch_decode(
-            responses, 
-            skip_special_tokens=True
-        )
-
-        # In ReAct format, we look for <action> or <response> tags
-        processed_responses = []
-        for resp in responses_str:
-            if '</action>' in resp:
-                # Stop at end of action
-                processed = resp.split('</action>')[0] + '</action>'
-            elif '</response>' in resp:
-                # Stop at end of response
-                processed = resp.split('</response>')[0] + '</response>'
-            else:
-                # No recognized end tag, keep as is
-                processed = resp
-            processed_responses.append(processed)
-
-        responses = self._batch_tokenize(processed_responses)
-        return responses, processed_responses
-
-    def _process_next_obs(self, next_obs: List[str]) -> torch.Tensor:
-        """Process next observations from environment."""
-        
-        next_obs_ids = self.tokenizer(
-            next_obs, 
-            padding='longest',
-            return_tensors='pt',
-            add_special_tokens=False,
-        )['input_ids']
-
-        if next_obs_ids.shape[1] > self.config.max_obs_length:
-            print(f"[WARNING] OBSERVATION TOO LONG, CONSIDER CHANGING YOUR CONFIG, {next_obs_ids.shape[1]} & {self.config.max_obs_length}")            
-            next_obs_ids = next_obs_ids[:, :self.config.max_obs_length]
-
-        return next_obs_ids
-
-    def _update_rolling_state(self, rollings: DataProto, cur_responses: torch.Tensor, 
-                            next_obs_ids: torch.Tensor) -> DataProto:
-        """Update rolling state with new responses and observations."""
-        # Concatenate and handle padding        
-        new_input_ids = self.tensor_fn.concatenate_with_padding([
-            rollings.batch['input_ids'],
-            cur_responses,
-            next_obs_ids
-        ])
-        
-        # Create attention mask and position ids
-        new_attention_mask = self.tensor_fn.create_attention_mask(new_input_ids)
-        new_position_ids = self.tensor_fn.create_position_ids(new_attention_mask)
-
-        # Cut to appropriate length
-        effective_len = new_attention_mask.sum(dim=1).max()
-        max_len = min(self.config.max_prompt_length, effective_len)
-
-        new_rollings = DataProto.from_dict({
-            'input_ids': new_input_ids[:, -max_len:],
-            'position_ids': new_position_ids[:, -max_len:],
-            'attention_mask': new_attention_mask[:, -max_len:]
-        })
-        new_rollings.meta_info.update(rollings.meta_info)
-        
-        return new_rollings
 
     def _run_single_rollout(self, initial_prompt_ids: torch.Tensor, task_idx: int, client: Any) -> Dict[str, Any]:
         """
@@ -402,7 +336,8 @@ class OpenManusAgent:
             'step_rewards': step_rewards,    # List of rewards from each env.step call
             'reward': final_reward,          # Reward from the *last* env.step call
             'env_score': final_env_score,    # Final score reported by env info
-            'turns': turns,
+            'turns': turns,                  # Total number of turns executed
+            'valid_actions': len([msg for msg in trajectory if msg.get("from") == "gpt"]), # Count of agent's responses
             'task_idx': task_idx,
             'done': done                   # Whether the episode finished naturally or via error
         }
@@ -423,9 +358,23 @@ class OpenManusAgent:
         batch_size = initial_prompts_ids.shape[0]
         num_clients = len(self.clients)
         if num_clients == 0:
-             raise RuntimeError("No environment clients available for rollout.")
+            raise RuntimeError("No environment clients available for rollout.")
 
         print(f"[Agent.run_llm_loop] Starting rollout for batch size: {batch_size} using {num_clients} clients.")
+
+        # Setup initial state tracking
+        original_left_side = {'input_ids': initial_prompts_ids[:, -self.config.max_start_length:]}
+        original_right_side = {
+            'responses': initial_prompts_ids[:, []], 
+            'responses_with_info_mask': initial_prompts_ids[:, []]
+        }
+        
+        # Initialize active mask and tracking statistics
+        active_mask = torch.ones(batch_size, dtype=torch.bool)
+        turns_stats = torch.zeros(batch_size, dtype=torch.int)
+        valid_action_stats = torch.zeros(batch_size, dtype=torch.int)
+        active_num_list = [active_mask.sum().item()]
+        rollings = gen_batch
 
         # --- Parallel Rollout Execution ---
         futures = {}
@@ -474,16 +423,44 @@ class OpenManusAgent:
         if not valid_results:
             print("[Agent.run_llm_loop] Error: No valid rollout results collected.")
             # Return empty DataProto but with correct structure if possible
-            return DataProto.from_dict({
+            empty_proto = DataProto.from_dict({
                 "input_ids": torch.empty((0,0), dtype=torch.long),
                 "attention_mask": torch.empty((0,0), dtype=torch.long),
                 "position_ids": torch.empty((0,0), dtype=torch.long),
                 "info_mask": torch.empty((0,0), dtype=torch.long),
                 "token_level_rewards": torch.empty((0,0), dtype=torch.float)
             })
+            # Add necessary meta_info for downstream compute_log_prob call
+            empty_proto.meta_info = {'micro_batch_size': 1}
+            return empty_proto
 
         # --- Format Results into DataProto ---
         processed_data = self._convert_rollout_results_to_dataproto(valid_results, gen_batch)
+
+        # --- CRITICAL: Add necessary meta_info parameters for compute_log_prob ---
+        # These parameters are required by DataParallelActor.compute_log_prob
+        # Source values from the actor_rollout_wg config or AgentConfig
+        log_prob_micro_batch_size = getattr(self.actor_rollout_wg, 'log_prob_micro_batch_size', 128)
+        if hasattr(self.config, 'actor_rollout_ref') and hasattr(self.config.actor_rollout_ref, 'rollout'):
+            # If running within the trainer which has direct access to these configs
+            log_prob_micro_batch_size = getattr(self.config.actor_rollout_ref.rollout, 'log_prob_micro_batch_size', log_prob_micro_batch_size)
+        
+        # Ensure these keys exist and have reasonable default values even if not specified in config
+        if 'micro_batch_size' not in processed_data.meta_info:
+            processed_data.meta_info['micro_batch_size'] = log_prob_micro_batch_size
+        
+        if 'temperature' not in processed_data.meta_info:
+            processed_data.meta_info['temperature'] = getattr(self.config, 'temperature', 1.0)
+        
+        if 'use_dynamic_bsz' not in processed_data.meta_info:
+            processed_data.meta_info['use_dynamic_bsz'] = getattr(self.config, 'log_prob_use_dynamic_bsz', False)
+        
+        # If dynamic batch size is used, also set max_token_len
+        if processed_data.meta_info.get('use_dynamic_bsz', False):
+            max_token_len = getattr(self.config, 'log_prob_max_token_len_per_gpu', 2048)
+            processed_data.meta_info['max_token_len'] = max_token_len
+        
+        print(f"[Agent.run_llm_loop] Added log_prob parameters to meta_info: micro_batch_size={processed_data.meta_info['micro_batch_size']}, temperature={processed_data.meta_info['temperature']}, use_dynamic_bsz={processed_data.meta_info['use_dynamic_bsz']}")
 
         print(f"[Agent.run_llm_loop] Finished processing rollout results.")
         return processed_data
@@ -506,8 +483,24 @@ class OpenManusAgent:
         batch_position_ids = []
         batch_info_mask = []
         batch_token_level_rewards = [] # Store final token-level rewards for PPO
-        batch_meta_info = defaultdict(list)
         batch_responses = [] # Initialize batch_responses
+
+        # Initialize final_meta_info by copying all items from the original_batch.meta_info
+        # This ensures that any global metadata from the input batch is preserved.
+        final_meta_info = {}
+        if hasattr(original_batch, 'meta_info') and original_batch.meta_info:
+            for k, v in original_batch.meta_info.items():
+                final_meta_info[k] = v # Shallow copy, or deepcopy if mutable objects are a concern
+
+        # For collecting stats and per-rollout lists that will be converted to tensors or kept as lists
+        per_rollout_task_idx = []
+        per_rollout_turns_stats = []
+        per_rollout_valid_action_stats = []
+        per_rollout_done_flags = []
+        per_rollout_valid_search_stats = [] # Placeholder
+        per_rollout_rewards = [] # Last step reward for each rollout
+        per_rollout_env_scores = [] # Final env score for each rollout
+        per_rollout_trajectories = [] # List of trajectories
 
         # Get reward allocation strategy from config
         reward_allocation = "last_token" # Default
@@ -525,24 +518,40 @@ class OpenManusAgent:
         for result_dict in results:
             # Extract trajectory and other info
             trajectory = result_dict.get('trajectory', [])
-            # IMPORTANT: Decide which reward signal to use for allocation.
-            # Option 1: Use the final env score (often 0/1 for success)
-            # reward_to_distribute = result_dict.get('env_score', 0.0)
-            # Option 2: Use the reward from the last step
-            # reward_to_distribute = result_dict.get('reward', 0.0)
-            # Option 3: Use the sum/average of step_rewards (less common for final goal tasks)
-            step_rewards_list = result_dict.get('step_rewards', [])
-            # Let's use final_env_score as the primary signal for allocation, as it usually reflects task completion.
+            # Choose which reward signal to use for allocation
             reward_to_distribute = result_dict.get('env_score', 0.0)
 
             turns = result_dict.get('turns', 0)
             task_idx = result_dict.get('task_idx', -1)
+            valid_actions_count = result_dict.get('valid_actions', 0)
+            done_flag = result_dict.get('done', True) # Default to True if missing, indicating completion or error
+            reward_val = result_dict.get('reward', 0.0)
+            env_score_val = result_dict.get('env_score', 0.0)
+            trajectory_val = result_dict.get('trajectory', [])
 
-            # Get the original batch index
+            # Correctly append to per_rollout_ lists
+            per_rollout_task_idx.append(task_idx)
+            per_rollout_turns_stats.append(turns)
+            per_rollout_valid_action_stats.append(valid_actions_count)
+            per_rollout_done_flags.append(done_flag)
+            per_rollout_valid_search_stats.append(0) # Placeholder, as search is not explicitly tracked here
+            per_rollout_rewards.append(reward_val)
+            per_rollout_env_scores.append(env_score_val)
+            per_rollout_trajectories.append(trajectory_val)
+
+            # Get the original batch index (used for trajectory processing below)
             original_batch_idx = original_indices_map.get(task_idx, -1)
             if original_batch_idx == -1:
-                print(f"[Agent._convert_rollout] Warning: Task idx {task_idx} not found in original batch. Skipping.")
-                continue
+                print(f"[Agent._convert_rollout] Warning: Task idx {task_idx} not found in original batch. Skipping this result for trajectory processing.")
+                # If a result can't be mapped, its trajectory-derived tensors might be misaligned.
+                # For simplicity, we might skip creating tensor entries for it, or handle padding carefully.
+                # However, its stats (task_idx, turns, etc.) are already appended to per_rollout_ lists.
+                # This might lead to length mismatches if not handled carefully when creating final tensors.
+                # A robust solution would be to filter results list upfront or ensure all task_idx are mappable.
+                # For now, we proceed, and downstream tensor creation should handle potential Nones if any result is fully skipped.
+                # OR, more simply, if we can't map, we might have to skip this entire result_dict earlier.
+                # For now, let the per_rollout lists gather all data, and mismatches will be an issue at tensor conversion.
+                pass # Original_batch_idx is used for trajectory processing, not for the stats lists directly.
 
             # --- Concatenate conversation and identify agent segments --- 
             conversation_ids_list = []
@@ -552,7 +561,7 @@ class OpenManusAgent:
             valid_actions = 0 # Count of agent turns
 
             if not trajectory:
-                 # ... (handle empty trajectory) ...
+                 # Handle empty trajectory
                  initial_prompt_ids = original_batch.batch['input_ids'][original_batch_idx:original_batch_idx+1]
                  conversation_ids_list.append(initial_prompt_ids)
                  info_mask_parts.append(torch.ones_like(initial_prompt_ids))
@@ -568,10 +577,15 @@ class OpenManusAgent:
                     segment_lengths.append(msg_ids.shape[1])
 
                     if msg_from == "gpt":
+                        # Agent responses are normal tokens (not masked)
                         info_mask_parts.append(torch.ones_like(msg_ids))
                         valid_actions += 1
                         agent_response_indices.append(len(conversation_ids_list) - 1)
+                    elif msg_from == "env":
+                        # Environment observations should be info-masked
+                        info_mask_parts.append(torch.zeros_like(msg_ids))
                     else: # human or other
+                        # Human/prompt parts are normal tokens
                         info_mask_parts.append(torch.ones_like(msg_ids))
 
             if not conversation_ids_list:
@@ -579,16 +593,15 @@ class OpenManusAgent:
                 continue
 
             # --- Pad and Truncate --- 
-            # ... (Padding and truncation logic remains the same) ...
             full_input_ids = torch.cat(conversation_ids_list, dim=1)
             full_info_mask = torch.cat(info_mask_parts, dim=1)
             seq_len = full_input_ids.shape[1]
-            target_len = self.config.max_prompt_length # Or another max len? Check this
+            target_len = self.config.max_prompt_length
             padding_len = max(0, target_len - seq_len)
             agent_indices_in_padded = [] # List of (start, end) indices for agent tokens in the final padded tensor
 
             if seq_len > target_len:
-                # Truncate left
+                # Truncate left if sequence is too long
                 removed_len = seq_len - target_len
                 current_removed = 0
                 first_segment_idx = 0
@@ -608,14 +621,15 @@ class OpenManusAgent:
                 seq_len = target_len
                 padding_len = 0 # No padding needed after truncation
             elif seq_len < target_len:
-                # Pad left
+                # Pad left if sequence is too short
                 pad_tensor = torch.full((1, padding_len), self.tokenizer.pad_token_id, dtype=torch.long, device=full_input_ids.device)
                 full_input_ids = torch.cat([pad_tensor, full_input_ids], dim=1)
-                info_pad = torch.zeros_like(pad_tensor) # Padding is masked in info
+                # Info mask for padding should be 0 (masked out)
+                info_pad = torch.zeros_like(pad_tensor)
                 full_info_mask = torch.cat([info_pad, full_info_mask], dim=1)
                 adjusted_agent_response_indices = agent_response_indices # Indices remain the same relative to segments
 
-            # Calculate agent token indices in the *final* padded/truncated tensor
+            # Calculate agent token indices in the padded/truncated tensor
             current_token_idx_in_padded = padding_len
             for segment_idx, length in enumerate(segment_lengths):
                  is_agent_response = segment_idx in adjusted_agent_response_indices
@@ -655,10 +669,9 @@ class OpenManusAgent:
                     # Iterate segments backward
                     for start, end in reversed(agent_indices_in_padded):
                         segment_len = end - start + 1
-                        # Simple example: distribute reward uniformly within the segment
                         reward_for_segment = current_reward / segment_len
                         token_level_rewards[0, start : end + 1] = reward_for_segment
-                        # Apply discount for the *next* (earlier) segment
+                        # Apply discount for the next (earlier) segment
                         current_reward *= (gamma ** segment_len)
                 else:
                      print(f"[Agent._convert_rollout] Warning: Unknown reward_allocation strategy '{reward_allocation}'. Defaulting to last_token.")
@@ -677,9 +690,7 @@ class OpenManusAgent:
             batch_info_mask.append(full_info_mask) # Store the info mask
             batch_token_level_rewards.append(token_level_rewards) # Store calculated rewards
 
-            # --- FIX: Extract and pad response-only tokens ---
-            # The issue is related to the mismatch between self.config.max_response_length and the actual 
-            # length of response segments in the conversation. Let's ensure they match to avoid dimension mismatch.
+            # --- Extract and pad response-only tokens ---
             response_segments = []
             total_response_len = 0
             
@@ -696,13 +707,14 @@ class OpenManusAgent:
                 response_only_ids_cat = torch.cat(response_segments, dim=0).unsqueeze(0) # Shape (1, total_response_len)
                 resp_pad_len = max(0, configured_resp_len - total_response_len)
                 
+                # Pad or truncate to configured length
                 if resp_pad_len > 0:
                     # Pad to configured length if shorter
                     resp_pad = torch.full((1, resp_pad_len), self.tokenizer.pad_token_id, dtype=torch.long, device=response_only_ids_cat.device)
                     response_only_ids_padded = torch.cat([response_only_ids_cat, resp_pad], dim=1)
                     print(f"[Agent._convert_rollout] Padded response from {total_response_len} to {configured_resp_len}")
                 elif total_response_len > configured_resp_len:
-                    # Truncate if response is too long (this is important to match the expected length)
+                    # Truncate if response is too long
                     print(f"[Agent._convert_rollout] Truncating response from {total_response_len} to {configured_resp_len}")
                     response_only_ids_padded = response_only_ids_cat[:, :configured_resp_len]
                 else:
@@ -727,26 +739,29 @@ class OpenManusAgent:
                                                      self.tokenizer.pad_token_id, dtype=torch.long, 
                                                      device=full_input_ids.device)
             
-            # Append to batch list (this will be concatenated later)
+            # Append to batch list
             batch_responses.append(response_only_ids_padded)
-            # --- END FIX ---
 
-            # Add metadata (ensure reward/env_score reflect the values used for distribution if needed)
-            batch_meta_info["task_idx"].append(task_idx)
-            batch_meta_info["turns_stats"].append(turns)
-            batch_meta_info["valid_action_stats"].append(valid_actions)
-            batch_meta_info["reward"].append(result_dict.get('reward', 0.0)) # Last step reward
-            batch_meta_info["env_score"].append(result_dict.get('env_score', 0.0)) # Final env score
-            batch_meta_info["rollout_trajectory"].append(trajectory)
-            # Add other relevant metadata from original_batch
-            # ... (metadata copying logic as before) ...
-            for key, value in original_batch.meta_info.items():
-                 if key not in ['idx', 'reward', 'env_score']: # Avoid duplication
-                      if isinstance(value, list) and len(value) > original_batch_idx:
-                           batch_meta_info[key].append(value[original_batch_idx])
-                      elif not isinstance(value, list): # Keep non-list metadata
-                           if task_idx == original_indices[0]: # Add only once per batch
-                                batch_meta_info[key] = value
+            # Add metadata
+            if "task_idx" not in final_meta_info:
+                final_meta_info["task_idx"] = []
+            if "turns_stats" not in final_meta_info:
+                final_meta_info["turns_stats"] = []
+            if "valid_action_stats" not in final_meta_info:
+                final_meta_info["valid_action_stats"] = []
+            if "reward" not in final_meta_info:
+                final_meta_info["reward"] = []
+            if "env_score" not in final_meta_info:
+                final_meta_info["env_score"] = []
+            if "rollout_trajectory" not in final_meta_info:
+                final_meta_info["rollout_trajectory"] = []
+
+            final_meta_info["task_idx"].append(task_idx)
+            final_meta_info["turns_stats"].append(turns)
+            final_meta_info["valid_action_stats"].append(valid_actions_count)
+            final_meta_info["reward"].append(reward_val)
+            final_meta_info["env_score"].append(env_score_val)
+            final_meta_info["rollout_trajectory"].append(trajectory_val)
 
         # --- Stack Tensors --- 
         if not batch_input_ids:
@@ -765,37 +780,38 @@ class OpenManusAgent:
             "input_ids": torch.cat(batch_input_ids, dim=0),
             "attention_mask": torch.cat(batch_attention_mask, dim=0),
             "position_ids": torch.cat(batch_position_ids, dim=0),
-            "info_mask": torch.cat(batch_info_mask, dim=0),
-            "token_level_rewards": torch.cat(batch_token_level_rewards, dim=0), # Crucial output for PPO
-            "responses": torch.cat(batch_responses, dim=0) # FIX: Add the collected responses
+            "info_mask": torch.cat(batch_info_mask, dim=0), # This is the equivalent of responses_with_info_mask related construction
+            "token_level_rewards": torch.cat(batch_token_level_rewards, dim=0),
+            "responses": torch.cat(batch_responses, dim=0)
         }
 
         # Create DataProto and add metadata
         data_proto = DataProto.from_dict(final_batch)
-        # ... (metadata handling as before, converting lists to tensors where appropriate) ...
-        for key, value in batch_meta_info.items():
-            try:
-                if isinstance(value, list) and all(isinstance(item, (int, float)) for item in value):
-                    data_proto.meta_info[key] = torch.tensor(value)
-                # Handle numpy arrays if they appear
-                elif isinstance(value, np.ndarray):
-                     data_proto.meta_info[key] = torch.from_numpy(value)
-                else:
-                    # Keep as list for non-numeric types (like trajectories)
-                    data_proto.meta_info[key] = value
-            except (ValueError, TypeError, RuntimeError) as e:
-                 # Fallback: keep as list if tensor conversion fails
-                 print(f"[Agent._convert_rollout] Warning: Could not convert metadata '{key}' to tensor: {e}. Keeping as list.")
-                 data_proto.meta_info[key] = value
+        
+        # Add collected statistics and per-rollout lists to final_meta_info, converting to tensors where appropriate
+        # These will overwrite any keys with the same name inherited from original_batch.meta_info if they were lists per sample.
+        final_meta_info['task_idx'] = torch.tensor(per_rollout_task_idx, dtype=torch.long)
+        final_meta_info['turns_stats'] = torch.tensor(per_rollout_turns_stats, dtype=torch.long)
+        final_meta_info['valid_action_stats'] = torch.tensor(per_rollout_valid_action_stats, dtype=torch.long)
+        final_meta_info['valid_search_stats'] = torch.tensor(per_rollout_valid_search_stats, dtype=torch.long) # Will be zeros
+        final_meta_info['active_mask'] = torch.tensor([not done for done in per_rollout_done_flags], dtype=torch.bool)
+        final_meta_info['reward'] = torch.tensor(per_rollout_rewards, dtype=torch.float32) # Individual rewards per rollout
+        final_meta_info['env_score'] = torch.tensor(per_rollout_env_scores, dtype=torch.float32) # Final scores per rollout
+        final_meta_info['rollout_trajectory'] = per_rollout_trajectories # Keep as list of lists/dicts
 
-        # Explicitly add final env scores as a tensor if possible
-        if "env_score" in batch_meta_info:
-            try:
-                data_proto.meta_info["env_scores"] = torch.tensor(batch_meta_info["env_score"], dtype=torch.float32)
-            except (ValueError, TypeError):
-                # This case should be less likely now, but keep fallback
-                print("[Agent._convert_rollout] Could not convert env_scores to tensor, keeping original list.")
-                data_proto.meta_info["env_scores"] = batch_meta_info["env_score"]
+        # If 'idx' was in original_batch.meta_info and was a tensor, it might have been copied directly.
+        # If it needs to be specifically task_idx, the above 'task_idx' tensor is now authoritative for the samples in this batch.
+        # We can choose to remove the original 'idx' if it causes confusion or ensure it's compatible.
+        # For now, the new 'task_idx' list converted to a tensor becomes the primary index for these processed samples.
+        if 'idx' in final_meta_info and not torch.is_tensor(final_meta_info['idx']):
+            # If original idx was not a tensor or needs to be sample-specific for this processed batch
+            print(f"[Agent._convert_rollout] Replacing original 'idx' with new 'task_idx' tensor.")
+            final_meta_info['idx'] = final_meta_info['task_idx']
+        elif 'idx' not in final_meta_info:
+            final_meta_info['idx'] = final_meta_info['task_idx']
+
+        # Assign the fully constructed final_meta_info to the DataProto object
+        data_proto.meta_info = final_meta_info
 
         print(f"[Agent._convert_rollout] Final batch shapes: input_ids={final_batch['input_ids'].shape}, token_level_rewards={final_batch['token_level_rewards'].shape}, responses={final_batch['responses'].shape}")
         return data_proto

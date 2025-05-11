@@ -1,0 +1,58 @@
+{
+  "sites": [
+    "wikipedia",
+    "map"
+  ],
+  "task_id": 740,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Show me the way from {{location}} to the home stadium of {{sport_team}} {{time}}",
+  "instantiation_dict": {
+    "location": "Carnegie Mellon University",
+    "sport_team": "NYC NBA team",
+    "time": ""
+  },
+  "intent": "Show me the way from Carnegie Mellon University to the home stadium of NYC NBA team ",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"route_from\"').value",
+        "required_contents": {
+          "must_include": [
+            "Carnegie Mellon University",
+            "Pittsburgh"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"route_to\"').value",
+        "required_contents": {
+          "must_include": [
+            "Madison Square Garden",
+            "Pennsylvania Plaza",
+            "Manhattan",
+            "New York"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector(\"div#content select.routing_engines\").selectedIndex",
+        "required_contents": {
+          "exact_match": "1"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 94
+}

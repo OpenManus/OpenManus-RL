@@ -1,0 +1,41 @@
+{
+  "sites": [
+    "gitlab",
+    "wikipedia"
+  ],
+  "task_id": 560,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create a repo named {{name}} with {{topics}} in a README file",
+  "instantiation_dict": {
+    "name": "nolan_academy_awards",
+    "topics": "movies that won Academy Awards by Christopher Nolan"
+  },
+  "intent": "Create a repo named nolan_academy_awards with movies that won Academy Awards by Christopher Nolan in a README file",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/nolan_academy_awards/-/raw/main/README.md",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "The Dark Knight",
+            "Inception",
+            "Interstellar",
+            "Dunkirk",
+            "Tenet"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 87
+}

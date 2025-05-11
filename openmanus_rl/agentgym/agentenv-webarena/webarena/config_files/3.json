@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 3,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "What are the top-{{n}} best-selling product in {{year}}",
+  "instantiation_dict": {
+    "n": 2,
+    "year": 2022
+  },
+  "intent": "What are the top-2 best-selling product in 2022",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Quest Lumaflex\u2122 Band",
+        "Sprite Stasis Ball 65 cm"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Quest Lumaflex\u2122 Band, Sprite Stasis Ball 65 cm"
+  },
+  "intent_template_id": 279
+}

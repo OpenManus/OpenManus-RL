@@ -1,0 +1,57 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 592,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/primer/design",
+  "geolocation": null,
+  "intent_template": "Create a milestone for the upcoming {{event}} starting on {{start_date}} and ending on {{end_date}}",
+  "instantiation_dict": {
+    "event": "task of cleaning sensitive information",
+    "start_date": "2/16/2023",
+    "end_date": "in 20 days"
+  },
+  "intent": "Create a milestone for the upcoming task of cleaning sensitive information starting on 2/16/2023 and ending on in 20 days",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/primer/design/-/milestones",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector(\"#content-body\").outerText",
+        "required_contents": {
+          "must_include": [
+            "sensitive information"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('.block.start_date').outerText",
+        "required_contents": {
+          "must_include": [
+            "Feb 16, 2030"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('.block.due_date').outerText",
+        "required_contents": {
+          "must_include": [
+            "Mar 8, 2030"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 339
+}

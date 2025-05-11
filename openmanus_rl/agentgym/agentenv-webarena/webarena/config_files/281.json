@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 281,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Please provide me with the complete product names of Oral B brush heads designed for children, along with their corresponding price range per brush",
+  "instantiation_dict": {},
+  "intent": "Please provide me with the complete product names of Oral B brush heads designed for children, along with their corresponding price range per brush",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Oral-B Kids Extra Soft Replacement Brush Heads featuring STAR WARS, 2 count",
+        "Kids By Oral-b Stages Power Star Wars Replacement Heads 4 Pack",
+        "3.745",
+        "6.495"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "These models are availiable: Oral-B Kids Extra Soft Replacement Brush Heads featuring STAR WARS, 2 count Kids By Oral-b Stages Power Star Wars Replacement Heads 4 Pack The price ranges from $3.745 to $6.495 "
+  },
+  "intent_template_id": 204
+}

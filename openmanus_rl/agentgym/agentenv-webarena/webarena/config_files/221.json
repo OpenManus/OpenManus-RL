@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 221,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "I am at CMU Pittsburgh, how long it takes to the nearest {{location}} with different transportation methods?",
+  "instantiation_dict": {
+    "location": "USPS postal office"
+  },
+  "intent": "I am at CMU Pittsburgh, how long it takes to the nearest USPS postal office with different transportation methods?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "Walk: 1 minute",
+        "Drive: less than 1 minute",
+        "Bike: less than 1 minute"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Walk: 1 minute to walk and\nDrive: less than 1 minute\nBike: less than 1 minute"
+  },
+  "intent_template_id": 35
+}

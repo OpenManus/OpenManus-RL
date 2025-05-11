@@ -1,0 +1,29 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 798,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Change the delivery address for my most recent order to {{address}}.",
+  "instantiation_dict": {
+    "address": "77 Massachusetts Ave, Cambridge, MA"
+  },
+  "intent": "Change the delivery address for my most recent order to 77 Massachusetts Ave, Cambridge, MA.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "The shipping address cannot be changed after an order is placed in the website.",
+    "reference_answer_raw_annotation": "N/A"
+  },
+  "intent_template_id": 191
+}

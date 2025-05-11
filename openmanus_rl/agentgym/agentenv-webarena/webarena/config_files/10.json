@@ -1,0 +1,34 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 10,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Tell me the full address of all {{airport_type}} that are within a driving distance of {{radius}} to {{start}}",
+  "instantiation_dict": {
+    "airport_type": "US international airports",
+    "start": "Niagara Falls",
+    "radius": "60 km"
+  },
+  "intent": "Tell me the full address of all US international airports that are within a driving distance of 60 km to Niagara Falls",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Niagara Falls International Airport, 2035, Niagara Falls Boulevard, City of Niagara Falls, Town of Wheatfield, Niagara County, New York, 14304, United States",
+        "Buffalo-Niagara International Airport, Holtz Drive, Town of Cheektowaga, Erie County, New York, 14225, United States"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Niagara Falls International Airport, 2035, Niagara Falls Boulevard, City of Niagara Falls, Town of Wheatfield, Niagara County, New York, 14304, United States Buffalo-Niagara International Airport, South Youngs Road, Town of Cheektowaga, Erie County, New York, 14221, United States"
+  },
+  "intent_template_id": 79
+}

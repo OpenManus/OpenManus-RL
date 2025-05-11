@@ -1,0 +1,29 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 295,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Show me the command to clone {{repo}} with SSH.",
+  "instantiation_dict": {
+    "repo": "metaseq"
+  },
+  "intent": "Show me the command to clone metaseq with SSH.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "exact_match": "git clone ssh://git@metis.lti.cs.cmu.edu:2222/root/metaseq.git"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "git clone ssh://git@metis.lti.cs.cmu.edu:2222/root/metaseq.git"
+  },
+  "intent_template_id": 329
+}

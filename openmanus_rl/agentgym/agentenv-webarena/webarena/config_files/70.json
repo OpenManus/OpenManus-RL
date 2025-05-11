@@ -1,0 +1,29 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 70,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "What is the zip code of {{place}}?",
+  "instantiation_dict": {
+    "place": "Carnegie Mellon University"
+  },
+  "intent": "What is the zip code of Carnegie Mellon University?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "exact_match": "15213"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "15213"
+  },
+  "intent_template_id": 70
+}

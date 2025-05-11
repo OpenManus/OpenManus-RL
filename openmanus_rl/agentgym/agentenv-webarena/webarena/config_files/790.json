@@ -1,0 +1,29 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 790,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Delete all {{review_type}}",
+  "instantiation_dict": {
+    "review_type": "negative reviews for Sybil running short"
+  },
+  "intent": "Delete all negative reviews for Sybil running short",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "No negative reviews for sybil running short",
+    "reference_answer_raw_annotation": "N/A"
+  },
+  "intent_template_id": 246
+}

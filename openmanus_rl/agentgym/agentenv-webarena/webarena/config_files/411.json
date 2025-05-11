@@ -1,0 +1,35 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 411,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Make the LICENSE of {{repo}} to MIT license.",
+  "instantiation_dict": {
+    "repo": "byteblaze/cloud-to-butt"
+  },
+  "intent": "Make the LICENSE of byteblaze/cloud-to-butt to MIT license.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/cloud-to-butt/-/blob/master/LICENSE.txt",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "MIT license"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 355
+}

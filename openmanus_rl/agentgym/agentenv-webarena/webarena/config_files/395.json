@@ -1,0 +1,35 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 395,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Fork {{repo}}.",
+  "instantiation_dict": {
+    "repo": "the Pytorch GAN repo with most stars"
+  },
+  "intent": "Fork the Pytorch GAN repo with most stars.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/PyTorch-GAN",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "Pytorch-GAN"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 352
+}

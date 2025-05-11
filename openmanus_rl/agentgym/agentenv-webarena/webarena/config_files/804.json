@@ -1,0 +1,47 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 804,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Assign the issue regarding {{issue}} to {{account}}.",
+  "instantiation_dict": {
+    "issue": "flash alerts",
+    "account": "myself and primer"
+  },
+  "intent": "Assign the issue regarding flash alerts to myself and primer.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/dashboard/issues?scope=all&state=opened&assignee_username=byteblaze",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "Add documentation on using Flash alerts in dialog components",
+            "Clarify usage of flash alert"
+          ]
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/dashboard/issues?scope=all&state=opened&assignee_username=primer",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "Add documentation on using Flash alerts in dialog components",
+            "Clarify usage of flash alert"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 999
+}

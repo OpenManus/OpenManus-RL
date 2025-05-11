@@ -1,0 +1,45 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 754,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create a private {{template}} repository called \"{{project_name}}\" using the right template to speed up development.",
+  "instantiation_dict": {
+    "project_name": "web_agent_nodejs",
+    "template": "NodeJS"
+  },
+  "intent": "Create a private NodeJS repository called \"web_agent_nodejs\" using the right template to speed up development.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/web_agent_nodejs",
+        "locator": "document.querySelector('.visibility-icon').getAttribute('title')",
+        "required_contents": {
+          "must_include": [
+            "Private"
+          ]
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/web_agent_nodejs/-/commits",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "Initialized from 'NodeJS Express' project template"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 332
+}

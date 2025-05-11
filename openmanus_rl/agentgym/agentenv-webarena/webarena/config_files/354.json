@@ -1,0 +1,27 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 354,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "List products from {{product_category}} category by {{order}} price",
+  "instantiation_dict": {
+    "product_category": "living room furtniture",
+    "order": "descending"
+  },
+  "intent": "List products from living room furtniture category by descending price",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/home-kitchen/furniture/living-room-furniture.html?product_list_order=price&product_list_dir=desc",
+    "program_html": [],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 137
+}

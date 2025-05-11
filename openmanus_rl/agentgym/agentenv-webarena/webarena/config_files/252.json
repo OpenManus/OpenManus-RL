@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 252,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Tell me the coordinates of {{location}} in DD format",
+  "instantiation_dict": {
+    "location": "Tokyo Japanese Food Store in Pittsburgh"
+  },
+  "intent": "Tell me the coordinates of Tokyo Japanese Food Store in Pittsburgh in DD format",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "40.457",
+        "-79.929"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "40.45761, -79.92934"
+  },
+  "intent_template_id": 46
+}

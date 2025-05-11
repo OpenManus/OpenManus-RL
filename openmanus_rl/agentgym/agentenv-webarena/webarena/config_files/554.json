@@ -1,0 +1,42 @@
+{
+  "sites": [
+    "gitlab",
+    "reddit"
+  ],
+  "task_id": 554,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab.reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create a folder named {{directory}} in {{gitlab_repo}} repo. Within it, create a file named urls.txt that contains the URLs of the 5 most recent posts from the {{subreddit}}?",
+  "instantiation_dict": {
+    "directory": "moive_space",
+    "gitlab_repo": "gimmiethat.space",
+    "subreddit": "movies"
+  },
+  "intent": "Create a folder named moive_space in gimmiethat.space repo. Within it, create a file named urls.txt that contains the URLs of the 5 most recent posts from the movies?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/gimmiethat.space/-/raw/main/moive_space/urls.txt",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/movies/128825/scenes-in-film-that-feel-off-or-wrong-in-some-way-and-make",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/movies/128824/disney-s-live-action-lilo-amp-stitch-movie-finds-its-lilo-in",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/movies/128823/fantastic-four-movie-gets-new-writer-with-avatar-the-way-of",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/movies/128822/can-someone-explain-what-made-steven-seagal-so-appealing-for",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/movies/128821/ban-on-fetish-sex-depictions-in-film-should-end-australia"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 84
+}

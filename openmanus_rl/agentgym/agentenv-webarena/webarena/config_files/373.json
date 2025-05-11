@@ -1,0 +1,36 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 373,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Pull up the description page of {{location}} on Map",
+  "instantiation_dict": {
+    "location": "Whole Foods near Carnegie Mellon"
+  },
+  "intent": "Pull up the description page of Whole Foods near Carnegie Mellon on Map",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": null,
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('[id=\"sidebar_content\"').outerText",
+        "required_contents": {
+          "must_include": [
+            "Whole Foods",
+            "East Liberty"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 52
+}

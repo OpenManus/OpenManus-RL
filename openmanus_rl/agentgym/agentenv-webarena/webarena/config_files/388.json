@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 388,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Who gave {{stars}} for phone cases from EYZUTAK",
+  "instantiation_dict": {
+    "stars": "1 or 2 stars"
+  },
+  "intent": "Who gave 1 or 2 stars for phone cases from EYZUTAK",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Evelyn Kurver",
+        "N Randall"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Evelyn Kurver,  N Randall"
+  },
+  "intent_template_id": 1356
+}

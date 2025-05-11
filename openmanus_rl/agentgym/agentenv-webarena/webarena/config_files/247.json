@@ -1,0 +1,30 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 247,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Show me the {{information}} of the customer who is the most unhappy with {{product}}",
+  "instantiation_dict": {
+    "information": "email address",
+    "product": "the style of Zoe products"
+  },
+  "intent": "Show me the email address of the customer who is the most unhappy with the style of Zoe products",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "Valorie doesn't have a email in the system",
+    "program_html": [],
+    "string_note": "There is no negative review for Zoe products",
+    "reference_answer_raw_annotation": "N/A"
+  },
+  "intent_template_id": 244
+}
