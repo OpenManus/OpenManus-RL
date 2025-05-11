@@ -340,6 +340,8 @@ class OpenManusAgent:
             'valid_actions': len([msg for msg in trajectory if msg.get("from") == "gpt"]), # Count of agent's responses
             'task_idx': task_idx,
             'done': done                   # Whether the episode finished naturally or via error
+            ,
+            'sum_step_rewards': sum(step_rewards) if step_rewards else 0.0 # Sum of all step rewards
         }
 
     def run_llm_loop(self, gen_batch: DataProto, output_dir: str = None, global_steps: int = 0) -> DataProto:
@@ -501,6 +503,7 @@ class OpenManusAgent:
         per_rollout_rewards = [] # Last step reward for each rollout
         per_rollout_env_scores = [] # Final env score for each rollout
         per_rollout_trajectories = [] # List of trajectories
+        per_rollout_sum_step_rewards = [] # List of summed step rewards
 
         # Get reward allocation strategy from config
         reward_allocation = "last_token" # Default
@@ -528,6 +531,7 @@ class OpenManusAgent:
             reward_val = result_dict.get('reward', 0.0)
             env_score_val = result_dict.get('env_score', 0.0)
             trajectory_val = result_dict.get('trajectory', [])
+            sum_step_rewards_val = result_dict.get('sum_step_rewards', 0.0)
 
             # Correctly append to per_rollout_ lists
             per_rollout_task_idx.append(task_idx)
@@ -538,6 +542,7 @@ class OpenManusAgent:
             per_rollout_rewards.append(reward_val)
             per_rollout_env_scores.append(env_score_val)
             per_rollout_trajectories.append(trajectory_val)
+            per_rollout_sum_step_rewards.append(sum_step_rewards_val)
 
             # Get the original batch index (used for trajectory processing below)
             original_batch_idx = original_indices_map.get(task_idx, -1)
@@ -762,6 +767,7 @@ class OpenManusAgent:
             final_meta_info["reward"].append(reward_val)
             final_meta_info["env_score"].append(env_score_val)
             final_meta_info["rollout_trajectory"].append(trajectory_val)
+            final_meta_info["sum_step_rewards"].append(sum_step_rewards_val)
 
         # --- Stack Tensors --- 
         if not batch_input_ids:
@@ -798,6 +804,7 @@ class OpenManusAgent:
         final_meta_info['reward'] = torch.tensor(per_rollout_rewards, dtype=torch.float32) # Individual rewards per rollout
         final_meta_info['env_score'] = torch.tensor(per_rollout_env_scores, dtype=torch.float32) # Final scores per rollout
         final_meta_info['rollout_trajectory'] = per_rollout_trajectories # Keep as list of lists/dicts
+        final_meta_info['sum_step_rewards'] = torch.tensor(per_rollout_sum_step_rewards, dtype=torch.float32)
 
         # If 'idx' was in original_batch.meta_info and was a tensor, it might have been copied directly.
         # If it needs to be specifically task_idx, the above 'task_idx' tensor is now authoritative for the samples in this batch.

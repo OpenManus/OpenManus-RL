@@ -1,4 +1,5 @@
 import re
+import json  # Added for parsing ground truth conversations
 from typing import Dict, Any, List, Optional
 from collections import Counter # For potential use in advanced text matching
 
@@ -185,122 +186,154 @@ def _compute_gt_traj_similarity_reward(
     score = min_reward + (max_reward - min_reward) * similarity
     return score
 
+# New sequential ground truth trajectory similarity function
+def _compute_gt_traj_similarity_reward_sequential(
+    generated_actions: List[str], 
+    ground_truth_actions: List[str], 
+    max_reward: float, 
+    min_reward: float
+) -> float:
+    """Compares generated actions to ground truth actions sequentially.
 
-def compute_score(
-    env_name: str, 
-    **kwargs
-    ) -> float:
+    If a mismatch occurs at step i, score is i / len(ground_truth_actions).
+    Full match up to len(ground_truth_actions) gets full score for this component.
     """
-    Computes a composite score for an AgentGym environment trajectory.
+    if not ground_truth_actions: # No ground truth to compare against
+        return (max_reward + min_reward) / 2.0 # Neutral score
 
-    Args:
-        env_name: The name of the AgentGym environment.
-        **kwargs: Expected to contain:
-            - 'trajectory' (List[Dict]): The agent's interaction log.
-                 Each dict: {'from': 'gpt'/'env', 'value': str, 'reward': float (from env step), ...}
-            - 'reward_model_info' (Dict, optional): Contains parameters and ground truth. E.g.:
-                - 'ground_truth_actions': List[str] (for GT trajectory comparison)
-                - 'env_reward_weight', 'env_reward_scale', 'env_reward_clip'
-                - 'format_reward_weight', 'format_max_r', 'format_min_r', 'format_check_all_tags'
-                - 'length_reward_weight', 'length_max_r', 'length_min_r', 
-                  'length_target_words', 'length_penalty_if_missing', 
-                  'length_too_short_penalty_factor', 'length_too_long_penalty_factor', 'length_tolerance_factor'
-                - 'gt_sim_reward_weight', 'gt_sim_max_r', 'gt_sim_min_r'
-            - 'step' (int, optional): Current training step (for potential future scheduling).
+    if not generated_actions: # Agent produced no actions
+        return min_reward
 
-    Returns:
-        The calculated composite score as a float.
-    """
-    trajectory = kwargs.get('trajectory')
-    reward_model_info = kwargs.get('reward_model_info') if kwargs.get('reward_model_info') is not None else {}
-    current_step = kwargs.get('step', 0) 
-
-    if not trajectory:
-        print(f"Warning: 'trajectory' missing in kwargs for env '{env_name}'. Cannot compute score. Returning 0.0.")
-        return 0.0
-        
-    # --- Define default weights and parameters ---
-    env_reward_weight = float(reward_model_info.get('env_reward_weight', 0.25))
-    env_reward_scale = float(reward_model_info.get('env_reward_scale', 1.0))
-    # Clip summed env reward; if None, no clipping
-    env_reward_clip_val = reward_model_info.get('env_reward_clip', 5.0) 
-    env_reward_clip = float(env_reward_clip_val) if env_reward_clip_val is not None else None
-
-    format_reward_weight = float(reward_model_info.get('format_reward_weight', 0.25))
-    format_max_r = float(reward_model_info.get('format_max_r', 1.0))
-    format_min_r = float(reward_model_info.get('format_min_r', -0.5)) # Allow penalty for bad format
-    format_check_all_tags = bool(reward_model_info.get('format_check_all_tags', True))
-
-    length_reward_weight = float(reward_model_info.get('length_reward_weight', 0.15))
-    length_max_r = float(reward_model_info.get('length_max_r', 0.5)) # Max reward for good length might be less than 1
-    length_min_r = float(reward_model_info.get('length_min_r', -0.25)) 
-    length_target_words = int(reward_model_info.get('length_target_words', 50)) 
-    length_penalty_if_missing = bool(reward_model_info.get('length_penalty_if_missing', True))
-    length_too_short_penalty_factor = float(reward_model_info.get('length_too_short_penalty_factor', 0.5))
-    length_too_long_penalty_factor = float(reward_model_info.get('length_too_long_penalty_factor', 0.5))
-    length_tolerance_factor = float(reward_model_info.get('length_tolerance_factor', 0.3))
-
-
-    gt_sim_reward_weight = float(reward_model_info.get('gt_sim_reward_weight', 0.35))
-    gt_sim_max_r = float(reward_model_info.get('gt_sim_max_r', 1.0))
-    gt_sim_min_r = float(reward_model_info.get('gt_sim_min_r', 0.0))
-    ground_truth_actions = reward_model_info.get('ground_truth_actions', [])
-
-    # --- Component 1: Environment Reward Summation ---
-    env_reward_score_component = _compute_env_reward_sum(trajectory, env_reward_scale, env_reward_clip)
+    len_gt = len(ground_truth_actions)
+    len_gen = len(generated_actions)
     
-    # --- Consolidate Agent Text for Format/Length ---
-    agent_generations_text = ""
-    if isinstance(trajectory, list): 
-        agent_generations_text = "\\n".join([turn['value'] for turn in trajectory if turn.get('from') == 'gpt' and isinstance(turn.get('value'), str)])
-    else:
-        print(f"Warning: Unexpected trajectory format: {type(trajectory)}. Format/length/GT rewards might be inaccurate.")
+    matched_until = 0
+    for i in range(min(len_gen, len_gt)):
+        # Normalize text for comparison to handle minor differences if needed
+        # For now, let's assume direct comparison is intended or normalization is simple
+        # if _normalize_text(generated_actions[i]) == _normalize_text(ground_truth_actions[i]):
+        # Using direct comparison based on previous _normalize_text usage in the file
+        if _normalize_text(generated_actions[i]) == _normalize_text(ground_truth_actions[i]):
+            matched_until += 1
+        else:
+            break # Mismatch found, stop comparing
 
-    # --- Component 2: Format Reward ---
+    raw_score_ratio = matched_until / len_gt
+    
+    # Scale the raw_score_ratio to the [min_reward, max_reward] range
+    final_score = min_reward + (max_reward - min_reward) * raw_score_ratio
+    return final_score
+
+
+# ------------------------------
+# Revised Scoring Function
+# ------------------------------
+def compute_score(solution_str: str, ground_truth: str, step: int = 0, sum_env_rewards: float = 0.0, **kwargs) -> float:
+    """Compute a heuristic reward score for AgentGym style trajectories.
+
+    The scoring criteria is kept simple to work with the data available at
+    training-time (``solution_str`` and the serialized ``ground_truth``
+    conversations):
+
+    1. *Format reward* – Does the agent output contain the required XML-like
+       tags (<think>, <memory>, <plan>, <act>) in the correct order?
+    2. *Length reward* – Is the content inside the last <think> tag close to
+       a target length (number of words)?  This prevents overly short answers.
+    3. *Ground-truth action similarity* – How similar are the <act> actions
+       generated by the agent to the ground-truth actions contained in the
+       reference trajectory (decoded from ``ground_truth``).
+    4. *Summed Environment Rewards* - The sum of rewards obtained directly from environment steps during rollout.
+
+    Only these three components are used because we do **not** have access to
+    real-time environment rewards here (the PPO loop has already finished).  The
+    weights for these four components are set to be equal (0.25 each).
+
+    Returns
+    -------
+    float
+        The weighted sum of the three sub-scores.
+    """
+
+    # ------------------------------
+    # Component-1:  Format Reward
+    # ------------------------------
+    FORMAT_MAX_R, FORMAT_MIN_R = 1.0, -0.5 # Max score 1, min score -0.5 for bad format
     format_score_component = _compute_format_reward(
-        agent_generations_text, format_max_r, format_min_r, format_check_all_tags
+        solution_str,
+        FORMAT_MAX_R,
+        FORMAT_MIN_R,
+        check_all_tags=True,
     )
 
-    # --- Component 3: Length Reward (e.g., for combined <think> content) ---
-    all_think_content = ""
-    if agent_generations_text:
-        think_pattern = r"<think>(.*?)</think>"
-        for match in re.finditer(think_pattern, agent_generations_text, re.DOTALL):
-            all_think_content += match.group(1).strip() + " "
-        all_think_content = all_think_content.strip()
-    
+    # ------------------------------
+    # Component-2:  Length Reward  (words inside the **last** <think> tag)
+    # ------------------------------
+    LENGTH_TARGET_WORDS = 50  # Empirical target length
+    LENGTH_MAX_R, LENGTH_MIN_R = 0.5, -0.25 # Max score 0.5, min score -0.25
+
+    # Extract the content of the **last** <think>...</think> pair – this is
+    # where the agent is supposed to do chain-of-thought reasoning.
+    think_matches = list(re.finditer(r"<think>(.*?)</think>", solution_str, re.DOTALL))
+    last_think_content = think_matches[-1].group(1).strip() if think_matches else ""
+
     length_score_component = _compute_length_reward(
-        all_think_content, length_max_r, length_min_r, length_target_words,
-        length_penalty_if_missing, length_too_short_penalty_factor, length_too_long_penalty_factor,
-        length_tolerance_factor
+        last_think_content,
+        LENGTH_MAX_R,
+        LENGTH_MIN_R,
+        LENGTH_TARGET_WORDS,
+        penalty_if_missing=True,
+        too_short_penalty_factor=0.5,
+        too_long_penalty_factor=0.5,
+        tolerance_factor=0.3,
     )
 
-    # --- Component 4: Ground Truth Trajectory Similarity ---
-    generated_actions = []
-    if isinstance(trajectory, list): 
-        generated_actions = _extract_actions_from_trajectory(trajectory) 
-    
-    gt_sim_score_component = _compute_gt_traj_similarity_reward(
-        generated_actions, ground_truth_actions, gt_sim_max_r, gt_sim_min_r
+    # ------------------------------
+    # Component-3:  Ground-truth trajectory similarity (action level)
+    # ------------------------------
+    GT_SIM_MAX_R, GT_SIM_MIN_R = 1.0, 0.0 # Max score 1 (full match), min score 0 (no match at start)
+
+    # 1) Extract generated actions from *solution_str*
+    generated_actions = re.findall(r"<act>(.*?)</act>", solution_str, re.DOTALL)
+
+    # 2) Parse *ground_truth* JSON → trajectory dict list, then extract actions
+    ground_truth_actions: List[str] = []
+    try:
+        trajectory_ref = json.loads(ground_truth)
+        if isinstance(trajectory_ref, list):
+            ground_truth_actions = _extract_actions_from_trajectory(trajectory_ref)
+    except Exception as e:
+        # Fall back silently; similarity reward will be minimal.
+        print(f"[agentgym.compute_score] Warning: failed to parse ground_truth JSON – {e}")
+
+    gt_sim_score_component = _compute_gt_traj_similarity_reward_sequential(
+        generated_actions,
+        ground_truth_actions,
+        GT_SIM_MAX_R,
+        GT_SIM_MIN_R,
     )
-    
-    # --- Total Score ---
+
+    # ------------------------------
+    # Component-4: Summed Environment Rewards
+    # ------------------------------
+    # These are rewards directly from env.step() during the rollout phase.
+    # We can apply a simple scaling and clipping if needed.
+    ENV_SUM_REWARD_SCALE = kwargs.get('env_sum_reward_scale', 1.0) # Allow override via kwargs
+    ENV_SUM_REWARD_CLIP = kwargs.get('env_sum_reward_clip', None)  # Allow override via kwargs
+
+    env_sum_score_component = sum_env_rewards * ENV_SUM_REWARD_SCALE
+    if ENV_SUM_REWARD_CLIP is not None:
+        env_sum_score_component = max(-ENV_SUM_REWARD_CLIP, min(ENV_SUM_REWARD_CLIP, env_sum_score_component))
+
+    # ------------------------------
+    # Combine sub-scores (weights sum to 1)
+    # ------------------------------
+    FORMAT_W, LENGTH_W, GT_SIM_W, ENV_SUM_W = 0.25, 0.25, 0.25, 0.25
+
     total_score = (
-        env_reward_weight * env_reward_score_component +
-        format_reward_weight * format_score_component +
-        length_reward_weight * length_score_component +
-        gt_sim_reward_weight * gt_sim_score_component
+        FORMAT_W * format_score_component
+        + LENGTH_W * length_score_component
+        + GT_SIM_W * gt_sim_score_component
+        + ENV_SUM_W * env_sum_score_component
     )
-    
-    # Overall clipping/scaling if desired, e.g., to a standard range like [-1, 1] or [0, 1]
-    # For example, if weights sum to 1, this might not be strictly needed unless components can be large.
-    # total_score = max(-1.0, min(1.0, total_score)) # Example clip
 
-    # For debugging, print individual scores:
-    # print(f"[compute_score] Env '{env_name}': \\
-    #       EnvR_raw={env_reward_score_component:.2f} (w={env_reward_weight:.2f}), \\
-    #       FmtR_raw={format_score_component:.2f} (w={format_reward_weight:.2f}), \\
-    #       LenR_raw={length_score_component:.2f} (w={length_reward_weight:.2f}), \\
-    #       GtSimR_raw={gt_sim_score_component:.2f} (w={gt_sim_reward_weight:.2f}) --- TOTAL_raw={total_score:.2f}")
-
-    return total_score 
+    return float(total_score) 
