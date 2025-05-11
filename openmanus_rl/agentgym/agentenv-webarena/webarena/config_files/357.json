@@ -1,0 +1,24 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 357,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Checkout merge requests requiring my review",
+  "instantiation_dict": {},
+  "intent": "Checkout merge requests requiring my review",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/dashboard/merge_requests?reviewer_username=byteblaze",
+    "program_html": [],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 291
+}

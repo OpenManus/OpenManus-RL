@@ -1,0 +1,43 @@
+{
+  "sites": [
+    "gitlab",
+    "wikipedia"
+  ],
+  "task_id": 561,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create a repo named {{name}} with {{topics}} in a README file",
+  "instantiation_dict": {
+    "name": "bafta_awards_nolan",
+    "topics": "movies that are nominated BAFTA Awards by Christopher Nolan"
+  },
+  "intent": "Create a repo named bafta_awards_nolan with movies that are nominated BAFTA Awards by Christopher Nolan in a README file",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/bafta_awards_nolan/-/raw/main/README.md",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "Batman Begins",
+            "The Dark Knight",
+            "Inception",
+            "The Dark Knight Rises",
+            "Interstellar",
+            "Dunkirk",
+            "Tenet"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 87
+}

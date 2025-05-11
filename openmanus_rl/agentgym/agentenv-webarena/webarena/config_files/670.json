@@ -1,0 +1,39 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 670,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/dotfiles",
+  "geolocation": null,
+  "intent_template": "Open a new issue to discuss the implementation of {{feature}}",
+  "instantiation_dict": {
+    "feature": "default plugins for .zsh"
+  },
+  "intent": "Open a new issue to discuss the implementation of default plugins for .zsh",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/dotfiles/-/issues",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('.detail-page-description').outerText",
+        "required_contents": {
+          "must_include": [
+            "implementation",
+            "default plugins",
+            "zsh"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 337
+}

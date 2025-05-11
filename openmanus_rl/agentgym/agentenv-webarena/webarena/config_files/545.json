@@ -1,0 +1,40 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 545,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Update the description of {{product}} to highlight the real user positive reviews by quoting the comments",
+  "instantiation_dict": {
+    "product": "Radiant Tee"
+  },
+  "intent": "Update the description of Radiant Tee to highlight the real user positive reviews by quoting the comments",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/../radiant-tee.html",
+        "locator": "document.querySelector('.data.item.content').outerText + (document.querySelector('.product.attribute.overview [itemprop=\"description\"]')?.outerText || '')",
+        "required_contents": {
+          "must_include": [
+            "What I rally love here is that it does the job of keeping me cool and dry",
+            "I'm a big guy and sweat A LOT",
+            "Even after a day of gulf, I'm still dry and comfortable",
+            "What a versatile shirt",
+            "Not only does it feel very soft compared to my old worn out polos, but it also does the job promised",
+            "I like going out after my game for drinks so I look good then too and don't need to change into something fresh"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 251
+}

@@ -1,0 +1,37 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 447,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Assign the issue regarding {{issue}} in {{repo}} to {{account}}.",
+  "instantiation_dict": {
+    "repo": "a11y-webring.club",
+    "issue": "linking to an accessibility statement",
+    "account": "Rohan"
+  },
+  "intent": "Assign the issue regarding linking to an accessibility statement in a11y-webring.club to Rohan.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/dashboard/issues?scope=all&state=opened&assignee_username=Seirdy",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "linking to an accessibility statement"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 999
+}

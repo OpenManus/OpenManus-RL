@@ -1,0 +1,36 @@
+{
+  "sites": [
+    "wikipedia",
+    "map"
+  ],
+  "task_id": 424,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Find the page of {{description}} on the map.",
+  "instantiation_dict": {
+    "description": "the place where Mr. Rogers was filmed"
+  },
+  "intent": "Find the page of the place where Mr. Rogers was filmed on the map.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('[id=\"sidebar_content\"').outerText",
+        "required_contents": {
+          "must_include": [
+            "Pittsburgh"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 371
+}

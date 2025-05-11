@@ -1,0 +1,37 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 811,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Assign the issue regarding {{issue}} in {{repo}} to {{account}}.",
+  "instantiation_dict": {
+    "repo": "a11yproject",
+    "issue": 404,
+    "account": "myself"
+  },
+  "intent": "Assign the issue regarding 404 in a11yproject to myself.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/dashboard/issues?scope=all&state=opened&assignee_username=byteblaze",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "404s, bad host, timeouts, bad urls for URLs linked from website"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 999
+}

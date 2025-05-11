@@ -1,0 +1,34 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 493,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Notify {{name}} in their most recent pending order with message \"{{message}}\"",
+  "instantiation_dict": {
+    "name": "Grace Nguyen",
+    "message": "sorry we are bankrupt, please contact our customer service for refund"
+  },
+  "intent": "Notify Grace Nguyen in their most recent pending order with message \"sorry we are bankrupt, please contact our customer service for refund\"",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/sales/order/view/order_id/307/",
+        "locator": "document.querySelector(\"#order_history_block\").querySelector(\".note-list\").firstElementChild.querySelector(\".note-list-comment\").outerText",
+        "required_contents": {
+          "exact_match": "sorry we are bankrupt, please contact our customer service for refund"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 280
+}

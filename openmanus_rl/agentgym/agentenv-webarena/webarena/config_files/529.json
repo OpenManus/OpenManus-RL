@@ -1,0 +1,39 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 529,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Draft a refund message via their \"contact us\" form for the {{product}} I bought {{time}}. It broke after three days of use. The shop requires the order id, the reason and the amount to refund in the message. Don't submit yet",
+  "instantiation_dict": {
+    "product": "bluetooth speaker",
+    "time": "Feb 2023"
+  },
+  "intent": "Draft a refund message via their \"contact us\" form for the bluetooth speaker I bought Feb 2023. It broke after three days of use. The shop requires the order id, the reason and the amount to refund in the message. Don't submit yet",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('[title=\"What\u2019s on your mind?\"').value",
+        "required_contents": {
+          "must_include": [
+            "refund",
+            "it broke after three days of use",
+            "000000148",
+            "169.95"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 154
+}

@@ -1,0 +1,37 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 389,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Post \"{{content}}\" for the merge request related to {{mr}} in {{repo}} project",
+  "instantiation_dict": {
+    "mr": "octovisuals page",
+    "repo": "primer/design",
+    "content": "Thanks, working on reviews"
+  },
+  "intent": "Post \"Thanks, working on reviews\" for the merge request related to octovisuals page in primer/design project",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/primer/design/-/merge_requests/450",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "Thanks, working on reviews"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 348
+}

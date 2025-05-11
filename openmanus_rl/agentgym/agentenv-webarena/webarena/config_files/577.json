@@ -1,0 +1,49 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 577,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Add the following users to my {{repo}} as {{role}}: {{user_list}}",
+  "instantiation_dict": {
+    "repo": "GitHub timeline item management extension",
+    "role": "maintainer",
+    "user_list": [
+      "abisubramanya27",
+      "lahwaacz"
+    ]
+  },
+  "intent": "Add the following users to my GitHub timeline item management extension as maintainer: ['abisubramanya27', 'lahwaacz']",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/remove-board-movement-events-from-the-github-issue-timeline/-/project_members",
+        "locator": "func:gitlab_get_project_memeber_role(__page__, 'abisubramanya27')",
+        "required_contents": {
+          "must_include": [
+            "Maintainer"
+          ]
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/remove-board-movement-events-from-the-github-issue-timeline/-/project_members",
+        "locator": "func:gitlab_get_project_memeber_role(__page__, 'lahwaacz')",
+        "required_contents": {
+          "must_include": [
+            "Maintainer"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 351
+}

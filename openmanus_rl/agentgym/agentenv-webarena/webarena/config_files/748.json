@@ -1,0 +1,57 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 748,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Start a private project {{project_name}} with {{template}} template and add {{account_list}} as members",
+  "instantiation_dict": {
+    "project_name": "web_agent_android_xl",
+    "template": "Android",
+    "account_list": "primer, convexegg, abishek"
+  },
+  "intent": "Start a private project web_agent_android_xl with Android template and add primer, convexegg, abishek as members",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/web_agent_android_xl",
+        "locator": "document.querySelector('.visibility-icon').getAttribute('title')",
+        "required_contents": {
+          "must_include": [
+            "Private"
+          ]
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/web_agent_android_xl/-/commits",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "Initialized from 'Android' project template"
+          ]
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/web_agent_android_xl/-/project_members",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "@primer",
+            "@convexegg",
+            "@abisubramanya27"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 2100
+}

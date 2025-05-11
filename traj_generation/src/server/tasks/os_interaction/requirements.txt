@@ -1,4 +1,0 @@
-docker
-PyYAML
-PyYAML
-Requests

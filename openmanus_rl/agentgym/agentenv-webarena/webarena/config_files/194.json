@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 194,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Get the total payment amount of the last {{N}} {{status}} orders",
+  "instantiation_dict": {
+    "status": "completed",
+    "N": "5"
+  },
+  "intent": "Get the total payment amount of the last 5 completed orders",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "555.2"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "555.2"
+  },
+  "intent_template_id": 367
+}

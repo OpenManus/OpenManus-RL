@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 250,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Tell me the coordinates of {{location}} in DD format",
+  "instantiation_dict": {
+    "location": "Apple Store near Pitt"
+  },
+  "intent": "Tell me the coordinates of Apple Store near Pitt in DD format",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "40.451",
+        "-79.933"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "40.4511693, -79.9334241"
+  },
+  "intent_template_id": 46
+}

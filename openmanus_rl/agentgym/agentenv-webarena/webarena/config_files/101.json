@@ -1,0 +1,30 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 101,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Where is the nearest {{places}} to {{start}}, and what is the walking distance to it?",
+  "instantiation_dict": {
+    "places": "In-N-Out",
+    "start": "Upitts"
+  },
+  "intent": "Where is the nearest In-N-Out to Upitts, and what is the walking distance to it?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "There is no In-N-Out near University of Pittsburgh",
+    "reference_answer_raw_annotation": "N/A"
+  },
+  "intent_template_id": 66
+}

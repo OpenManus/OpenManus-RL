@@ -1,0 +1,30 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 365,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Measure distance between {{location/address_1}} and {{location/address_2}} by walking",
+  "instantiation_dict": {
+    "location/address_1": "Carnegie Music Hall",
+    "location/address_2": "UPMC Shadyside"
+  },
+  "intent": "Measure distance between Carnegie Music Hall and UPMC Shadyside by walking",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "exact_match": "2.2km"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "2.2km"
+  },
+  "intent_template_id": 58
+}

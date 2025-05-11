@@ -1,0 +1,29 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 96,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Tell me the status of my latest order and when will it arrive",
+  "instantiation_dict": {},
+  "intent": "Tell me the status of my latest order and when will it arrive",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "The last order was canceled. It will never arrive."
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "reference_answer_raw_annotation": "The last order was canceled. It will never arrive.",
+    "string_note": ""
+  },
+  "intent_template_id": 193
+}

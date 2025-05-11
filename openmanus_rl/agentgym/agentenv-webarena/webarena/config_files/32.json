@@ -1,0 +1,35 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 32,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "I will arrive {{place}} soon. Provide the name of a {{target1}} in the vicinity, if available. Then, tell me the {{information}} to {{target2}} from the hotel.",
+  "instantiation_dict": {
+    "place": "Pittsburgh Airport",
+    "information": "the walking distance",
+    "target1": "Hilton hotel",
+    "target2": "the nearest supermarket own by a local company"
+  },
+  "intent": "I will arrive Pittsburgh Airport soon. Provide the name of a Hilton hotel in the vicinity, if available. Then, tell me the the walking distance to the nearest supermarket own by a local company from the hotel.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "DoubleTree by Hilton Hotel Pittsburgh Airport",
+        "2.0km"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "DoubleTree by Hilton Hotel Pittsburgh Airport Distance: 2.0km"
+  },
+  "intent_template_id": 78
+}

@@ -1,0 +1,24 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 45,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/a11yproject/a11yproject.com",
+  "geolocation": null,
+  "intent_template": "Check out the most recent open issues",
+  "instantiation_dict": {},
+  "intent": "Check out the most recent open issues",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/a11yproject/a11yproject.com/-/issues/?sort=created_asc&state=opened",
+    "program_html": [],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 300
+}

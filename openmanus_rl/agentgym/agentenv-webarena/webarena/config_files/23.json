@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 23,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/3-pack-samsung-galaxy-s6-screen-protector-nearpow-tempered-glass-screen-protector-with-9h-hardness-crystal-clear-easy-bubble-free-installation-scratch-resist.html",
+  "geolocation": null,
+  "intent_template": "List out reviewers, if exist, who mention about {{description}}",
+  "instantiation_dict": {
+    "description": "good fingerprint resistant"
+  },
+  "intent": "List out reviewers, if exist, who mention about good fingerprint resistant",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Rachel",
+        "T. Gannon"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Rachel, T. Gannon, "
+  },
+  "intent_template_id": 222
+}

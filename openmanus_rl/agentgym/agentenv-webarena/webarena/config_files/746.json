@@ -1,0 +1,47 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 746,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create a new {{scope}} project \"llm_bulk_inference\" and add {{account_list}} as members",
+  "instantiation_dict": {
+    "scope": "private",
+    "account_list": "primer, convexegg, abishek"
+  },
+  "intent": "Create a new private project \"llm_bulk_inference\" and add primer, convexegg, abishek as members",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/llm_bulk_inference",
+        "locator": "document.querySelector('.visibility-icon').getAttribute('title')",
+        "required_contents": {
+          "must_include": [
+            "Private"
+          ]
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/llm_bulk_inference/-/project_members",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "@primer",
+            "@convexegg",
+            "@abisubramanya27"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 332
+}

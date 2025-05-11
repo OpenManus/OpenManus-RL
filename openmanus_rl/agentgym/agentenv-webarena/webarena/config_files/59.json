@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 59,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Tell me the closest {{place1}}(s) to {{place2}}",
+  "instantiation_dict": {
+    "place1": "restaurant",
+    "place2": "CMU Hunt library"
+  },
+  "intent": "Tell me the closest restaurant(s) to CMU Hunt library",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "The exchange"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "The exchange"
+  },
+  "intent_template_id": 69
+}

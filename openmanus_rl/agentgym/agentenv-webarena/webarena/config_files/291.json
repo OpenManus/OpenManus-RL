@@ -1,0 +1,31 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 291,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Tell me the {{attribute}} of the customer who has the most cancellations in the history",
+  "instantiation_dict": {
+    "attribute": "total spend on products in the most recent cancelled orders"
+  },
+  "intent": "Tell me the total spend on products in the most recent cancelled orders of the customer who has the most cancellations in the history",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "148"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "$148"
+  },
+  "intent_template_id": 234
+}

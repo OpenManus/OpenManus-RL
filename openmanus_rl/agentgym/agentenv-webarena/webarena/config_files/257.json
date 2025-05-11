@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 257,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "What is the {{information}} of {{location}}",
+  "instantiation_dict": {
+    "location": "Tokyo Japanese Food Store in Pittsburgh",
+    "information": "hours of operation"
+  },
+  "intent": "What is the hours of operation of Tokyo Japanese Food Store in Pittsburgh",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "We-Su 10:00-17:00"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "We-Su 10:00-17:00"
+  },
+  "intent_template_id": 501
+}

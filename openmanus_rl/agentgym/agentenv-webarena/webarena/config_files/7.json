@@ -1,0 +1,31 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 7,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Tell me the full address of all {{airport_type}} that are within a driving distance of {{radius}} to {{start}}",
+  "instantiation_dict": {
+    "airport_type": "international airports",
+    "start": "Carnegie Mellon University",
+    "radius": "50 km"
+  },
+  "intent": "Tell me the full address of all international airports that are within a driving distance of 50 km to Carnegie Mellon University",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "exact_match": "Pittsburgh International Airport, Southern Beltway, Findlay Township, Allegheny County, 15231, United States"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Pittsburgh International Airport People Movers, Airport Boulevard, Findlay Township, Allegheny County, Pennsylvania, 15231, United States"
+  },
+  "intent_template_id": 79
+}

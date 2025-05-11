@@ -1,0 +1,47 @@
+{
+  "sites": [
+    "reddit"
+  ],
+  "task_id": 619,
+  "require_login": true,
+  "storage_state": "./.auth/reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/pics",
+  "geolocation": null,
+  "intent_template": "Re-post the image of {{content}} in this page to {{subreddit}} subreddit and note \"from /f/pics\"",
+  "instantiation_dict": {
+    "content": "costume contest",
+    "subreddit": "funny"
+  },
+  "intent": "Re-post the image of costume contest in this page to funny subreddit and note \"from /f/pics\"",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/funny",
+    "program_html": [
+      {
+        "url": "func:reddit_get_post_url('__last_url__')",
+        "locator": "document.querySelector('.submission__inner').outerText",
+        "required_contents": {
+          "must_include": [
+            "from /f/pics"
+          ]
+        }
+      },
+      {
+        "url": "func:reddit_get_post_url('__last_url__')",
+        "locator": "[...document.querySelector('.submission__inner').querySelectorAll('[href],[src]')].map(elem => elem.getAttribute('href') || elem.getAttribute('src')).join(' ')",
+        "required_contents": {
+          "must_include": [
+            "bd8bc5f4c846aac4df08626faa3a34a7d47c8f3bdd92bf615a54afd939f063a7.jpg"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 11
+}
