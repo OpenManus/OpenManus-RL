@@ -1,145 +1,108 @@
+import asyncio
+import json
+import os
+import re
 import threading
 import uuid
-from typing import Any, Dict, List, Optional
-
 import uvicorn
+
+from agentenv_gaia.environment import GaiaEnvServer
+from agentenv_gaia.model import CreateQuery, StepQuery, StepResponse, ResetQuery
+
+
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 
-from agentenv_gaia.enviroment import GaiaEnv
-
-
-# 请求模型定义
-class CreateEnvRequest(BaseModel):
-    data_dir: Optional[str] = "data/"
-    level: Optional[str] = "level1"
-    dataset: Optional[str] = "validation"
-    tool_list: Optional[List[str]] = None
-
-
-class StepRequest(BaseModel):
-    env_id: str
-    action: str
-
-
-class ResetRequest(BaseModel):
-    env_id: str
-    idx: int = 0
-
-
-# 环境服务器类
-class GaiaEnvServer:
-    def __init__(self, max_envs=100):
-        self.env_instances = {}  # 存储环境实例
-        self.env_locks = {}  # 环境锁，用于并发控制
-        self.max_envs = max_envs
-
-    def create_env(self, params: CreateEnvRequest):
-        """创建新的环境实例"""
-        if len(self.env_instances) >= self.max_envs:
-            raise HTTPException(status_code=503, detail="达到最大环境实例数量限制")
-
-        env_id = str(uuid.uuid4())
-        self.env_instances[env_id] = GaiaEnv(
-            data_dir=params.data_dir,
-            level=params.level,
-            dataset=params.dataset,
-            tool_list=params.tool_list,
-        )
-        self.env_locks[env_id] = threading.Lock()
-
-        return {"env_id": env_id, "status": "created"}
-
-    def get_observation(self, env_id: str):
-        """获取环境观察"""
-        self._check_env_id(env_id)
-
-        with self.env_locks[env_id]:
-            return self.env_instances[env_id].get_observation()
-
-    def get_available_actions(self, env_id: str):
-        """获取可用动作"""
-        self._check_env_id(env_id)
-
-        with self.env_locks[env_id]:
-            return self.env_instances[env_id].get_available_actions()
-
-    def step(self, env_id: str, action: str):
-        """执行动作"""
-        self._check_env_id(env_id)
-
-        with self.env_locks[env_id]:
-            observation, reward, done, truncated, info = self.env_instances[
-                env_id
-            ].step(action)
-            return {
-                "observation": observation,
-                "reward": reward,
-                "done": done,
-                "info": info,
-            }
-
-    def reset(self, env_id: str, idx: int = 0):
-        """重置环境"""
-        self._check_env_id(env_id)
-
-        with self.env_locks[env_id]:
-            observation, info = self.env_instances[env_id].reset(options={"idx": idx})
-            return {"observation": observation, "info": info}
-
-    def _check_env_id(self, env_id: str):
-        """检查环境ID是否存在"""
-        if env_id not in self.env_instances:
-            raise HTTPException(status_code=404, detail=f"环境实例 {env_id} 不存在")
-
-
-# 创建服务器实例
-server = GaiaEnvServer()
-
-# 创建FastAPI应用
+# Create FastAPI application
 app = FastAPI(title="GAIA Environment Server")
 
 
+# Create environment server instance
+gaia_env_server = GaiaEnvServer()
+
+
+# API Endpoints
 @app.get("/")
-def hello():
-    return {"message": "欢迎使用GAIA环境服务器"}
+def generate_ok():
+    """Test connection"""
+    return "ok"
 
 
-@app.post("/createEnv")
-def create_env(params: CreateEnvRequest = CreateEnvRequest()):
-    return server.create_env(params)
+@app.get("/list_envs")
+def list_envs():
+    """List all environments"""
+    return list(gaia_env_server.env_instances.keys())
 
 
-@app.get("/observation")
-def get_observation(env_id: str):
-    return server.get_observation(env_id)
-
-
-@app.get("/available_actions")
-def get_available_actions(env_id: str):
-    return server.get_available_actions(env_id)
+@app.post("/create")
+def create(create_query: CreateQuery):
+    """Create new environment"""
+    try:
+        env_id = gaia_env_server.create(
+            create_query.id, create_query.dataset_type, create_query.tool_list
+        )
+        return env_id
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/step")
-def step(request: StepRequest):
-    return server.step(request.env_id, request.action)
+def step(step_query: StepQuery):
+    """Execute environment step"""
+    try:
+        observation, reward, done, info = gaia_env_server.step(
+            step_query.env_idx, step_query.action
+        )
+        return StepResponse(
+            observation=observation, reward=reward, done=done, info=info
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/observation")
+def observation(env_idx: str):
+    """Get environment observation"""
+    try:
+        return gaia_env_server.observation(env_idx)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/reset")
-def reset(request: ResetRequest):
-    return server.reset(request.env_id, request.idx)
+def reset(reset_query: ResetQuery):
+    """Reset environment"""
+    try:
+        gaia_env_server.reset(
+            reset_query.env_idx, reset_query.id, reset_query.dataset_type
+        )
+        return gaia_env_server.observation(reset_query.env_idx)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-# 启动函数
-def launch(host="0.0.0.0", port=8000):
-    """启动GAIA环境服务器
+@app.get("/available_actions")
+def available_actions(env_idx: str):
+    """Get available actions for an environment"""
+    try:
+        return gaia_env_server.get_available_actions(env_idx)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    Args:
-        host: 服务器主机地址
-        port: 服务器端口
-    """
-    uvicorn.run(app, host=host, port=port)
 
-
-if __name__ == "__main__":
-    launch()
+# Server launch function
+def launch(host: str = "0.0.0.0", port: int = 8000):
+    """Launch the GAIA environment server"""
+    uvicorn.run(
+        "agentenv_gaia.server:app",
+        host=host,
+        port=port,
+        reload=False,
+    )
