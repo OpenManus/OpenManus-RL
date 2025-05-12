@@ -1206,16 +1206,27 @@ class RayPPOTrainer(object):
                     
                     # Combine with rule-based/external reward function if provided
                     if self.reward_fn is not None:
-                         print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Applying external reward_fn...") # DEBUG
-                         reward_tensor = self.reward_fn(batch) # Assuming reward_fn returns the tensor directly
-                         batch.batch['token_level_scores'] = reward_tensor
-                         print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: External reward_fn applied.") # DEBUG
-                    elif 'reward_model_scores' in batch.batch: # If only RM was used
-                         print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Using RM scores as token_level_scores.") # DEBUG
+                         print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: self.reward_fn is NOT None. Type: {type(self.reward_fn)}. Calling it now...")
+                         # The actual call to self.reward_fn(batch) happens here
+                         # Ensure the result is handled correctly, e.g., assigned to batch.batch['token_level_scores']
+                         # For debugging, let's see what it returns before assignment
+                         reward_manager_output = self.reward_fn(batch) 
+                         print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: self.reward_fn call completed. Output type: {type(reward_manager_output)}")
+                         if isinstance(reward_manager_output, torch.Tensor):
+                             print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: Output tensor shape: {reward_manager_output.shape}, sum: {reward_manager_output.sum().item() if reward_manager_output.numel() > 0 else 'Tensor is empty'}")
+                             batch.batch['token_level_scores'] = reward_manager_output # Make sure this assignment happens
+                         else:
+                             print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: self.reward_fn did not return a tensor. Output: {reward_manager_output}")
+                         
+                         print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: External reward_fn applied (or attempted).")
+                    elif 'reward_model_scores' in batch.batch: 
+                         print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: self.reward_fn is None. Using RM scores as token_level_scores.")
                          batch.batch['token_level_scores'] = batch.batch['reward_model_scores']
-                    elif 'token_level_scores' not in batch.batch:
-                         print(f"[Trainer.fit][WARN] Step {self.global_steps}: 'token_level_scores' not found after RM/reward_fn. Ensure one is active or rewards are set elsewhere.") # WARN
-                         # If scores are set directly by agentgym run_llm_loop, this might be okay.
+                    elif 'token_level_rewards' in batch.batch and 'token_level_scores' not in batch.batch : # If agent already set rewards
+                        print(f"[Trainer.fit][DEBUG] Step {self.global_steps}: self.reward_fn is None. 'token_level_rewards' found, cloning to 'token_level_scores'.")
+                        batch.batch['token_level_scores'] = batch.batch['token_level_rewards'].clone()
+                    else:
+                         print(f"[Trainer.fit][WARN] Step {self.global_steps}: self.reward_fn is None AND 'reward_model_scores' not found AND 'token_level_rewards' not found to clone. 'token_level_scores' might be missing or expected from agent output directly.")
 
                     # Apply KL penalty (modifies token_level_scores -> token_level_rewards)
                     if self.use_reference_policy and not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):

@@ -77,9 +77,11 @@ class RewardManager():
             sequences = torch.cat((valid_prompt_ids, valid_response_ids))
             sequences_str = self.tokenizer.decode(sequences)
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
+            print(f"Ground truth!!!!!!!!!!!!!!!: {ground_truth}")
             data_source = data_item.non_tensor_batch['data_source']
             compute_score_fn = _select_rm_score_fn(data_source)
             score = compute_score_fn(solution_str=sequences_str, ground_truth=ground_truth, format_score=self.format_score)
+            print(f"Score!!!!!!!!!!!!!!: {score}")
             reward_tensor[i, valid_response_length - 1] = score
 
             if data_source not in already_print_data_sources:
@@ -258,14 +260,9 @@ def main_task(config):
     )
     print(f"Reward component configuration: {reward_component_config}")
 
-    if not is_agentgym_run:
-        print("Not an AgentGym run. Setting up RewardManager (if defined globally).")
-        # Assuming RewardManager class is defined (as it is in this file)
-        reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0, format_score=config.get('format_score', 0.))
-        val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=1, format_score=config.get('format_score', 0.))
-        print("RewardManager loaded for train and validation.")
-    else:
-        print("AgentGym run detected. Skipping RewardManager setup (AgentGym internal rewards or RewardComposer will be used).")
+    reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0, format_score=config.get('format_score', 0.))
+    val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=1, format_score=config.get('format_score', 0.))
+    print("RewardManager loaded for train and validation.")
 
     print("Initializing ResourcePoolManager...")
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
