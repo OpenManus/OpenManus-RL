@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Configuration (defaults, can be overridden via env vars) ---
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-1,2,3} # change your GPU ID here
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-4,5,6} # change your GPU ID here
 WAND_PROJECT=${WAND_PROJECT:-'OpenManus-rl'}
 export BASE_MODEL=${BASE_MODEL:-'../model/Qwen2.5-3B'}
 AGENTGYM_HOST=${AGENTGYM_HOST:-'0.0.0.0'} # Default to 0.0.0.0 for external access
@@ -241,7 +241,7 @@ echo "[Trainer] AgentGym Ports: $AGENTGYM_PORTS_STR" # Pass list of ports
 
 # Check if train/test files exist
 TRAIN_FILE="$DATA_DIR/train.parquet"
-TEST_FILE="$DATA_DIR/test.parquet"
+TEST_FILE="$DATA_DIR/val.parquet"
 
 echo "[Trainer] Train file: $TRAIN_FILE"
 echo "[Trainer] Test file: $TEST_FILE"
