@@ -1,0 +1,46 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 586,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Rate my recent purchase of {{product}} with {{num_star}} stars, using my nickname {{nickname}}?",
+  "instantiation_dict": {
+    "product": "Jiffy Corn Muffin Cornbread Mix",
+    "num_star": 4,
+    "nickname": "ShoppingEmma"
+  },
+  "intent": "Rate my recent purchase of Jiffy Corn Muffin Cornbread Mix with 4 stars, using my nickname ShoppingEmma?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "func:shopping_get_sku_latest_review_rating('B07HZB38XH')",
+        "required_contents": {
+          "must_include": [
+            "80"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "func:shopping_get_sku_latest_review_author('B07HZB38XH')",
+        "required_contents": {
+          "must_include": [
+            "ShoppingEmma"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 194
+}

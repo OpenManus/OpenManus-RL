@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "XXX",
+    "XXX",
+    "XXX"
+  ],
+  "key": {
+    "X": {
+      "item": "minecraft:bone_meal"
+    }
+  },
+  "result": {
+    "item": "minecraft:bone_block"
+  }
+}

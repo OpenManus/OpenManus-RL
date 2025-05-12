@@ -1,0 +1,35 @@
+{
+  "sites": [
+    "reddit"
+  ],
+  "task_id": 406,
+  "require_login": true,
+  "storage_state": "./.auth/reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999",
+  "geolocation": null,
+  "intent_template": "Upvote the newest post in {{subreddit}} subreddit",
+  "instantiation_dict": {
+    "subreddit": "future technology"
+  },
+  "intent": "Upvote the newest post in future technology subreddit",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/Futurology/119517/openai-ceo-it-s-not-funny-that-i-m-afraid-of-the-ai-we-re",
+        "locator": "document.querySelector('div.submission__vote').querySelector('form').getAttribute('class')",
+        "required_contents": {
+          "must_include": [
+            "vote vote--user-upvoted"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 22
+}

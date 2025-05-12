@@ -1,0 +1,29 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 311,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Tell me who has made the most contributions, in terms of number of commits, to the {{repo}} project",
+  "instantiation_dict": {
+    "repo": "Pytorch GAN"
+  },
+  "intent": "Tell me who has made the most contributions, in terms of number of commits, to the Pytorch GAN project",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "exact_match": "Erik Linder-Nor\u00e9n"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Erik Linder-Nor\u00e9n"
+  },
+  "intent_template_id": 323
+}

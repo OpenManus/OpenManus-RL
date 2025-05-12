@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 519,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/iphone-13-pro-max-case-neon-turtle-iphone-13-pro-max-cases-tempered-glass-back-soft-silicone-tpu-shock-protective-case-for-apple-iphone-13-pro-max.html",
+  "geolocation": null,
+  "intent_template": "Add this product to my wishlist",
+  "instantiation_dict": {},
+  "intent": "Add this product to my wishlist",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/wishlist/",
+        "locator": "document.querySelector('.products-grid.wishlist').outerText",
+        "required_contents": {
+          "must_include": [
+            "iPhone 13 Pro Max Case, Neon Turtle iPhone 13 Pro Max Cases, Tempered Glass Back+Soft Silicone TPU Shock Protective Case for Apple iPhone 13 Pro Max"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 196
+}

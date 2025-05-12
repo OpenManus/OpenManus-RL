@@ -1,0 +1,46 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 585,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Rate my recent purchase of {{product}} with {{num_star}} stars, using my nickname {{nickname}}?",
+  "instantiation_dict": {
+    "product": "floor lamp",
+    "num_star": 5,
+    "nickname": "Emma Lopez"
+  },
+  "intent": "Rate my recent purchase of floor lamp with 5 stars, using my nickname Emma Lopez?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "func:shopping_get_sku_latest_review_rating('B00J8RZL7I')",
+        "required_contents": {
+          "must_include": [
+            "100"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "func:shopping_get_sku_latest_review_author('B00J8RZL7I')",
+        "required_contents": {
+          "must_include": [
+            "Emma Lopez"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 194
+}

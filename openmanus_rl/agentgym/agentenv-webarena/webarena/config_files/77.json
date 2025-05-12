@@ -1,0 +1,31 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 77,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "What is the total count of {{status}} reviews amongst all the reviews?",
+  "instantiation_dict": {
+    "status": "Pending"
+  },
+  "intent": "What is the total count of Pending reviews amongst all the reviews?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "5"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "5"
+  },
+  "intent_template_id": 277
+}

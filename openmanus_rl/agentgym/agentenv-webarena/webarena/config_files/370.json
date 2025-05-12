@@ -1,0 +1,35 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 370,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Pull up the description page of {{location}} on Map",
+  "instantiation_dict": {
+    "location": "Carnegie Mellon University"
+  },
+  "intent": "Pull up the description page of Carnegie Mellon University on Map",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": null,
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('[id=\"sidebar_content\"').outerText",
+        "required_contents": {
+          "must_include": [
+            "Carnegie Mellon University"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 52
+}

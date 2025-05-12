@@ -1,0 +1,87 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 694,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Add a simple product named {{product}} with {{stock}} in stock, available in size {{size}} and color {{color}}, priced at ${{price}}",
+  "instantiation_dict": {
+    "product": "Energy-Bulk Women Shirt",
+    "stock": "50",
+    "size": "S",
+    "color": "blue",
+    "price": "60"
+  },
+  "intent": "Add a simple product named Energy-Bulk Women Shirt with 50 in stock, available in size S and color blue, priced at $60",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"product[price]\"').value",
+        "required_contents": {
+          "exact_match": "60.00"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"product[name]\"').value",
+        "required_contents": {
+          "must_include": [
+            "Energy-Bulk Women Shirt"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"product[quantity_and_stock_status][qty]\"').value",
+        "required_contents": {
+          "exact_match": "50"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[data-role=\"selected-option\"').outerText",
+        "required_contents": {
+          "must_include": [
+            "top"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"product[size]\"').value",
+        "required_contents": {
+          "exact_match": "167"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"product[color]\"').value",
+        "required_contents": {
+          "exact_match": "50"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[data-index=\"category_ids\"').outerText",
+        "required_contents": {
+          "must_include": [
+            "tops"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 256
+}

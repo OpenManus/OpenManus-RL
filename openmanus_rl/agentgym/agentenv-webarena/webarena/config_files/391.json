@@ -1,0 +1,35 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 391,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Post \"{{content}}\" for the merge request related to {{mr}} in {{repo}} project",
+  "instantiation_dict": {
+    "mr": "focus edge cases",
+    "repo": "a11yproject/a11yproject.com",
+    "content": "close because non reproducible"
+  },
+  "intent": "Post \"close because non reproducible\" for the merge request related to focus edge cases in a11yproject/a11yproject.com project",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/a11yproject/a11yproject.com/-/merge_requests/1265",
+        "locator": "document.querySelector('[id=\"notes-list\"').lastElementChild.querySelector('.timeline-discussion-body').outerText",
+        "required_contents": {
+          "exact_match": "close because non reproducible"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 348
+}

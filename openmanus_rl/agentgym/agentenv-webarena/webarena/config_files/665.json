@@ -1,0 +1,38 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 665,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Open an issue to {{issue}} in {{repo}}.",
+  "instantiation_dict": {
+    "repo": "a11y-syntax-highlighting",
+    "issue": "request adding support for MT theme editor"
+  },
+  "intent": "Open an issue to request adding support for MT theme editor in a11y-syntax-highlighting.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/a11y-syntax-highlighting/-/issues",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector('.detail-page-description').outerText",
+        "required_contents": {
+          "must_include": [
+            "MT theme editor"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 328
+}

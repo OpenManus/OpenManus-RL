@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 505,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Make all {{product}} as out of stock",
+  "instantiation_dict": {
+    "product": "Aeno capri"
+  },
+  "intent": "Make all Aeno capri as out of stock",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/catalog/product/edit/id/1861/",
+        "locator": "document.querySelector('[name=\"product[quantity_and_stock_status][is_in_stock]\"').value",
+        "required_contents": {
+          "exact_match": "0"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 287
+}

@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:smelting",
+  "ingredient": {
+    "item": "minecraft:mutton"
+  },
+  "result": "minecraft:cooked_mutton",
+  "experience": 0.35,
+  "cookingtime": 200
+}

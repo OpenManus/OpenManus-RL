@@ -1,0 +1,18 @@
+[project]
+name = "agentenv_sciworld"
+version = "0.0.1"
+description = ""
+authors = [
+    {name = "zsxmwjz", email = "13816862266@163.com"},
+]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "scienceworld"
+]
+requires-python = "~=3.8"
+readme = "README.md"
+license = {text = "MIT"}
+
+[project.scripts]
+sciworld = "agentenv_sciworld:launch"

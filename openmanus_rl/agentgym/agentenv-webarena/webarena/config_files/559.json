@@ -1,0 +1,40 @@
+{
+  "sites": [
+    "gitlab",
+    "wikipedia"
+  ],
+  "task_id": 559,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create a repo named {{name}} with {{topics}} in a README file",
+  "instantiation_dict": {
+    "name": "nolan_followers",
+    "topics": "career timeline of Christopher Nolan"
+  },
+  "intent": "Create a repo named nolan_followers with career timeline of Christopher Nolan in a README file",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/nolan_followers/-/raw/main/README.md",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "1993\u20132003: Early career and breakthrough",
+            "2003\u20132013: Widespread recognition",
+            "2014\u20132019: Established Hollywood auteur",
+            "2020\u2013present"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 87
+}

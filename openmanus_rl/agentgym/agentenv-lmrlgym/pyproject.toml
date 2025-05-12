@@ -1,0 +1,18 @@
+[project]
+name = "agentenv_lmrlgym"
+version = "0.0.1"
+description = ""
+authors = [
+    {name = "zsxmwjz", email = "13816862266@163.com"},
+]
+dependencies = ["fastapi", "uvicorn"]
+requires-python = "==3.9.12"
+readme = "README.md"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[project.scripts]
+lmrlgym = "agentenv_lmrlgym:launch"

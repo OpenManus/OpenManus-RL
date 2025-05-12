@@ -1,0 +1,29 @@
+{
+    "sites": ["shopping"],
+    "task_id": 0,
+    "require_login": true,
+    "storage_state": null,
+    "start_url": null,
+    "geolocation": null,
+    "intent_template": "",
+    "instantiation_dict": {},
+    "intent": "",
+    "require_reset": false,
+    "eval": {
+        "eval_types": ["program_html"],
+        "reference_answers": [],
+        "reference_url": "",
+        "program_html": [
+            {
+                "url": "last",
+                "required_contents": {"must_include": ["100"]},
+                "locator": "func:shopping_get_sku_latest_review_rating('B09BCM56J7')"
+            },
+            {
+                "url": "last",
+                "required_contents": {"must_include": ["cupcakecupcake"]},
+                "locator": "func:shopping_get_sku_latest_review_author('B09BCM56J7')"
+            }
+        ]
+    }
+}

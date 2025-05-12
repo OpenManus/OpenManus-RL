@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 37,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Check if the {{place}} in pittsburgh can be reached in one hour by car from {{location}}",
+  "instantiation_dict": {
+    "place": "police station",
+    "location": "gates building at CMU"
+  },
+  "intent": "Check if the police station in pittsburgh can be reached in one hour by car from gates building at CMU",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Yes"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Yes"
+  },
+  "intent_template_id": 77
+}

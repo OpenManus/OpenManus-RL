@@ -1,0 +1,18 @@
+[project]
+name = "agentenv_sqlgym"
+version = "0.0.1"
+description = ""
+authors = [
+    {name = "KYLN24", email = "1296845690@qq.com"},
+]
+dependencies = [
+    "sqlgym==0.1.2",
+    "fastapi",
+    "uvicorn"
+]
+requires-python = ">=3.8"
+readme = "README.md"
+license = {text = "MIT"}
+
+[project.scripts]
+sqlgym = "agentenv_sqlgym:launch"

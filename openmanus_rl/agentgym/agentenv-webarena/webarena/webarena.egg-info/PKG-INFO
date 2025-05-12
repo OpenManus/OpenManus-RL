@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: webarena
+Version: 0.0.0
+Requires-Python: <4,>=3.7
+License-File: LICENSE
+Provides-Extra: dev
+Requires-Dist: pre-commit==3.0.1; extra == "dev"
+Requires-Dist: pytest==7.1.2; extra == "dev"
+Requires-Dist: mypy==0.991; extra == "dev"
+Requires-Dist: nbmake; extra == "dev"
+Requires-Dist: pytest-asyncio; extra == "dev"
+Requires-Dist: types-requests; extra == "dev"
+Dynamic: license-file

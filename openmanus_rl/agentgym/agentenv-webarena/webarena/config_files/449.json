@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 449,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "set the homepage URL on my GitLab profile to {{url}}",
+  "instantiation_dict": {
+    "url": "https://helloworld.xyz"
+  },
+  "intent": "set the homepage URL on my GitLab profile to https://helloworld.xyz",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze",
+        "locator": "document.querySelector('.profile-header [itemprop=\"url\"]').outerText",
+        "required_contents": {
+          "exact_match": "helloworld.xyz"
+        }
+      }
+    ]
+  },
+  "intent_template_id": 331
+}

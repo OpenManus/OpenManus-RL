@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:campfire_cooking",
+  "ingredient": {
+    "item": "minecraft:kelp"
+  },
+  "result": "minecraft:dried_kelp",
+  "experience": 0.1,
+  "cookingtime": 600
+}

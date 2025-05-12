@@ -1,0 +1,31 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 119,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Tell me the reasons why customers like {{product}}",
+  "instantiation_dict": {
+    "product": "Antonia Racer Tank"
+  },
+  "intent": "Tell me the reasons why customers like Antonia Racer Tank",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "Its color and style is good"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Its color and style is good"
+  },
+  "intent_template_id": 250
+}

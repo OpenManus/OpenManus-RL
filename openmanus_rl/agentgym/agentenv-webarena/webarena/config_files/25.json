@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 25,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/epson-workforce-wf-3620-wifi-direct-all-in-one-color-inkjet-printer-copier-scanner-amazon-dash-replenishment-ready.html",
+  "geolocation": null,
+  "intent_template": "List out reviewers, if exist, who mention about {{description}}",
+  "instantiation_dict": {
+    "description": "average print quality"
+  },
+  "intent": "List out reviewers, if exist, who mention about average print quality",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Goldfish",
+        "Roxanne Brandon Coffey"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "GoldfishGoldfish, Roxanne Brandon Coffey"
+  },
+  "intent_template_id": 222
+}

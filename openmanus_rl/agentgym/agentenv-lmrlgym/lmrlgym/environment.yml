@@ -1,0 +1,9 @@
+name: LLM_RL
+channels:
+- defaults
+- conda-forge
+dependencies:
+- python=3.9.12
+- pip=22.1.2
+- pip:
+  - -r requirements.txt

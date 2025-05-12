@@ -1,0 +1,26 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 340,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/primer/design",
+  "geolocation": null,
+  "intent_template": "List all opened issues {{description}}",
+  "instantiation_dict": {
+    "description": "that report bugs"
+  },
+  "intent": "List all opened issues that report bugs",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/primer/design/-/issues/?label_name%5B%5D=type%3A%20bug%20%F0%9F%90%9E",
+    "program_html": [],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 299
+}

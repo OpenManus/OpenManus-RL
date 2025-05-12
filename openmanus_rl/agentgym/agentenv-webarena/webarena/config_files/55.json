@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 55,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "How long does it take to walk from {{start}} to {{end}}?",
+  "instantiation_dict": {
+    "start": "the starbuck near CMU",
+    "end": "Chatham university"
+  },
+  "intent": "How long does it take to walk from the starbuck near CMU to Chatham university?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "30 min"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "30 min"
+  },
+  "intent_template_id": 68
+}

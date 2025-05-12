@@ -1,0 +1,44 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 773,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Delete all {{review_type}}",
+  "instantiation_dict": {
+    "review_type": "pending negative reviews"
+  },
+  "intent": "Delete all pending negative reviews",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/review/product/edit/id/351",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "Rating isn't Available"
+          ]
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/review/product/edit/id/353",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "Rating isn't Available"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 246
+}

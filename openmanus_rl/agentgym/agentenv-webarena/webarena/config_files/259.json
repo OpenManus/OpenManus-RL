@@ -1,0 +1,27 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 259,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Get me my RSS feed token",
+  "instantiation_dict": {},
+  "intent": "Get me my RSS feed token",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "exact_match": "TMN_bBn9Z48qVbUFZV45"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "TMN_bBn9Z48qVbUFZV45"
+  },
+  "intent_template_id": 312
+}

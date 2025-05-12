@@ -1,0 +1,29 @@
+{
+    "sites": ["gitlab"],
+    "task_id": 0,
+    "require_login": true,
+    "storage_state": "./.auth/gitlab_state.json",
+    "start_url": null,
+    "geolocation": null,
+    "intent_template": "",
+    "instantiation_dict": {},
+    "intent": "",
+    "require_reset": false,
+    "eval": {
+        "eval_types": ["program_html"],
+        "reference_answers": [],
+        "reference_url": "",
+        "program_html": [
+            {
+                "url": "last",
+                "required_contents": {"must_include": ["What are mammals?"]},
+                "locator": ""
+            },
+            {
+                "url": "https://www.google.com/",
+                "required_contents": {"must_include": ["Google Search"]},
+                "locator": ""
+            }
+        ]
+    }
+}

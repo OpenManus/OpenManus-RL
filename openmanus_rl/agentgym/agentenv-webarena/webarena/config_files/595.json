@@ -1,0 +1,37 @@
+{
+  "sites": [
+    "reddit"
+  ],
+  "task_id": 595,
+  "require_login": true,
+  "storage_state": "./.auth/reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999",
+  "geolocation": null,
+  "intent_template": "Open the thread of a trending post on the forum \"{{subreddit}}\" and subscribe.",
+  "instantiation_dict": {
+    "subreddit": "space"
+  },
+  "intent": "Open the thread of a trending post on the forum \"space\" and subscribe.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/space",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/",
+        "locator": "document.querySelector(\"#sidebar > section\").outerText",
+        "required_contents": {
+          "must_include": [
+            "space"
+          ]
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 4
+}

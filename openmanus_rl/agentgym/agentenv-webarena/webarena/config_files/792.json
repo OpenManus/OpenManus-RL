@@ -1,0 +1,30 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 792,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Buy the highest rated product from the {{product_category}} category within a budget {{dollar_value}}.",
+  "instantiation_dict": {
+    "product_category": "Beauty & Personal Care",
+    "dollar_value": "under 20"
+  },
+  "intent": "Buy the highest rated product from the Beauty & Personal Care category within a budget under 20.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": "N/A"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "The website does not support sorting by rating and there are too many products in this category",
+    "reference_answer_raw_annotation": "N/A"
+  },
+  "intent_template_id": 172
+}

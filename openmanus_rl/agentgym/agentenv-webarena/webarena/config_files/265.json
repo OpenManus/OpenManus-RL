@@ -1,0 +1,33 @@
+{
+  "sites": [
+    "wikipedia",
+    "map"
+  ],
+  "task_id": 265,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "What's the closest national park to {{city}}? How far is it to drive there?",
+  "instantiation_dict": {
+    "city": "Boston"
+  },
+  "intent": "What's the closest national park to Boston? How far is it to drive there?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Acadia National Park",
+        "457km"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Acadia National Park\n457km"
+  },
+  "intent_template_id": 85
+}

@@ -1,0 +1,18 @@
+[project]
+name = "agentenv_alfworld"
+version = "0.0.1"
+description = ""
+authors = [
+    {name = "zsxmwjz", email = "13816862266@163.com"},
+]
+dependencies = ["opencv-python-headless", "gym", "fastapi", "uvicorn"]
+requires-python = "~=3.9"
+readme = "README.md"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[project.scripts]
+alfworld = "agentenv_alfworld:launch"

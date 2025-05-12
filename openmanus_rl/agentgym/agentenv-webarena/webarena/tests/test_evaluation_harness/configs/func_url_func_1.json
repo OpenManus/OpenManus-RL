@@ -1,0 +1,24 @@
+{
+    "sites": ["shopping"],
+    "task_id": 0,
+    "require_login": true,
+    "storage_state": null,
+    "start_url": null,
+    "geolocation": null,
+    "intent_template": "",
+    "instantiation_dict": {},
+    "intent": "",
+    "require_reset": false,
+    "eval": {
+        "eval_types": ["program_html"],
+        "reference_answers": [],
+        "reference_url": "",
+        "program_html": [
+            {
+                "url": "func:reddit_get_post_url('__last_url__')",
+                "locator": "document.querySelector('.submission__inner').outerText",
+                "required_contents": {"must_include": ["How will SPY close on Monday 11/28"]}
+            }
+        ]
+    }
+}

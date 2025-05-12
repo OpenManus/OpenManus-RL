@@ -1,0 +1,27 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 271,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "Show me products under ${{price}} in \"{{product_category}}\" category",
+  "instantiation_dict": {
+    "price": "46.99",
+    "product_category": "makeup remover"
+  },
+  "intent": "Show me products under $46.99 in \"makeup remover\" category",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/beauty-personal-care/makeup/makeup-remover.html?price=0-46.99",
+    "program_html": [],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 139
+}

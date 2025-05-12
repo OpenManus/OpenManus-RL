@@ -1,0 +1,36 @@
+{
+  "sites": [
+    "reddit"
+  ],
+  "task_id": 409,
+  "require_login": true,
+  "storage_state": "./.auth/reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/books/59421/friendly-reminder-bookshop-org-exists",
+  "geolocation": null,
+  "intent_template": "Reply to {{position_description}} in this post with \"{{content_description}}\"",
+  "instantiation_dict": {
+    "position_description": "the manager of the website",
+    "content_description": "thanks! I am a big fan of your website."
+  },
+  "intent": "Reply to the manager of the website in this post with \"thanks! I am a big fan of your website.\"",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/books/59421/-/comment/1235250",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "thanks! I am a big fan of your website."
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 23
+}

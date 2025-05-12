@@ -1,0 +1,209 @@
+data:
+  tokenizer: null
+  train_files: /hdd/yxyang/OpenManus-RL-main/data/webshop/train.parquet  # Path to your training data
+  val_files: /hdd/yxyang/OpenManus-RL-main/data/webshop/val.parquet     # Path to your validation data
+  train_data_num: null
+  val_data_num: null
+  prompt_key: prompt
+  max_prompt_length: 1024      # Maximum prompt length
+  max_response_length: 512     # Maximum response length 
+  max_start_length: 512        # Maximum start state length
+  max_obs_length: 512          # Maximum observation length
+  train_batch_size: 8          # Smaller batch size for ToT (more compute-intensive)
+  val_batch_size: 4
+  return_raw_input_ids: False
+  return_raw_chat: False
+  shuffle_train_dataloader: True
+  env_name: webshop             # Environment name (choose one from the supported envs)
+  env_server_base: "http://0.0.0.0"  # Default server base address
+  env_ports: [36001]            # Default port list 
+  env_data_len: 200             # Default data length
+  react_format: True            # Use ReAct format
+
+# ToT specific configuration
+tot:
+  beam_width: 3                 # Number of paths to keep at each step
+  exploration_factor: 2         # How many variations per exploration node
+  max_branches: 15              # Maximum total branches per episode
+  value_guidance: True          # Use critic for value estimation if available
+  temperature: 1.0              # Temperature for exploration
+  search_strategy: "BFS"        # BFS or DFS
+  value_threshold: 0.0          # Minimum value to consider a branch for exploration
+  reward_cutoff: 0.8            # Early terminate exploration if high reward found
+
+actor_rollout_ref:
+  hybrid_engine: True
+  model:
+    path: /hdd/yxyang/OpenManus-RL-main/Qwen2.5-3B  # Path to your pretrained model
+    external_lib: null
+    override_config: { }
+    enable_gradient_checkpointing: True
+    use_remove_padding: True
+  actor:
+    strategy: fsdp
+    ppo_mini_batch_size: 4
+    ppo_micro_batch_size: 2
+    use_dynamic_bsz: False
+    ppo_max_token_len_per_gpu: 8192
+    grad_clip: 1.0
+    state_masking: False
+    clip_ratio: 0.2
+    entropy_coeff: 0.001
+    use_kl_loss: False # True for GRPO
+    kl_loss_coef: 0.001 # for grpo
+    kl_loss_type: low_var_kl # for grpo
+    ppo_epochs: 1
+    shuffle: False
+    ulysses_sequence_parallel_size: 1 # sp size
+    optim:
+      lr: 5e-6
+      lr_warmup_steps_ratio: 0.05
+      min_lr_ratio: null
+      warmup_style: constant
+      total_training_steps: -1  # Will be set during runtime
+    fsdp_config:
+      wrap_policy:
+        min_num_params: 0
+      param_offload: True
+      grad_offload: True
+      optimizer_offload: True
+      fsdp_size: -1
+  ref:
+    fsdp_config:
+      param_offload: True
+      wrap_policy:
+        min_num_params: 0
+      fsdp_size: -1
+    log_prob_micro_batch_size: 64
+    log_prob_use_dynamic_bsz: True
+    log_prob_max_token_len_per_gpu: 8192
+  rollout:
+    name: vllm
+    temperature: 1.0
+    top_k: 50
+    top_p: 0.95
+    prompt_length: ${data.max_prompt_length}
+    response_length: ${data.max_response_length}
+    dtype: bfloat16
+    gpu_memory_utilization: 0.7
+    ignore_eos: False
+    enforce_eager: True
+    free_cache_engine: True
+    load_format: dummy_dtensor
+    tensor_model_parallel_size: 1
+    max_num_batched_tokens: 8192
+    max_num_seqs: 1024
+    log_prob_micro_batch_size: 64
+    log_prob_use_dynamic_bsz: True
+    log_prob_max_token_len_per_gpu: 8192
+    do_sample: True
+    n: 1  # Single response for each trajectory node
+    n_agent: 1  # Single agent per task
+
+critic:
+  strategy: fsdp
+  optim:
+    lr: 5e-6
+    lr_warmup_steps_ratio: 0.05
+    min_lr_ratio: null
+    warmup_style: constant
+    total_training_steps: -1 # Will be set during runtime
+  model:
+    path: ${actor_rollout_ref.model.path}  # Use same model for critic and actor
+    tokenizer_path: ${actor_rollout_ref.model.path}
+    override_config: { }
+    external_lib: ${actor_rollout_ref.model.external_lib}
+    enable_gradient_checkpointing: True
+    use_remove_padding: True
+    fsdp_config:
+      param_offload: True
+      grad_offload: True
+      optimizer_offload: True
+      wrap_policy:
+        min_num_params: 0
+      fsdp_size: -1
+  ppo_mini_batch_size: 2
+  ppo_micro_batch_size: 4
+  forward_micro_batch_size: 4
+  use_dynamic_bsz: 2
+  ppo_max_token_len_per_gpu: 16384
+  forward_max_token_len_per_gpu: 4
+  ulysses_sequence_parallel_size: 1
+  ppo_epochs: 1
+  shuffle: ${actor_rollout_ref.actor.shuffle}
+  grad_clip: 1.0
+  cliprange_value: 0.2
+
+reward_model:
+  enable: False  # Disabled by default, using environment rewards
+  strategy: fsdp
+  model:
+    input_tokenizer: ${actor_rollout_ref.model.path}
+    path: ~/models/reward_model  # Path to reward model if enabled
+    external_lib: ${actor_rollout_ref.model.external_lib}
+    use_remove_padding: True
+    fsdp_config:
+      min_num_params: 0
+      param_offload: True
+  micro_batch_size: 4
+  max_length: null
+  ulysses_sequence_parallel_size: 1
+  use_dynamic_bsz: ${critic.use_dynamic_bsz}
+  forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
+
+retriever:
+  url: "http://127.0.0.1:8000/retrieve"
+  topk: 3
+  
+algorithm:
+  gamma: 0.99  # Discount factor
+  lam: 0.95    # GAE lambda parameter
+  adv_estimator: gae  # Use GAE (Generalized Advantage Estimation)
+  reward_score_fn: agentgym  # Use agentgym reward function
+  no_think_rl: False  # Enable extended thinking
+  kl_penalty: kl  # Use KL penalty
+  kl_ctrl:
+    type: fixed
+    kl_coef: 0.001  # KL coefficient for KL penalty
+  # Reward component configuration
+  reward_components:
+    goal_reward:
+      enabled: true
+      weight: 1.0
+    length_penalty:
+      enabled: true
+      weight: -0.01
+      max_length: 450
+      min_length: 20
+      penalty_type: "linear"
+    format_reward:
+      enabled: true
+      weight: 0.2
+      patterns_by_env:
+        webshop: ['<action>.*</action>', '<response>.*</response>']
+        alfworld: ['go to .*', 'take .* from .*', 'put .* in/on .*']
+        default: []
+  # Reward allocation strategy
+  reward_allocation: "last_token"
+  state_masking:
+    start_state_marker: "<information>"
+    end_state_marker: "</information>"
+
+trainer:
+  total_epochs: 20
+  total_training_steps: null
+  project_name: "tot_agent_training"
+  experiment_name: "tot_webshop"  # Change to match your task
+  logger: ['console', 'wandb']
+  nnodes: 1
+  n_gpus_per_node: 4  # Adjust based on your hardware
+  save_freq: 5
+  test_freq: 5
+  critic_warmup: 0
+  default_hdfs_dir: ~/experiments/tot_agent/${trainer.experiment_name}
+  default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
+  val_before_train: true  # Validate before training
+
+# Agent max turns and search flag
+max_turns: 10
+do_search: true

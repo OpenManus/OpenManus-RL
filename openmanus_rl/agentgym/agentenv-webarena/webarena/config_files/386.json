@@ -1,0 +1,31 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 386,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "What is the rating of {{product}}",
+  "instantiation_dict": {
+    "product": "Ugreen lightning to 3.5mm cable"
+  },
+  "intent": "What is the rating of Ugreen lightning to 3.5mm cable. Please round to the nearest whole number",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "65 |OR| 3"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Around 3.1 stars"
+  },
+  "intent_template_id": 1355
+}

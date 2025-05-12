@@ -1,0 +1,5 @@
+{  
+    "examples": ["Goal is to get 24. Observation: Numbers left: 1, 2, 3, 4\n Action: 1 * 2 \n Observation: Numbers left: 3, 4, 2\n Action: 3 * 4 \n Observation: Numbers left: 2, 12\n Action: 2 * 12 \n Observation: Numbers left: 24 .Goal reached!"],
+    "instruction": "You are given a set of numbers and you have to combine them using the four basic operations (+, -, *, /) to get a given goal number. You can only use each number once. Every time you use two numbers, you get a new number, which must be an integer. You would use this number along with other unused number to proceed the process. Each action must follow this format:\n <a> + <b>: add two intergers a and b, substitute a, b for available number. \n<a> * <b>: multiple two intergers a and b, substitute a, b for available number. \n <a> / <b>: divide a by b, substitute a, b for available number.\n <a> - <b>: minus b from a, substitute a, b for available number. \n",
+    "system_msg": "You are an master in math."
+}

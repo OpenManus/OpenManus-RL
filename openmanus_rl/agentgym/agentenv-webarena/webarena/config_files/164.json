@@ -1,0 +1,30 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 164,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/mineralogie-all-natural-lip-gloss-ruby-rose.html",
+  "geolocation": null,
+  "intent_template": "What are the main criticisms of this product? Please extract the relevant sentences.",
+  "instantiation_dict": {},
+  "intent": "What are the main criticisms of this product? Please extract the relevant sentences.",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Dry",
+        "Uneven color"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "DryUneven color"
+  },
+  "intent_template_id": 136
+}

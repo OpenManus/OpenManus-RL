@@ -1,0 +1,35 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 64,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Which customer has placed {{number}} orders in the entire history?",
+  "instantiation_dict": {
+    "number": "2"
+  },
+  "intent": "Which customer has placed 2 orders in the entire history?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Lisa Kim",
+        "Lisa Green",
+        "Julia Williams",
+        "Brian Smith",
+        "Alexander Thomas"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Lisa Kim, Lisa Green, Julia Williams, Brian Smith, Alexander Thomas"
+  },
+  "intent_template_id": 276
+}

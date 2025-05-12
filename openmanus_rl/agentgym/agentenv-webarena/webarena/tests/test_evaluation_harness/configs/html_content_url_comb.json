@@ -1,0 +1,30 @@
+{
+    "sites": ["gitlab"],
+    "task_id": 0,
+    "require_login": true,
+    "storage_state": null,
+    "start_url": null,
+    "geolocation": null,
+    "intent_template": "",
+    "instantiation_dict": {},
+    "intent": "",
+    "require_reset": false,
+    "eval": {
+        "eval_types": ["program_html", "url_match"],
+        "reference_answers": [],
+        "reference_url": "https://russmaxdesign.github.io/",
+        "url_note": "GOLD in PRED",
+        "program_html": [
+            {
+                "url": "last",
+                "required_contents": {"must_include": ["Hello World"]},
+                "locator": "document.querySelector('[id=\"form-name\"').value"
+            },
+            {
+                "url": "last",
+                "required_contents": {"must_include": ["alexisxy@hotmail.com"]},
+                "locator": "document.querySelector('[id=\"form-email\"').value"
+            }
+        ]
+    }
+}

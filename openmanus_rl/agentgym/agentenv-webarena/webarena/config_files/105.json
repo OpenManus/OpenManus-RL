@@ -1,0 +1,27 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 105,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Display the list of issues in the {{repo}} repository that have labels related to {{label}}",
+  "instantiation_dict": {
+    "label": "OpenAPI Generator CLI",
+    "repo": "OpenAPITools/openapi-generator"
+  },
+  "intent": "Display the list of issues in the OpenAPITools/openapi-generator repository that have labels related to OpenAPI Generator CLI",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/OpenAPITools/openapi-generator/-/issues/?label_name%5B%5D=OpenAPI%20Generator%20CLI",
+    "program_html": [],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 349
+}

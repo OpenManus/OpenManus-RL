@@ -1,0 +1,36 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 170,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Tell me the full names of the repositories where I made contributions and they got {{description}} stars?",
+  "instantiation_dict": {
+    "description": "the least"
+  },
+  "intent": "Tell me the full names of the repositories where I made contributions and they got the least stars?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "cloud-to-butt",
+        "dotfiles",
+        "timeit",
+        "solarized-prism-theme",
+        "gimmiethat.space",
+        "remove-board-movement-events-from-the-github-issue-timeline"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "cloud-to-butt, dotfiles, timeit, solarized-prism-theme,  gimmiethat.space, remove-board-movement-events-from-the-github-issue-timeline"
+  },
+  "intent_template_id": 289
+}

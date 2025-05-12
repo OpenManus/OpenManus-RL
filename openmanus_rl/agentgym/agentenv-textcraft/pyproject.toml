@@ -1,0 +1,19 @@
+[project]
+name = "agentenv_textcraft"
+version = "0.0.1"
+description = ""
+authors = [
+    {name = "XinGuo2002", email = "1208650808@qq.com"},
+]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "gymnasium",
+    "transformers"
+]
+requires-python = ">=3.7"
+readme = "README.md"
+license = {text = "MIT"}
+
+[project.scripts]
+textcraft = "agentenv_textcraft:launch"

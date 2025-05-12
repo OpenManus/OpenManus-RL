@@ -1,0 +1,37 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 98,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "Where is the nearest {{places}} to {{start}}, and what is the walking distance to it?",
+  "instantiation_dict": {
+    "places": "tea cafe",
+    "start": "University of Pittsburgh"
+  },
+  "intent": "Where is the nearest tea cafe to University of Pittsburgh, and what is the walking distance to it?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "must_include": [
+        "Fuku Tea",
+        "3716",
+        "Forbes Avenue",
+        "Central Oakland",
+        "Pittsburgh",
+        "653m"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "Fuku Tea, 3716, Forbes Avenue, Oakland, Central Oakland, Pittsburgh, Allegheny County, Pennsylvania, 15213, United States\n653m"
+  },
+  "intent_template_id": 66
+}

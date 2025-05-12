@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:smelting",
+  "ingredient": {
+    "item": "minecraft:diamond_ore"
+  },
+  "result": "minecraft:diamond",
+  "experience": 1.0,
+  "cookingtime": 200
+}

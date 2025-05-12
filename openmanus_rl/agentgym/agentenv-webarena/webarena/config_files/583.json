@@ -1,0 +1,54 @@
+{
+  "sites": [
+    "reddit"
+  ],
+  "task_id": 583,
+  "require_login": true,
+  "storage_state": "./.auth/reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999",
+  "geolocation": null,
+  "intent_template": "Create a new forum named {{name}}, with a description of {{description}}, and include {{sidebar_list}} in the sidebar?",
+  "instantiation_dict": {
+    "name": "PlantsForCatParents",
+    "description": "Cat parents & plan lovers",
+    "sidebar_list": [
+      "Cat friendly",
+      "Local vendors",
+      "Promotion",
+      "Toxic plants!"
+    ]
+  },
+  "intent": "Create a new forum named PlantsForCatParents, with a description of Cat parents & plan lovers, and include ['Cat friendly', 'Local vendors', 'Promotion', 'Toxic plants!'] in the sidebar?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/PlantsForCatParents/edit",
+        "locator": "document.querySelector(\"#forum_description\").value",
+        "required_contents": {
+          "must_include": [
+            "Cat parents & plan lovers"
+          ]
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/PlantsForCatParents/edit",
+        "locator": "document.querySelector(\"#forum_sidebar\").value",
+        "required_contents": {
+          "must_include": [
+            "Cat friendly",
+            "Local vendors",
+            "Promotion",
+            "Toxic plants!"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 7
+}

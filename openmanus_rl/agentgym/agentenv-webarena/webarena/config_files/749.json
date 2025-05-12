@@ -1,0 +1,57 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 749,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Start a private project {{project_name}} with {{template}} template and add {{account_list}} as members",
+  "instantiation_dict": {
+    "project_name": "project_site",
+    "template": "NodeJS",
+    "account_list": "primer, convexegg, vinta"
+  },
+  "intent": "Start a private project project_site with NodeJS template and add primer, convexegg, vinta as members",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/project_site",
+        "locator": "document.querySelector('.visibility-icon').getAttribute('title')",
+        "required_contents": {
+          "must_include": [
+            "Private"
+          ]
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/project_site/-/commits",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "Initialized from 'NodeJS Express' project template"
+          ]
+        }
+      },
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/project_site/-/project_members",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "@primer",
+            "@convexegg",
+            "@vinta"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 2100
+}

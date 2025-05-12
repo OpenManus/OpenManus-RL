@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:smoking",
+  "ingredient": {
+    "item": "minecraft:porkchop"
+  },
+  "result": "minecraft:cooked_porkchop",
+  "experience": 0.35,
+  "cookingtime": 100
+}

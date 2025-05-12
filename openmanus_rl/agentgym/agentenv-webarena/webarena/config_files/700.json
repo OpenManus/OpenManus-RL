@@ -1,0 +1,72 @@
+{
+  "sites": [
+    "shopping_admin"
+  ],
+  "task_id": 700,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_admin_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin",
+  "geolocation": null,
+  "intent_template": "Draft a new marketing price rule for {{topic}} that offers {{rule}} for all customers",
+  "instantiation_dict": {
+    "topic": "fall discount",
+    "rule": "$10 discount on checkout"
+  },
+  "intent": "Draft a new marketing price rule for fall discount that offers $10 discount on checkout for all customers",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match",
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin/sales_rule/promo_quote",
+    "program_html": [
+      {
+        "url": "last",
+        "locator": "document.querySelector(\"[name='name'\").value",
+        "required_contents": {
+          "must_include": [
+            "fall discount"
+          ]
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"website_ids\"').selectedIndex",
+        "required_contents": {
+          "exact_match": "0"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"customer_group_ids\"').selectedIndex",
+        "required_contents": {
+          "exact_match": "1"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"simple_action\"').value",
+        "prep_actions": [
+          "document.querySelector('[data-index=\"actions\"]').querySelector('.admin__collapsible-title').click()"
+        ],
+        "required_contents": {
+          "exact_match": "cart_fixed"
+        }
+      },
+      {
+        "url": "last",
+        "locator": "document.querySelector('[name=\"discount_amount\"').value",
+        "prep_actions": [
+          "document.querySelector('[data-index=\"actions\"]').querySelector('.admin__collapsible-title').click()"
+        ],
+        "required_contents": {
+          "exact_match": "10"
+        }
+      }
+    ],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 258
+}

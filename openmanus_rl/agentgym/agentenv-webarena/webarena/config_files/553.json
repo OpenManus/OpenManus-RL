@@ -1,0 +1,42 @@
+{
+  "sites": [
+    "gitlab",
+    "reddit"
+  ],
+  "task_id": 553,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab.reddit_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Create a folder named {{directory}} in {{gitlab_repo}} repo. Within it, create a file named urls.txt that contains the URLs of the 5 most recent posts from the {{subreddit}}?",
+  "instantiation_dict": {
+    "directory": "news",
+    "gitlab_repo": "gimmiethat.space",
+    "subreddit": "news related subreddits"
+  },
+  "intent": "Create a folder named news in gimmiethat.space repo. Within it, create a file named urls.txt that contains the URLs of the 5 most recent posts from the news related subreddits?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/byteblaze/gimmiethat.space/-/raw/main/news/urls.txt",
+        "locator": "",
+        "required_contents": {
+          "must_include": [
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/news/129905/ohio-man-charged-for-using-molotov-cocktails-to-attack",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/news/129904/in-a-loss-for-fox-news-judge-allows-dominion-s-defamation",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/news/129903/theater-group-sues-to-block-tennessee-s-new-anti-drag-law",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/news/129902/andrew-tate-released-from-jail-in-romania-and-placed-under",
+            "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999/f/news/129901/rare-high-risk-storm-alert-issued-for-parts-of-midwest-and"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 84
+}

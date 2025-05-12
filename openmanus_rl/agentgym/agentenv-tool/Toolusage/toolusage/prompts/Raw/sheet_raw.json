@@ -1,0 +1,782 @@
+{
+  "system_message": "You can use actions to help people solve problems.\n",
+  "tool_set_message": [
+    {
+      "name": "open_sheet",
+      "description": "Open a sheet by name",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name of the sheet to open."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "The opened worksheet object or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "del_sheet",
+      "description": "Deletes the specified sheet.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name of the sheet to be deleted."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "Whether the operation was successful."
+          }
+        }
+      }
+    },
+    {
+      "name": "freeze_data",
+      "description": "Freeze rows and/or columns on the worksheet",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "description": "The dimension to freeze, either 'rows' or 'columns'"
+          },
+          "num": {
+            "type": "integer",
+            "description": "Number of rows/cols to freeze."
+          }
+        },
+        "required": [
+          "dimension",
+          "num"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "Whether the operation was successful."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_A1_annotation",
+      "description": "Translate the cell position (row,col) into A1 annotation",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "row": {
+            "type": "integer",
+            "description": "Row index."
+          },
+          "col": {
+            "type": "integer",
+            "description": "Column index."
+          }
+        },
+        "required": [
+          "row",
+          "col"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "description": "The A1 notation of the cell or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "insert_cols",
+      "description": "Insert columns into sheet at specified column index",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "values_list": {
+            "type": "array",
+            "description": "A list of lists, each list containing one column's values, which can be expressions",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "col_idx": {
+            "type": "integer",
+            "description": "Start column to update. Defaults to 1."
+          }
+        },
+        "required": [
+          "values_list",
+          "col_idx"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "The updated worksheet data or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "insert_rows",
+      "description": "Insert rows into sheet at specified row index",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "values_list": {
+            "type": "array",
+            "description": "A list of lists, each list containing one row's values, which can be expressions",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "row_idx": {
+            "type": "integer",
+            "description": "Start row to update. Defaults to 1."
+          }
+        },
+        "required": [
+          "values_list",
+          "row_idx"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "The updated worksheet data or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_batch_data",
+      "description": "Delete a batch of data in the sheet",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "description": "The dimension to delete, either 'row' or 'col'."
+          },
+          "index_list": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "List of the indexes of rows/cols for deletion."
+          }
+        },
+        "required": [
+          "dimension",
+          "index_list"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "The updated worksheet data or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "update_cell",
+      "description": "Update the value of the cell",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "type": "string",
+            "description": "A1 notation of the cell position."
+          },
+          "value": {
+            "description": "The value to set."
+          }
+        },
+        "required": [
+          "position",
+          "value"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "The updated worksheet data or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "update_cell_by_formula",
+      "description": "Update the value of the target cell by applying formulas on some specified cells. Note: Either specify position_list or start_position and end_position.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start_position": {
+            "type": "string",
+            "description": "The starting position of the range. Default: 'B1'."
+          },
+          "end_position": {
+            "type": "string",
+            "description": "The ending position of the range. Default: 'D2'."
+          },
+          "position_list": {
+            "type": "array",
+            "description": "A list of cell positions in A1 notation.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "result_position": {
+            "type": "string",
+            "description": "The position of the cell where the result of the formula will be stored in. Default: 'G2'."
+          },
+          "operator": {
+            "type": "string",
+            "description": "The operator to be applied on selected cells. Choose one from ['SUM', 'AVERAGE', 'COUNT', 'MAX', 'MIN', 'MINUS', 'PRODUCT']."
+          }
+        },
+        "required": [
+          "operator",
+          "result_position"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "The updated worksheet data or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "update_range",
+      "description": "Update a range of the cells from a list",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start_position": {
+            "type": "string",
+            "description": "A1 notation of the start cell."
+          },
+          "end_position": {
+            "type": "string",
+            "description": "A1 notation of the end cell."
+          },
+          "values_list": {
+            "type": "array",
+            "description": "List of values to be inserted, which can be expressions",
+            "items": {
+              "type": "array",
+              "items": {}
+            }
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "start_position",
+              "end_position",
+              "operator"
+            ]
+          },
+          {
+            "required": [
+              "position_list",
+              "operator"
+            ]
+          }
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "The updated worksheet data or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "sort_sheet_by_col",
+      "description": "Sorts the current sheet using given sort orders",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "col_num": {
+            "type": "integer",
+            "description": "The index of the sort column."
+          },
+          "order": {
+            "type": "string",
+            "description": "The sort order. Possible values are 'asc' or 'des'."
+          }
+        },
+        "required": [
+          "col_num",
+          "order"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "The updated worksheet data or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "merge_cells",
+      "description": "Merge cells in sheet",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start_position": {
+            "type": "string",
+            "description": "Starting cell position(top left) in A1 annotation."
+          },
+          "end_position": {
+            "type": "string",
+            "description": "Ending cell position(bottom right) in A1 annotation."
+          }
+        },
+        "required": [
+          "start_position",
+          "end_position"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "The updated worksheet data or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "update_note",
+      "description": "Update a note in a certain cell",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "type": "string",
+            "description": "cell position in A1 annotation."
+          },
+          "content": {
+            "type": "string",
+            "description": "The text note to insert."
+          }
+        },
+        "required": [
+          "position",
+          "content"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "description": "The updated note or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_all_values",
+      "description": "Display all cell values in current sheet",
+      "parameters": {},
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "array",
+            "description": "Return all cell values or an error message.",
+            "items": {
+              "type": "array",
+              "items": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "get_range_values",
+      "description": "Returns a list of cell data from a specified range.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start_position": {
+            "type": "string",
+            "description": "Starting cell position in A1 annotation."
+          },
+          "end_position": {
+            "type": "string",
+            "description": "Ending cell position in A1 annotation."
+          }
+        },
+        "required": [
+          "start_position",
+          "end_position"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "array",
+            "description": "List of cell data from the specified range or an error message.",
+            "items": {
+              "type": "array",
+              "items": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "get_cell_value",
+      "description": "Get the value of a specific cell",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "type": "string",
+            "description": "Cell position in A1 annotation."
+          }
+        },
+        "required": [
+          "position"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "description": "Cell value or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_value_by_formula",
+      "description": "Calculate a value applying formulas on specified cells. Note: Either specify position_list or start_position and end_position.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start_position": {
+            "type": "string",
+            "description": "The starting position of the range. Default: 'B1'."
+          },
+          "end_position": {
+            "type": "string",
+            "description": "The ending position of the range. Default: 'D2'."
+          },
+          "position_list": {
+            "type": "array",
+            "description": "A list of cell positions in A1 notation.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "operator": {
+            "type": "string",
+            "description": "The operator to be applied on selected cells. Choose one from ['SUM', 'AVERAGE', 'COUNT', 'MAX', 'MIN', 'MINUS', 'PRODUCT']."
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "start_position",
+              "end_position",
+              "operator"
+            ]
+          },
+          {
+            "required": [
+              "position_list",
+              "operator"
+            ]
+          }
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "description": "Calculated result or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "filter_cells",
+      "description": "Find all cells matching the query, return all cells' position.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": [
+              "string",
+              "re.RegexObject"
+            ],
+            "description": "A string to match or compiled regular expression."
+          },
+          "in_row": {
+            "type": [
+              "integer",
+              "None"
+            ],
+            "description": "Row number to scope the search. Default is all rows"
+          },
+          "in_column": {
+            "type": [
+              "integer",
+              "None"
+            ],
+            "description": "Column number to scope the search. Default is all columns"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "array",
+            "description": "List of cell addresses that match the query or an error message.",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "get_note",
+      "description": "Get the note at the certain cell, or return empty string if the cell does not have a note.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "type": "string",
+            "description": "Cell position in A1 annotation."
+          }
+        },
+        "required": [
+          "position"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "description": "Note content or an error message."
+          }
+        }
+      }
+    },
+    {
+      "name": "finish",
+      "description": "Return an answer and finish the task",
+      "parameters": {},
+      "returns": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "array",
+            "description": "Return all cell values or an error message.",
+            "items": {
+              "type": "array",
+              "items": {}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "in_context_examples": [
+    {
+      "goal": "\"Sheet90\" saves the clothing inventory information, please delete items with price changed by more than 25%, update the price of other items.",
+      "react_steps": [
+        [
+          "Think",
+          "I need to retrieve the inventory from \"Sheet90\" to identify which items' price changes exceeding 25%"
+        ],
+        [
+          "Action",
+          "get_all_values with Action Input: {}"
+        ],
+        [
+          "Observation",
+          "[['Category', 'Brand', 'Size', 'Price', 'Stock', 'Price Update'], ['T-shirt', 'Nike', 'M', '25.00', '100', '20.00%'], ['Jeans', \"Levi's\", '32', '59.00', '150', '-10.00%'], ['Shoes', 'Adidas', '8', '99.00', '80', '-45.00%'], ['Bags', 'Louis Vuitton', 'Universal', '699.00', '20', '30.00%'], ['Watches', 'Omega', 'Universal', '999.00', '10', '56.00%']]"
+        ],
+        [
+          "Think",
+          "The items with price changes of more than 20% are \"Shoes\", \"Bags\" and \"Watches\", so I will delete the records for these items."
+        ],
+        [
+          "Action",
+          "delete_batch with Action Input: {\"dimension\": \"row\", \"index_list\": [3, 4, 5]}"
+        ],
+        [
+          "Observation",
+          "[['Category', 'Brand', 'Size', 'Price', 'Stock', 'Price Update'], ['T-shirt', 'Nike', 'M', '25.00', '100', '20.00%'], ['Jeans', \"Levi's\", '32', '59.00', '150', '-10.00%']]"
+        ],
+        [
+          "Think",
+          "It seems delete successfully, the next step is to calculate the changed prices of remaining items by using the provided formula \"PRODUCT\" and we calculate \"T-shirt\" first."
+        ],
+        [
+          "Action",
+          "get_value_by_formula with Action Input: {\"position_list\": [\"D2\", \"F2\"], operator=\"PRODUCT\"}"
+        ],
+        [
+          "Observation",
+          "5"
+        ],
+        [
+          "Think",
+          "Calculate the changed prices of \"Jeans\" by using a formula \"PRODUCT\"."
+        ],
+        [
+          "Action",
+          "get_value_by_formula with Action Input: {\"position_list\": [\"D3\", \"F3\"], operator=\"PRODUCT\"}"
+        ],
+        [
+          "Observation",
+          "-5.9"
+        ],
+        [
+          "Think",
+          "We have calculated the changed price, we can update the price column at once"
+        ],
+        [
+          "Action",
+          "update_range with Action Input: {\"start_position\": \"D2\", \"end_position\": \"D3\", values_list=[[25.00 + 5], [59.00 - 5.9]]}"
+        ],
+        [
+          "Observation",
+          "[['Category', 'Brand', 'Size', 'Price', 'Stock', 'Price Update'], ['T-shirt', 'Nike', 'M', '30.00', '100', '20.00%'], ['Jeans', \"Levi's\", '32', '53.10', '150', '-10.00%']]"
+        ],
+        [
+          "Think",
+          "After I check the result, it seems update successfully. we could call \"finish\""
+        ],
+        [
+          "Action",
+          "finish with Action Input: {}"
+        ],
+        [
+          "Observation",
+          "[['Category', 'Brand', 'Size', 'Price', 'Stock', 'Price Update'], ['T-shirt', 'Nike', 'M', '30.00', '100', '20.00%'], ['Jeans', \"Levi's\", '32', '53.10', '150', '-10.00%']]"
+        ]
+      ]
+    },
+    {
+      "goal": "\"Sheet34\" saves the employees information, sort the items in ascending order by the \"Innovation Ability\".",
+      "react_steps": [
+        [
+          "Think",
+          "I want to get the values from \"Sheet34\""
+        ],
+        [
+          "Action",
+          "get_all_values with Action Input: {}"
+        ],
+        [
+          "Observation",
+          "[['Name', 'Performance Score', 'Teamwork', 'Innovation Ability', 'Work Attitude'], ['John Smith', '87', '8.5', '7', '9'], ['Jane Doe', '92', '9.2', '8.5', '9.3'], ['Michael Johnson', '76', '7', '6.5', '7.2']]"
+        ],
+        [
+          "Think",
+          "The \"Innovation Ability\" contained in \"Sheet34\", before sort I have to freeze the title row(row 1)."
+        ],
+        [
+          "Action",
+          "freeze_data with Action Input: {\"dimension\": \"rows\", \"num\": 1}"
+        ],
+        [
+          "Observation",
+          "[['Name', 'Performance Score', 'Teamwork', 'Innovation Ability', 'Work Attitude'], ['John Smith', '87', '8.5', '7', '9'], ['Jane Doe', '92', '9.2', '8.5', '9.3'], ['Michael Johnson', '76', '7', '6.5', '7.2']]"
+        ],
+        [
+          "Think",
+          "After freeze the first row, I could start sorting. The \"Innovation Ability\" is the column D in \"Sheet34\", so I will sort column D in ascending order."
+        ],
+        [
+          "Action",
+          "sort_sheet_by_col with Action Input: {\"col_num\": 4, \"order\": \"asc\"}"
+        ],
+        [
+          "Observation",
+          "[['Name', 'Performance Score', 'Teamwork', 'Innovation Ability', 'Work Attitude'], ['Michael Johnson', '76', '7', '6.5', '7.2'], ['John Smith', '87', '8.5', '7', '9']]"
+        ],
+        [
+          "Think",
+          "After I check the result, the task is finished successfully, I could call \"finish\""
+        ],
+        [
+          "Action",
+          "finish with Action Input: {}"
+        ],
+        [
+          "Observation",
+          "[['Name', 'Performance Score', 'Teamwork', 'Innovation Ability', 'Work Attitude'], ['Michael Johnson', '76', '7', '6.5', '7.2'], ['John Smith', '87', '8.5', '7', '9']]"
+        ]
+      ]
+    }
+  ],
+  "old_instruction": "Please refer to the format of examples above to solve the following question. Your response must contain: \"Think: [your Think]\" OR \"Action: [your action] with Action Input: [your action input]\".\nHere are some common senses you may need: \n1.You should open sheet mentioned in goal before operating it\n2.You should use A1 notation to display the cell position in the sheet.\n3.The col and row are start with 1\n4.freeze the first row before sort col\nHere are the action you'll have:\n"
+}

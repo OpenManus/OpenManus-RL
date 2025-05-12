@@ -1,0 +1,29 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 71,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "What is the zip code of {{place}}?",
+  "instantiation_dict": {
+    "place": "Chatham University"
+  },
+  "intent": "What is the zip code of Chatham University?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "exact_match": "15232"
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "15232"
+  },
+  "intent_template_id": 70
+}

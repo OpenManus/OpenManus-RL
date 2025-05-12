@@ -1,0 +1,36 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 440,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "I previously ordered some {{product}} {{time}} and later cancelled. Can you reorder it for me?",
+  "instantiation_dict": {
+    "product": "a make up removal kit",
+    "time": "during summer 2022"
+  },
+  "intent": "I previously ordered some a make up removal kit during summer 2022 and later cancelled. Can you reorder it for me?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "func:shopping_get_latest_order_url()",
+        "locator": "document.querySelector(\".order-details-items.ordered\").outerText",
+        "required_contents": {
+          "must_include": [
+            "B0738JQG6Q"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 156
+}

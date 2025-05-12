@@ -1,0 +1,41 @@
+{
+  "sites": [
+    "gitlab"
+  ],
+  "task_id": 535,
+  "require_login": true,
+  "storage_state": "./.auth/gitlab_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023",
+  "geolocation": null,
+  "intent_template": "Follow {{account_list}} on Gitlab",
+  "instantiation_dict": {
+    "account_list": [
+      "Jakub K",
+      "ghost",
+      "Beno\u00eet Blanchon"
+    ]
+  },
+  "intent": "Follow ['Jakub K', 'ghost', 'Beno\u00eet Blanchon'] on Gitlab",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "program_html"
+    ],
+    "reference_answers": null,
+    "reference_url": "",
+    "program_html": [
+      {
+        "url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023/users/byteblaze/following",
+        "locator": "document.querySelector('.user-profile').outerText",
+        "required_contents": {
+          "must_include": [
+            "@lahwaacz",
+            "@ghost",
+            "@bblanchon"
+          ]
+        }
+      }
+    ]
+  },
+  "intent_template_id": 330
+}

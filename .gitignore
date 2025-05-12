@@ -1,0 +1,33 @@
+.env
+
+# virtual env
+venv/
+
+# MACOS system files
+.DS_Store
+
+# caches
+.cache/
+__pycache__
+
+# IDE config files
+.idea
+.vscode
+
+# log files
+*.log
+
+# docker
+.dockerfile
+.dockerfile-cache/
+
+# data
+
+data/output_env_groups/
+data/output_txt_files/
+
+outputs/
+wandb/
+logs/
+verl_checkpoints/
+verl.egg-info/

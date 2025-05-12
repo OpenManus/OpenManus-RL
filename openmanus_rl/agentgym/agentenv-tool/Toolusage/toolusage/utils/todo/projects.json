@@ -1,0 +1,157 @@
+[
+    {
+        "name": "Homework and Assignments",
+        "is_favorite": false,
+        "tasks":
+        [
+            {
+                "content": "Solve algebra equations",
+                "description": "- Place: Library\n- TextBook: Algebra Essentials by Dr. Jane Smith\n- Consultation: If faced with difficulties, consult the teacher, tutor, or study group\n- Tips: Start with simpler equations to build confidence, don’t rush, and practice regularly.",
+                "due_date": "2015-06-01",
+                "duration": 60,
+                "duration_unit": "minute",
+                "priority": 1
+            },
+            {
+                "content": "Conduct a chemistry experiment",
+                "description": "- Place: Student Building\n- Textbook:Principles of Modern Chemistry by Dr. Alan Thompson\n- Equipment Needed: pH paper, thermometer and stirring rod\n- Chemicals Required: distilled water, hydrochloric acid and sodium hydroxide\n- Tips: 1. Ensure all apparatus are clean and dry before starting. 2. Conduct the experiment slowly to ensure accuracy. 3. Contact the teacher in advance.",
+                "due_date": "2015-06-12",
+                "duration": 90,
+                "duration_unit": "minute",
+                "priority": 2
+            },
+            {
+                "content": "Read and summarize a history chapter",
+                "description": "- Place: Quiet study room in the west wing of the library, second floor\n- TextBook: 'Epochs of World Civilization' by Prof. Alexander Williams\n- Chaper Name: World Modern History\n- Page Numbers: 255-280\n- Tips: Take breaks every 30 minutes to avoid information overload.",
+                "due_date": "2015-06-06",
+                "duration": 45,
+                "duration_unit": "minute",
+                "priority": 3
+            }
+        ]
+    },
+    {
+        "name": "Extracurricular Activities",
+        "is_favorite": false,
+        "tasks": 
+        [
+            {
+                "content": "Attend soccer practice",
+                "description": "- Place: Community Sports Field, Pitch #2\n- Coach: Mr. Alberto Ramirez\n- Equipment: soccer shoes and water bottle",
+                "due_date": "2015-06-12",
+                "duration": 90,
+                "duration_unit": "minute",
+                "priority": 4
+            },
+            {
+                "content": "Rehearse with the school band",
+                "description": "- Place: Student Building\n- Instrument: violin\n- Keys: Practice the assigned songs",
+                "due_date": "2015-06-02",
+                "duration": 60,
+                "duration_unit": "minute",
+                "priority": 4
+            },
+            {
+                "content": "Attend debate club meeting",
+                "description": "- Place: Student Building\n- Advisor: Mr. John Roberts, English Department\n- Keys: Prepare arguments on the assigned topic",
+                "due_date": "2015-06-08",
+                "duration": 60,
+                "duration_unit": "minute",
+                "priority":1
+            }
+        ]
+    },
+    {
+        "name": "Science Fair Project",
+        "is_favorite": false,
+        "tasks":
+        [
+            {
+                "content": "Design and conduct a biology experiment",
+                "description": "- Place: School laboratory\n- Materials: Petri dishes, microscope, agar, samples\n- Procedure: Research different experiment ideas, choose one, design the experiment, conduct it, and record observations\n- Tips: Ensure a sterile environment when handling samples and equipment.",
+                "due_date": "2015-06-20",
+                "duration": 120,
+                "duration_unit": "minute",
+                "priority": 2
+            },
+            {
+                "content": "Prepare presentation for science fair",
+                "description": "- Place: Home\n- Format: PowerPoint presentation\n- Content: Introduction, hypothesis, methodology, results, conclusion, and references\n- Tips: Practice presenting to family members or friends to improve public speaking skills.",
+                "due_date": "2015-06-21",
+                "duration": 90,
+                "duration_unit": "minute",
+                "priority": 3
+            },
+            {
+                "content": "Write a research paper on the experiment",
+                "description": "- Place: Library\n- Structure: Abstract, introduction, methods, results, discussion, conclusion, references\n- Length: 5-7 pages\n- Tips: Use reliable sources for citations and proofread thoroughly for grammar and spelling errors.",
+                "due_date": "2015-06-23",
+                "duration": 120,
+                "duration_unit": "minute",
+                "priority": 1
+            }
+        ]
+    },
+    {
+        "name": "Household Chores",
+        "is_favorite": false,
+        "tasks":
+        [
+            {
+                "content": "Clean the kitchen",
+                "description": "- Place: Home\n- Tasks: Wash dishes, wipe countertops, clean appliances, sweep and mop the floor\n- Tips: Start with clearing clutter before deep cleaning surfaces.",
+                "due_date": "2015-06-20",
+                "duration": 45,
+                "duration_unit": "minute",
+                "priority": 2
+            },
+            {
+                "content": "Do the laundry",
+                "description": "- Place: Home\n- Tasks: Sort clothes, wash, dry, fold, and put away\n- Tips: Separate whites, colors, and delicates to avoid color bleeding or damage.",
+                "due_date": "2015-06-22",
+                "duration": 90,
+                "duration_unit": "minute",
+                "priority": 3
+            },
+            {
+                "content": "Tidy up the living room",
+                "description": "- Place: Home\n- Tasks: Straighten cushions, fold throws, dust surfaces, vacuum carpet\n- Tips: Work from top to bottom, dusting shelves before vacuuming the floor.",
+                "due_date": "2015-06-24",
+                "duration": 30,
+                "duration_unit": "minute",
+                "priority": 1
+            },
+            {
+                "content": "Water the plants",
+                "description": "- Place: Home\n- Tasks: Check soil moisture, water plants accordingly, prune if needed\n- Tips: Use room-temperature water and avoid overwatering.",
+                "due_date": "2015-06-24",
+                "duration": 20,
+                "duration_unit": "minute",
+                "priority": 4
+            }
+        ]
+    },
+    {
+        "name": "Picnic Preparation",
+        "is_favorite": false,
+        "tasks": 
+        [
+            {
+                "content": "Purchase picnic supplies",
+                "description": "- Place: Local supermarket\n- Items Needed: Blanket, picnic basket, disposable plates, cups, and utensils, sunscreen, insect repellent, cooler, snacks, drinks, fruits, sandwiches, napkins\n- Tips: Make a list beforehand to ensure nothing is forgotten. Choose a variety of snacks and drinks to cater to different preferences.",
+                "due_date": "2015-06-23",
+                "duration": 45,
+                "duration_unit": "minute",
+                "priority": 2
+            },
+            {
+                "content": "Select picnic location and plan activities",
+                "description": "- Place: Library\n- Activities: Outdoor games (frisbee, soccer, etc.), nature walk, bird watching, kite flying\n- Tips: Choose a shaded area if possible. Check weather forecast in advance and prepare accordingly. Plan activities suitable for all ages and interests.",
+                "due_date": "2015-06-25",
+                "duration": 60,
+                "duration_unit": "minute",
+                "priority": 3
+            }
+        ]
+    }
+]

@@ -1,0 +1,26 @@
+{
+  "sites": [
+    "shopping"
+  ],
+  "task_id": 158,
+  "require_login": true,
+  "storage_state": "./.auth/shopping_state.json",
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770",
+  "geolocation": null,
+  "intent_template": "I have a lot of Nintendo Switch game cards now, help me find the best storage option to fit all {{num}} cards",
+  "instantiation_dict": {
+    "num": 11
+  },
+  "intent": "I have a lot of Nintendo Switch game cards now, help me find the best storage option to fit all 11 cards",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "url_match"
+    ],
+    "reference_answers": null,
+    "reference_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770/heiying-game-card-case-for-nintendo-switch-switch-oled-game-card-or-micro-sd-memory-cards-portable-switch-game-memory-card-storage-with-24-game-card-slots-and-24-micro-sd-card-slots-black.html",
+    "program_html": [],
+    "url_note": "GOLD in PRED"
+  },
+  "intent_template_id": 171
+}

@@ -1,0 +1,30 @@
+{
+    "sites": ["misc"],
+    "task_id": 2,
+    "require_login": false,
+    "storage_state": null,
+    "start_url": "https://russmaxdesign.github.io/exercise",
+    "geolocation": null,
+    "intent_template": "",
+    "instantiation_dict": {},
+    "intent": "Check out the classification section",
+    "require_reset": false,
+    "eval": {
+        "eval_types": ["url_match"],
+        "reference_answers": null,
+        "reference_url": "https://russmaxdesign.github.io/exercise/#link-two",
+        "program_html": [
+            {
+                "url": "",
+                "required_contents": []
+            }
+        ]
+    },
+    "reference_action_sequence": {
+        "action_set_tag": "playwright",
+        "action_sequence": [
+            "page.get_by_role(\"navigation\").get_by_role(\"link\", name=\"Classification\").click()",
+            "page.stop(\"Wilson and Reade\")"
+        ]
+    }
+}

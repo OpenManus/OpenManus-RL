@@ -1,0 +1,32 @@
+{
+  "sites": [
+    "map"
+  ],
+  "task_id": 155,
+  "require_login": true,
+  "storage_state": null,
+  "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000",
+  "geolocation": null,
+  "intent_template": "What is the minimum travel time by car from {{location1}} to {{location2}}?",
+  "instantiation_dict": {
+    "location1": "Animal Rescue League of Pittsburgh",
+    "location2": "Schenley park"
+  },
+  "intent": "What is the minimum travel time by car from Animal Rescue League of Pittsburgh to Schenley park?",
+  "require_reset": false,
+  "eval": {
+    "eval_types": [
+      "string_match"
+    ],
+    "reference_answers": {
+      "fuzzy_match": [
+        "9min"
+      ]
+    },
+    "reference_url": "",
+    "program_html": [],
+    "string_note": "",
+    "reference_answer_raw_annotation": "9min"
+  },
+  "intent_template_id": 36
+}

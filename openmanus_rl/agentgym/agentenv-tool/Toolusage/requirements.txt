@@ -1,0 +1,9 @@
+gymnasium
+gym==0.24.0
+gspread==5.12.3
+jsonlines
+pandas==1.4.2
+requests==2.27.1
+requests_mock
+typing_extensions==4.5.0
+typing-inspect==0.8.0

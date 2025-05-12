@@ -1,0 +1,481 @@
+{
+  "system_message": "You can use actions to help people solve problems.\n",
+  "tool_set_message": [
+    {
+      "name": "get_search_movie",
+      "description": "Search for a movie by name and return basic details",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "movie_name": {
+            "type": "string",
+            "description": "The name of the movie to search for."
+          }
+        },
+        "required": [
+          "movie_name"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The ID of the found movie."
+          },
+          "overview": {
+            "description": "The overview description of the movie."
+          },
+          "title": {
+            "description": "The title of the movie."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_movie_details",
+      "description": "Get detailed information about a movie by ID",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "movie_id": {
+            "type": "string",
+            "description": "The ID of the movie."
+          }
+        },
+        "required": [
+          "movie_id"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "budget": {
+            "description": "The budget of the movie."
+          },
+          "genres": {
+            "description": "The genres of the movie."
+          },
+          "revenue": {
+            "description": "The revenue of the movie."
+          },
+          "vote_average": {
+            "description": "The average vote score of the movie."
+          },
+          "release_date": {
+            "description": "The release date of the movie."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_movie_production_companies",
+      "description": "Get the production companies of a movie by its ID",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "movie_id": {
+            "type": "string",
+            "description": "The ID of the movie."
+          }
+        },
+        "required": [
+          "movie_id"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "production_companies": {
+            "description": "The production companies of the movie."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_movie_production_countries",
+      "description": "Get the production countries of a movie by its ID",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "movie_id": {
+            "type": "string",
+            "description": "The ID of the movie."
+          }
+        },
+        "required": [
+          "movie_id"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "production_countries": {
+            "description": "The production countries of the movie."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_movie_cast",
+      "description": "Retrieve the list of the top 10 cast members from a movie by its ID.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "movie_id": {
+            "type": "string",
+            "description": "The ID of the movie."
+          }
+        },
+        "required": [
+          "movie_id"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "cast": {
+            "description": "List of the top 10 cast members."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_movie_crew",
+      "description": "Retrieve the list of crew members (limited to 10) from a movie by its ID. The list primarily includes Director, Producer, and Writer roles.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "movie_id": {
+            "type": "string",
+            "description": "The ID of the movie."
+          }
+        },
+        "required": [
+          "movie_id"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "crew": {
+            "description": "List of the top 10 of crew members"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_movie_keywords",
+      "description": "Get the keywords associated with a movie by ID",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "movie_id": {
+            "type": "string",
+            "description": "The ID of the movie."
+          }
+        },
+        "required": [
+          "movie_id"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "description": "The keywords associated with the movie."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_search_person",
+      "description": "Search for a person by name.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "person_name": {
+            "type": "string",
+            "description": "The name of the person to search for."
+          }
+        },
+        "required": [
+          "person_name"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The ID of the found person."
+          },
+          "name": {
+            "description": "The name of the person."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_person_details",
+      "description": "Get detailed information about a person by ID",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "person_id": {
+            "type": "string",
+            "description": "The ID of the person."
+          }
+        },
+        "required": [
+          "person_id"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "biography": {
+            "description": "The biography of the person."
+          },
+          "birthday": {
+            "description": "The birthday of the person."
+          },
+          "place_of_birth": {
+            "description": "The place of birth of the person."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_person_cast",
+      "description": "Retrieve the top 10 movie cast roles of a person by their ID",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "person_id": {
+            "type": "string",
+            "description": "The ID of the person."
+          }
+        },
+        "required": [
+          "person_id"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "cast": {
+            "description": "A list of movies where the person has acted, limited to top 10"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_person_crew",
+      "description": "Retrieve the top 10 movie crew roles of a person by their ID",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "person_id": {
+            "type": "string",
+            "description": "The ID of the person."
+          }
+        },
+        "required": [
+          "person_id"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "crew": {
+            "description": "A list of movies where the person has participated as crew, limited to top 10"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_person_external_ids",
+      "description": "Get the external ids for a person by ID",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "person_id": {
+            "type": "string",
+            "description": "The ID of the person."
+          }
+        },
+        "required": [
+          "person_id"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "imdb_id": {
+            "description": "The IMDB id of the person."
+          },
+          "facebook_id": {
+            "description": "The Facebook id of the person."
+          },
+          "instagram_id": {
+            "description": "The Instagram id of the person."
+          },
+          "twitter_id": {
+            "description": "The Twitter id of the person."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_movie_alternative_titles",
+      "description": "Get the alternative titles for a movie by ID",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "movie_id": {
+            "type": "string",
+            "description": "The ID of the movie."
+          }
+        },
+        "required": [
+          "movie_id"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "titles": {
+            "description": "The alternative titles of the movie."
+          },
+          "id": {
+            "description": "The ID of the movie."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_movie_translation",
+      "description": "Get the description translation for a movie by ID",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "movie_id": {
+            "type": "string",
+            "description": "The ID of the movie."
+          }
+        },
+        "required": [
+          "movie_id"
+        ]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "translations": {
+            "description": "The description translation of the movie."
+          },
+          "id": {
+            "description": "The ID of the movie."
+          }
+        }
+      }
+    },
+    {
+      "name": "check_valid_actions",
+      "description": "Get supported actions for current tool.",
+      "parameters": {},
+      "returns": {
+        "type": "object",
+        "properties": {
+          "actions": {
+            "type": "array",
+            "description": "Supported actions for current tool."
+          }
+        }
+      }
+    },
+    {
+      "name": "finish",
+      "description": "Return an answer and finish the task",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": [
+              "string",
+              "number",
+              "array"
+            ],
+            "description": "The answer to be returned"
+          }
+        },
+        "required": [
+          "answer"
+        ]
+      }
+    }
+  ],
+  "in_context_examples": [
+    {
+      "goal": "When did the movie Scream 6 come out?",
+      "react_steps": [
+        [
+          "Think",
+          "This question is about release date of the movie, I need to get the movie id first and use the movie id to query movie details"
+        ],
+        [
+          "Think",
+          "To get the movie id, I can use get_search_movie action."
+        ],
+        [
+          "Action",
+          "get_search_movie with Action Input: {\"movie_name\": \"Scream 6\"}"
+        ],
+        [
+          "Observation",
+          "{'id': 934433, 'overview': 'Following the latest Ghostface killings, the four survivors leave Woodsboro behind and start a fresh chapter.', 'title': 'Scream VI'}"
+        ],
+        [
+          "Action",
+          "get_movie_details with Action Input: {\"movie_id\": \"934433\"}"
+        ],
+        [
+          "Observation",
+          "{'budget': 35000000, 'genres': [{'id': 27, 'name': 'Horror'}, {'id': 53, 'name': 'Thriller'}, {'id': 9648, 'name': 'Mystery'}], 'revenue': 168961389, 'vote_average': 7.175, 'release_date': '2023-03-08'}"
+        ],
+        [
+          "Think",
+          "The release date is 2023-03-08, I will call finish to end this goal."
+        ],
+        [
+          "Action",
+          "finish with Action Input: {\"answer\": \"2023-03-08\"}"
+        ],
+        [
+          "Observation",
+          "2023-03-08"
+        ]
+      ],
+      "old_react_steps": [
+        {
+          "Thought": "This question is about movie release date, I need to use get_search_movie action to get the movie id and use the movie id to query movie details",
+          "Action": "get_search_movie",
+          "Action Input": "{\"movie_name\": \"Scream 6\"}",
+          "Observation": "{'id': 934433, 'overview': 'Following the latest Ghostface killings, the four survivors leave Woodsboro behind and start a fresh chapter.', 'title': 'Scream VI'}"
+        },
+        {
+          "Thought": "The movie id of Scream 6 is 934433, I need to use get_movie_details action to get the release date",
+          "Action": "get_movie_details",
+          "Action Input": "{\"movie_id\": \"934433\"}",
+          "Observation": "{'budget': 35000000, 'genres': [{'id': 27, 'name': 'Horror'}, {'id': 53, 'name': 'Thriller'}, {'id': 9648, 'name': 'Mystery'}], 'revenue': 168961389, 'vote_average': 7.175, 'release_date': '2023-03-08'}"
+        },
+        {
+          "Thought": "The release date is 2023-03-08, I will call finish to end the task.",
+          "Action": "finish",
+          "Action Input": "{\"answer\": \"2023-03-08\"}",
+          "Observation": "2023-03-08"
+        }
+      ]
+    }
+  ],
+  "old_instruction": "Please refer to the format of examples above to solve the following question. Your response must contain three components: \"Thought: [your thought]\", \"Action: [your action]\",\"Action Input: [your action input]\""
+}
