@@ -35,7 +35,7 @@ class BaseTask:
         self,
         client_args: Mapping[str, Any],
         tokenizer: PreTrainedTokenizerBase, # Tokenizer is now needed at init for output processing
-        vllm_base_url: str = "http://localhost:8001/v1",
+        vllm_base_url: str = "http://localhost:8002/v1",
         vllm_api_key: str = "dummy-key",
         vllm_model_name: str = "agent-llm",
     ) -> None:
@@ -254,15 +254,17 @@ class BaseTask:
             if len(conversation) > 50: # Safety break for very long conversations
                 print("Warning: Max conversation turns reached.")
                 break
+        # full_text, full_input_ids, full_action_mask = self._reconstruct_tokenized_info(conversation)
 
         return ExperienceOutput(
             conversation=conversation,
-            reward=0,
+            reward=reward,
             text=None,
             seq_ids=None,
             attention_mask=None,
             action_mask=None,
         )
+    
 
     def _generate_experience_batch(
         self,

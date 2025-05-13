@@ -24,6 +24,7 @@ def evaluate_single_task(model_path, env_server_base, max_rounds, idx):
         try:
             tokenizer = AutoTokenizer.from_pretrained(model_path)
         except Exception as e:
+            print(f"Failed to load tokenizer: {e}")
             return None  # Cannot proceed without tokenizer
 
         # Define generation config
@@ -46,6 +47,7 @@ def evaluate_single_task(model_path, env_server_base, max_rounds, idx):
                 "timeout": 300,
             },
             n_clients=1,  # Evaluate one task index at a time
+            
         )
 
         # Initialize Evaluator
@@ -59,14 +61,30 @@ def evaluate_single_task(model_path, env_server_base, max_rounds, idx):
         )
 
         # Extract experience data if successful
-        if result and result.experiences:
-            experience = result.experiences[0]
-            # Return entire experience object including conversation, reward, and success
-            return {
-                "conversation": getattr(experience, 'conversation', None),
-                "reward": getattr(experience, 'reward', 0.0),
-                "success": 1 if getattr(experience, 'reward', 0.0) == 1 else 0
-            }
+        # if result and result.experiences:
+        #     experience = result.experiences[0]
+        #     # Return entire experience object including conversation, reward, and success
+        #     return {
+        #         "conversation": getattr(experience, 'conversation', None),
+        #         "reward": getattr(experience, 'reward', 0.0),
+        #         "success": 1 if getattr(experience, 'reward', 0.0) == 1 else 0
+        #     }
+
+        # Replace this section in your evaluate_single_task function
+        if result:
+            # Access raw experience objects directly
+            if hasattr(result, 'experiences') and result.experiences:
+                exp = result.experiences[0]
+                # Print detailed debug information about the experience
+                print(f"Task {idx} - Experience object type: {type(exp)}")
+                print(f"Task {idx} - Available attributes: {dir(exp)}")
+                print(f"Task {idx} - Raw reward value: {getattr(exp, 'reward', None)}")
+                
+                return {
+                    "conversation": getattr(exp, 'conversation', []),
+                    "reward": getattr(exp, 'reward', 0.0),  # Make sure we're accessing the raw reward
+                    "success": 1 if getattr(exp, 'reward', 0.0) == 1 else 0
+                }
         else:
             return None
 
@@ -80,13 +98,13 @@ def main():
 
     # --- Argument Parsing ---
     parser = argparse.ArgumentParser(description='Run WebShop evaluation concurrently, initialize evaluator per worker, and save results to JSONL.')
-    parser.add_argument('--model_name', type=str, default='Qwen3-8B', help='Name of the model being evaluated (e.g., AgentLM-7B)')
+    parser.add_argument('--model_name', type=str, default='Qwen3-4B', help='Name of the model being evaluated (e.g., AgentLM-7B)')
     parser.add_argument('--sector', type=str, default='eval', help='Sector or domain of the evaluation (e.g., WebShop)')
     parser.add_argument('--num_tasks', type=int, default=100, help='Number of tasks to process (default: 100)')
     parser.add_argument('--max_workers', type=int, default=20, help='Maximum number of concurrent workers (default: 20)')
-    parser.add_argument('--model_path', type=str, default="/data1/models/Qwen/Qwen3-8B-FP8", help='Path to the model directory')
+    parser.add_argument('--model_path', type=str, default="/data1/models/Qwen/Qwen3-4B-FP8", help='Path to the model directory')
     parser.add_argument('--env_server_base', type=str, default="http://127.0.0.1:36001", help='Base URL for the environment server')
-    parser.add_argument('--max_rounds', type=int, default=7, help='Maximum interaction rounds per task (default: 7)')
+    parser.add_argument('--max_rounds', type=int, default=20, help='Maximum interaction rounds per task (default: 7)')
     parser.add_argument('--output_file', type=str, default="", help='Output file path (default: {model_name}_{sector}.jsonl)')
 
     args = parser.parse_args()

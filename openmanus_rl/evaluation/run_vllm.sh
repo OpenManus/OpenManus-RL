@@ -16,15 +16,21 @@ else
     echo "Configured to use 4 GPUs: CUDA_VISIBLE_DEVICES=$visible_devices, tensor_parallel_size=$tensor_parallel_size"
 fi
 
+MODEL_PATH="/data1/models/ZhipuAI/GLM-4-32B-0414"
+# MODEL_PATH="/data1/models/Qwen/Qwen3-4B-FP8"
+# MODEL_PATH="/data1/models/Qwen/Qwen3-235B-A22B-FP8"
+# MODEL_PATH= "THUDM/agentlm-7b"
+
 # --- VLLM Command ---
 # Set environment variables and run the vllm server
 CUDA_VISIBLE_DEVICES="$visible_devices" \
 VLLM_USE_V1=0 \
-vllm serve /data1/models/Qwen/Qwen3-8B-FP8 \
+vllm serve "$MODEL_PATH" \
     --gpu-memory-utilization 0.95 \
     --tensor-parallel-size "$tensor_parallel_size" \
     --host 0.0.0.0 \
-    --port 8001 \
+    --port 8002 \
     --max-model-len 32768  \
-    --served-model-name agent-llm
+    --served-model-name agent-llm \
+    # --enable-expert-parallel
     # --rope-scaling '{"rope_type":"yarn","factor":4.0,"original_max_position_embeddings":32768}' \
