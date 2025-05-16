@@ -53,10 +53,10 @@ Leave this process running in the background or in a separate terminal.
    bash openmanus_rl/evaluation/run_vllm.sh
    ```
 
-2. Ensure your `PYTHONPATH` includes the `agentenv` package:
+2. Ensure your `PYTHONPATH` includes the `agentenv` package and you are under the OpenManus-RL/openmanus_rl directory:
 
    ```bash
-   export PYTHONPATH=./openmanus_rl/agentgym/agentenv:$PYTHONPATH
+   export PYTHONPATH=./agentgym/agentenv:$PYTHONPATH
    ```
 
 3. Launch the evaluation driver:
