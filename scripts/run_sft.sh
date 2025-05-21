@@ -17,6 +17,8 @@ if [ -f "$CONDA_BASE_DIR/etc/profile.d/conda.sh" ]; then
 else
     echo "Conda base profile script not found at $CONDA_BASE_DIR/etc/profile.d/conda.sh"
 fi
+export WANDB_API_KEY= # TODO: add your wandb api key here
+wandb login
 
 nproc_per_node=$1
 save_path=$2
@@ -31,7 +33,7 @@ if [ "$use_all_gpu" = "true" ]; then
     tensor_parallel_size=8
     echo "Configured to use 8 GPUs: CUDA_VISIBLE_DEVICES=$visible_devices, tensor_parallel_size=$tensor_parallel_size"
 else
-    visible_devices="4,5,6,7"
+    visible_devices="0,1,2,3"
     tensor_parallel_size=4
     echo "Configured to use 4 GPUs: CUDA_VISIBLE_DEVICES=$visible_devices, tensor_parallel_size=$tensor_parallel_size"
 fi
@@ -41,12 +43,12 @@ fi
 CUDA_VISIBLE_DEVICES="$visible_devices" \
 torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
      -m verl.trainer.fsdp_sft_trainer \
-    data.train_files=$HOME/muxin/OpenManus-RL/data/train.parquet \
-    data.val_files=$HOME/muxin/OpenManus-RL/data/test.parquet \
+    data.train_files=../data/train.parquet \
+    data.val_files=../data/test.parquet \
     data.multiturn.enable=true \
     data.multiturn.messages_key=conversations \
     data.micro_batch_size=4 \
-    model.partial_pretrain=/data1/models/Qwen/Qwen3-4B \
+    model.partial_pretrain=/data1/models/Qwen/Qwen2.5-3B \ # TODO: add your model path here
     trainer.default_local_dir=$save_path \
     trainer.project_name=multiturn-sft \
     trainer.experiment_name=multiturn-sft-qwen-3-4b \

@@ -64,7 +64,33 @@ class MultiTurnSFTDataset(Dataset):
 
             while isinstance(ls, (pandas.core.series.Series, numpy.ndarray)) and len(ls) == 1:
                 ls = ls[0]
+            
+            # Convert numpy array to list if needed
+            if isinstance(ls, numpy.ndarray):
+                ls = ls.tolist()
+            elif isinstance(ls, pandas.core.series.Series):
+                ls = ls.tolist()
+
+            # If ls is a single dictionary with 'role' and 'content', wrap it in a list
+            if isinstance(ls, dict) and 'role' in ls and 'content' in ls:
+                ls = [ls]
+    
+            # Verify the structure if it's a list
+            if isinstance(ls, list):
+                for i, item in enumerate(ls):
+                    if not isinstance(item, dict) or 'role' not in item or 'content' not in item:
+                        raise ValueError(f"Invalid message format at index {i}: {item}")
+
             return ls
+
+        dataframes = []
+        for parquet_file in self.parquet_files:
+            dataframe = pd.read_parquet(parquet_file)
+            dataframes.append(dataframe)
+        self.dataframe = pd.concat(dataframes)
+
+        # Extract messages list from dataframe
+        self.messages = self.dataframe[self.messages_key].apply(series_to_item).tolist()
 
         dataframes = []
         for parquet_file in self.parquet_files:
@@ -81,8 +107,6 @@ class MultiTurnSFTDataset(Dataset):
     def __getitem__(self, item):
         tokenizer = self.tokenizer
         messages = self.messages[item]
-
-        # First, get the full conversation tokens
         full_tokens = tokenizer.apply_chat_template(messages, tokenize=True, return_tensors="pt", add_generation_prompt=False)
         input_ids = full_tokens[0]  # The output is already a tensor
         attention_mask = torch.ones_like(input_ids)
