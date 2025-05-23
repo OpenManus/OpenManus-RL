@@ -1,0 +1,9 @@
+module: src.client.agents.qwq_agent.QWQAgent
+parameters:
+    name: "qwq-32b"
+    api_args:
+      model: "agent-llm"
+      # base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      base_url: "http://localhost:8001/v1"
+      temperature: 0.7
+      max_tokens: 4096

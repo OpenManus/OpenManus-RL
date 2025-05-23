@@ -1,0 +1,23 @@
+default:
+  module: "src.client.agents.FastChatAgent"
+  parameters:
+    name: "FastChat"
+    controller_address: "http://localhost:55555"
+    max_new_tokens: 512
+    temperature: 0
+
+vicuna-33b:
+  parameters:
+    model_name: "vicuna-33b-v1.3"
+
+wizard-30b:
+  parameters:
+    model_name: "WizardLM-30B-V1.0-merged"
+
+vicuna-13b:
+  parameters:
+    model_name: "vicuna-13b-v1.5"
+
+vicuna-7b:
+  parameters:
+    model_name: "vicuna-7b-v1.5"

@@ -1,0 +1,14 @@
+module: src.client.agents.HTTPAgent
+parameters:
+  name: <% NAME %>
+  url: https://api.openai.com/v1/completions
+  headers:
+    Content-Type: application/json
+    Authorization: Bearer <% PUT-YOUR-OPENAI-KEY-HERE %>
+  body:
+    model: <% NAME %>
+    temperature: 0
+  prompter:
+    name: prompt_string
+  return_format: "{response[choices][0][text]}"
+
