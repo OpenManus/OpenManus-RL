@@ -1,0 +1,17 @@
+default:
+  module: src.server.tasks.ltp.LateralThinkingPuzzle
+  docker:
+    image: longinyu/agentbench-ltp
+  parameters:
+    round: 25
+    eval_yaml: "configs/agents/api_agents.yaml"
+
+ltp-dev:
+  parameters:
+    name: ltp-dev
+    filepath: "data/lateralthinkingpuzzle/dev.xlsx"
+
+ltp-std:
+  parameters:
+    name: ltp-std
+    filepath: "data/lateralthinkingpuzzle/standard.xlsx"

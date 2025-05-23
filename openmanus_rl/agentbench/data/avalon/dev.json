@@ -1,0 +1,102 @@
+[
+    {
+        "num_players": 5,
+        "quest_leader": 0,
+        "role_names": ["Servant", "Merlin", "Servant", "Assassin", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 0,
+        "role_names": ["Servant", "Assassin", "Servant", "Merlin", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 0,
+        "role_names": ["Servant", "Assassin", "Merlin", "Servant", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 0,
+        "role_names": ["Servant", "Servant", "Assassin", "Merlin", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 0,
+        "role_names": ["Servant", "Minion", "Assassin", "Merlin", "Servant"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 0,
+        "role_names": ["Assassin", "Servant", "Merlin", "Servant", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 0,
+        "role_names": ["Assassin", "Servant", "Servant", "Merlin", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 0,
+        "role_names": ["Assassin", "Servant", "Servant", "Minion", "Merlin"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 0,
+        "role_names": ["Assassin", "Merlin", "Servant", "Servant", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 0,
+        "role_names": ["Assassin", "Minion", "Servant", "Servant", "Merlin"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 1,
+        "role_names": ["Servant", "Merlin", "Servant", "Assassin", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 1,
+        "role_names": ["Servant", "Assassin", "Servant", "Merlin", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 1,
+        "role_names": ["Servant", "Assassin", "Merlin", "Servant", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 1,
+        "role_names": ["Servant", "Servant", "Assassin", "Merlin", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 1,
+        "role_names": ["Servant", "Minion", "Assassin", "Merlin", "Servant"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 1,
+        "role_names": ["Assassin", "Servant", "Merlin", "Servant", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 1,
+        "role_names": ["Assassin", "Servant", "Servant", "Merlin", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 1,
+        "role_names": ["Assassin", "Servant", "Servant", "Minion", "Merlin"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 1,
+        "role_names": ["Assassin", "Merlin", "Servant", "Servant", "Minion"]
+    },
+    {
+        "num_players": 5,
+        "quest_leader": 1,
+        "role_names": ["Assassin", "Minion", "Servant", "Servant", "Merlin"]
+    }
+]

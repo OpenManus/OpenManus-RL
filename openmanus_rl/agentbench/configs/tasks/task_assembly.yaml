@@ -1,0 +1,14 @@
+default:
+  docker:
+    command: umask 0; [ -f /root/.setup.sh ] && bash /root/.setup.sh;
+
+import:
+  - webshop.yaml
+  - dbbench.yaml
+  - mind2web.yaml
+  - card_game.yaml
+  - kg.yaml
+  - os.yaml
+  - ltp.yaml
+  - alfworld.yaml
+  - avalon.yaml

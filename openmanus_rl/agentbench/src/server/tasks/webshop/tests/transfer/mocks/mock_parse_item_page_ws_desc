@@ -1,0 +1,44 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.0.3/css/font-awesome.css	">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.bundle.min.js"></script>
+    <link rel="icon" href="data:,">
+  </head>
+  <body>
+    <div class="container py-5">
+      <div class="row top-buffer">
+        <div class="col-sm-6">
+          <div id="instruction-text" class="text-center">
+            <h4>Instruction:<br>i want an xx-small sized slim fit button down shirt with long sleeves. pick something in white, and price lower than 50.00 dollars</h4>
+          </div>
+        </div>
+      </div>
+      <div class="row top-buffer">
+        <form method="post" action="/abc">
+          <button type="submit" class="btn btn-success">Back to Search</button>
+        </form>
+      </div>
+      <div class="row top-buffer">
+        <form method="post" action="/item_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%7D">
+          <button type="submit" class="btn btn-primary">&lt; Prev</button>
+        </form>
+      </div>
+      <div class="row top-buffer">
+        <div class="col-md-12">
+          <div class="row top-buffer">
+            <div class="col-sm-6" name="description">
+              <div class="card card-body">
+                <p class="product-info">Here Are The Things You Want To Knowa─=≡Σ(((つ̀ώ)つSTORE INTRODUCTION:&gt;&gt;&gt;&gt;Our store helps our customers improve their quality of life~As a distributor, we value quality and service.Focus on the high quality and durability of the product.Committed to creating a store that satisfies and reassures our customers.TIPS:&gt;&gt;&gt;&gt;1. Please allow minor errors in the data due to manual measurements.2. Due to the color settings of the display, the actual color may be slightly different from the online image.QUALITY PROMISE:&gt;&gt;&gt;&gt;Our goal is to continuously provide a range of quality products.We place a huge emphasis on the values of quality and reliability.We have always insisted on fulfilling this commitment.In short, we want our customers to have the same great product experience every time and be trusted to deliver on this commitment.Please give us a chance to serve you.OTHER:&gt;&gt;&gt;&gt;athletic sneaker laces athletic sneakers white athletic sneakers for women clearance leather Sneaker leather sneakers women leather sneakers for menleather sneaker laces leather sneaker platform basketball shoes basketball shoes for men basketball shoe laces basketball shoe grip basketball shoes for women fitness shoes for men fitness shoes women workout fitness shoes women fitness shoes women size 5 fitness shoes men workout fitness shoes for men high top sneakers for women walking shoes sneakers with arch support for women</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

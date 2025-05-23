@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC -O3 -DNDEBUG -flto -shared  -o bin/ai_client.cpython-310-x86_64-linux-gnu.so CMakeFiles/ai_client.dir/py_ai_sdk.cpp.o CMakeFiles/ai_client.dir/jsoncpp/jsoncpp.cpp.o 

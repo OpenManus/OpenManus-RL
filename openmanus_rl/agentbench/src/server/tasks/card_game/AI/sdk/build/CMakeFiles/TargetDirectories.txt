@@ -1,0 +1,3 @@
+/mnt/c/Users/piano/Downloads/AquaWarAI/AI_SDK/Python/sdk/build/CMakeFiles/ai_client.dir
+/mnt/c/Users/piano/Downloads/AquaWarAI/AI_SDK/Python/sdk/build/CMakeFiles/edit_cache.dir
+/mnt/c/Users/piano/Downloads/AquaWarAI/AI_SDK/Python/sdk/build/CMakeFiles/rebuild_cache.dir

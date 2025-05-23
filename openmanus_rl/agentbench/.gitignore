@@ -1,0 +1,19 @@
+__pycache__
+%*
+.idea
+.vscode
+src/tasks/humaneval_x/env/vendor
+logs
+outputs
+data/full
+results
+config.sh
+download
+.DS_Store
+# local*
+*.ipynb
+.cache
+src/server/tasks/card_game/result
+.dockerfile
+.dockerfile-cache
+analysis
