@@ -1,0 +1,3 @@
+FROM ubuntu
+RUN echo "tmp" > file.txt
+CMD ["bash"]

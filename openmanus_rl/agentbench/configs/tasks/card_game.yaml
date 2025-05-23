@@ -1,0 +1,17 @@
+default:
+  module: src.server.tasks.card_game.CardGame
+  docker:
+    image: longinyu/agentbench-card_game
+  parameters:
+    port: 12347
+    workers: 10
+
+cg-dev:
+  parameters:
+    name: "CardGame-dev"
+    test_time: 3
+
+cg-std:
+  parameters:
+    name: "CardGame-std"
+    test_time: 5

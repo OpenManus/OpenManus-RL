@@ -1,0 +1,163 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.0.3/css/font-awesome.css	">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.bundle.min.js"></script>
+    <link rel="icon" href="data:,">
+  </head>
+  <body>
+    <div class="container py-5">
+      <div class="row top-buffer">
+        <div class="col-sm-6">
+          <div id="instruction-text" class="text-center">
+            <h4>Instruction:<br>i want an xx-small sized slim fit button down shirt with long sleeves. pick something in white, and price lower than 50.00 dollars</h4>
+          </div>
+        </div>
+      </div>
+      <div class="row top-buffer">
+        <form method="post" action="/abc">
+          <button type="submit" class="btn btn-success">Back to Search</button>
+        </form>
+      </div>
+      <div class="row top-buffer">
+        <form method="post" action="/search_results/abc/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1">
+          <button type="submit" class="btn btn-primary">&lt; Prev</button>
+        </form>
+      </div>
+      <div class="row top-buffer">
+        <div class="col-md-4 mb-4 mb-md-0">
+          <div class="row top-buffer">
+            <img id="product-image" src="https://m.media-amazon.com/images/I/51ltvkzGhGL.jpg" class="item-page-img">
+          </div>
+          
+            <div class="row top-buffer">
+              <h4>color</h4>
+              <div class="radio-toolbar">
+                
+                  
+                  
+                  
+                  <input type="radio" id="radio_color0" name="color" value="black" onclick="window.location.href='/item_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%27color%27:%20%27black%27%7D';">
+                  <label for="radio_color0">black</label>
+                
+                  
+                  
+                  
+                  <input type="radio" id="radio_color1" name="color" value="purple" onclick="window.location.href='/item_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%27color%27:%20%27purple%27%7D';">
+                  <label for="radio_color1">purple</label>
+                
+                  
+                  
+                  
+                  <input type="radio" id="radio_color2" name="color" value="red" onclick="window.location.href='/item_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%27color%27:%20%27red%27%7D';">
+                  <label for="radio_color2">red</label>
+                
+              </div>
+            </div>
+          
+            <div class="row top-buffer">
+              <h4>size</h4>
+              <div class="radio-toolbar">
+                
+                  
+                  
+                  
+                  <input type="radio" id="radio_size0" name="size" value="6.5" onclick="window.location.href='/item_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%27size%27:%20%276.5%27%7D';">
+                  <label for="radio_size0">6.5</label>
+                
+                  
+                  
+                  
+                  <input type="radio" id="radio_size1" name="size" value="7.5" onclick="window.location.href='/item_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%27size%27:%20%277.5%27%7D';">
+                  <label for="radio_size1">7.5</label>
+                
+                  
+                  
+                  
+                  <input type="radio" id="radio_size2" name="size" value="8" onclick="window.location.href='/item_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%27size%27:%20%278%27%7D';">
+                  <label for="radio_size2">8</label>
+                
+                  
+                  
+                  
+                  <input type="radio" id="radio_size3" name="size" value="8.5" onclick="window.location.href='/item_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%27size%27:%20%278.5%27%7D';">
+                  <label for="radio_size3">8.5</label>
+                
+                  
+                  
+                  
+                  <input type="radio" id="radio_size4" name="size" value="9" onclick="window.location.href='/item_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/%7B%27size%27:%20%279%27%7D';">
+                  <label for="radio_size4">9</label>
+                
+              </div>
+            </div>
+          
+        </div>
+        <div class="col-md-6">
+          <h2>PMUYBHF Womens Fashion Flat Shoes Comfortable Running Shoes Sneakers Tennis Athletic Shoe Casual Walking Shoes</h2>
+          <h4>Price: $100.0</h4>
+          <h4>Rating: N.A.</h4>
+          <div class="row top-buffer">
+            <div class="col-sm-3" name="description">
+              <form method="post" action="/item_sub_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/Description/%7B%7D">
+                <button class="btn btn-primary" type="submit">Description</button>
+              </form>
+            </div>
+            <div class="col-sm-3" name="bulletpoints">
+              <form method="post" action="/item_sub_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/Features/%7B%7D">
+                <button class="btn btn-primary" type="submit">Features</button>
+              </form>
+            </div>
+            <div class="col-sm-3" name="reviews">
+              <form method="post" action="/item_sub_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/Reviews/%7B%7D">
+                <button class="btn btn-primary" type="submit">Reviews</button>
+              </form>
+            </div>
+<!--
+            <div class="col-sm-3" name="attributes">
+              <form method="post" action="/item_sub_page/abc/B09P87V3LZ/%5B%27red%27%2C%20%27basketball%27%2C%20%27shoes%27%5D/1/Attributes/%7B%7D">
+                <button class="btn btn-primary" type="submit">Attributes</button>
+              </form>
+            </div>
+-->
+          </div>
+        </div>
+        <div class="col-sm-2">
+          <div class="row top-buffer">
+            <form method="post" action="/done/abc/B09P87V3LZ/%7B%7D">
+              <button type="submit" class="btn btn-lg purchase">Buy Now</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+  <script>
+    $(document).ready(function() {
+      $('input:radio').each(function() {
+        //console.log($(this).val());
+        let options = JSON.parse(`{}`);
+        let optionValues = $.map(options, function(value, key) { return value });
+        //console.log(optionValues);
+        if (optionValues.includes($(this).val())) {
+          $(this).prop('checked', true);
+
+          let option_to_image = JSON.parse(`{"6.5": null, "7.5": null, "8": null, "8.5": null, "9": null, "black": "https://m.media-amazon.com/images/I/41Dc8rtupYL.jpg", "purple": "https://m.media-amazon.com/images/I/51ltvkzGhGL.jpg", "red": "https://m.media-amazon.com/images/I/41aEwZA8zrL.jpg"}`);
+//          console.log($(this).val());
+//          console.log(options);
+//          console.log(option_to_image);
+          let image_url = option_to_image[$(this).val()];
+
+          console.log(image_url);
+          if (image_url) {
+            $("#product-image").attr("src", image_url);
+          }
+        }
+      });
+    });
+  </script>
+</html>

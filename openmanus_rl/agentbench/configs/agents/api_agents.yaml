@@ -1,0 +1,33 @@
+gpt-3.5-turbo-0613:
+    import: "./openai-chat.yaml"
+    parameters:
+        name: "gpt-3.5-turbo-0613"
+        body:
+            model: "gpt-3.5-turbo-0613"
+            max_tokens: 512
+
+qwq-32b:
+    import: "./qwq.yaml"
+    parameters:
+        name: "qwq-32b"
+        body:
+            model: "qwq-32b"
+            max_tokens: 512
+
+
+text-davinci-003:
+    import: "./openai-text.yaml"
+    parameters:
+        name: "text-davinci-003"
+        body:
+            model: "text-davinci-003"
+            max_tokens: 512
+
+text-davinci-002:
+    import: "./openai-text.yaml"
+    parameters:
+        name: "text-davinci-002"
+        body:
+            model: "text-davinci-002"
+            max_tokens: 512
+

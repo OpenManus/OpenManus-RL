@@ -1,0 +1,18 @@
+default:
+  module: "src.server.tasks.avalon.AvalonBench"
+  parameters:
+    concurrency: 5
+    num_players: 5
+    discussion: False
+
+avalon-dev-naive:
+  parameters:
+    name: "AvalonBench-dev-naive"
+    data_file: "data/avalon/dev.json"
+    agent_list: ["naive", "naive", "naive", "naive", "naive"]
+
+avalon-dev-single:
+  parameters:
+    name: "AvalonBench-dev-single"
+    data_file: "data/avalon/dev.json"
+    agent_list: ["llm", "naive", "naive", "naive", "naive"]
