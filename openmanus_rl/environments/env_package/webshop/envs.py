@@ -30,13 +30,7 @@ class WebshopWorker:
         info['available_actions'] = self.env.get_available_actions()
         info['task_score'] = reward
 
-        # Redefine reward. We only use rule-based reward - win for 10, lose for 0.
-        if done and reward == 1.0:
-            info['won'] = True
-            reward = 10.0
-        else:
-            info['won'] = False
-            reward = 0
+        info['won'] = reward == 1
 
         return obs, reward, done, info
     
