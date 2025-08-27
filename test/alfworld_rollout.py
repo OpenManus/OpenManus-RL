@@ -16,7 +16,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from openmanus_rl.multi_turn_rollout.openmanus_rollout import OpenmanusRollout
 from openmanus_rl.environments.env_manager import make_envs
-from openmanus_rl.environments.prompts.alfworld import ALFWORLD_OPENMANUS_TEMPLATE
+from openmanus_rl.environments.prompts.alfworld import ALFWORLD_OPENMANUS_INITIAL_TEMPLATE
 
 # Configure logging
 logging.basicConfig(
@@ -83,14 +83,14 @@ class TrajectoryStep:
 
 
 class LLMAgent:
-    """Agent that interfaces with LLM APIs for action generation."""
+    """Agent that interfaces with LLM APIs using chat-based conversation."""
     
     def __init__(self):
         # Check environment for API credentials
         self._setup_api()
-        self.history = []
+        self.chat_history = []  # Store chat messages for conversation flow
         self.current_task = None
-        self.step_counter = 0
+        self.is_first_turn = True
         
     def _setup_api(self):
         """Configure API based on environment variables."""
@@ -106,70 +106,64 @@ class LLMAgent:
     
     def reset(self, task_description: str):
         """Reset agent state for new episode."""
-        self.history.clear()
+        self.chat_history = []
         self.current_task = task_description
-        self.step_counter = 0
+        self.is_first_turn = True
+        
+        # Add system message to initialize the conversation
+        self.chat_history.append({
+            "role": "system", 
+            "content": "You are an expert AI agent solving household tasks in the ALFRED environment."
+        })
     
     def act(self, observation: str, admissible_actions: List[str]) -> Tuple[str, str]:
         """
-        Generate action based on current observation.
+        Generate action based on current observation using chat conversation.
         
         Returns:
             Tuple of (raw_response, action)
         """
-        self.step_counter += 1
+        if self.is_first_turn:
+            # First turn: use initial template with task description
+            user_message = self._create_initial_prompt(observation, admissible_actions)
+            self.is_first_turn = False
+        else:
+            # Subsequent turns: just provide observation and actions
+            user_message = self._create_followup_message(observation, admissible_actions)
         
-        # Build context from recent history
-        context = self._build_context()
-        
-        # Generate prompt using template
-        prompt = self._create_prompt(observation, admissible_actions, context)
+        # Add user message to chat history
+        self.chat_history.append({"role": "user", "content": user_message})
         
         # Get response from LLM or fallback
         if self.api_enabled:
-            response = self._query_llm(prompt)
+            response = self._query_llm_chat()
         else:
             response = self._heuristic_action(admissible_actions)
         
-        # Update history
-        self.history.append({
-            'step': self.step_counter,
-            'observation': observation[:200],  # Truncate for memory
-            'response': response
-        })
+        # Add assistant response to chat history
+        self.chat_history.append({"role": "assistant", "content": response})
         
-        # Keep history bounded
-        if len(self.history) > 5:
-            self.history.pop(0)
+        # Keep chat history bounded (keep system message + last 10 exchanges)
+        if len(self.chat_history) > 21:  # 1 system + 20 user/assistant messages
+            # Keep system message and last 10 exchanges (20 messages)
+            self.chat_history = [self.chat_history[0]] + self.chat_history[-20:]
         
         return response, self._extract_action(response)
     
-    def _build_context(self) -> str:
-        """Build context string from recent history."""
-        if not self.history:
-            return "No previous actions taken."
-        
-        context_parts = []
-        for entry in self.history[-3:]:  # Last 3 steps
-            obs_snippet = entry['observation'][:100]
-            context_parts.append(f"Step {entry['step']}: {obs_snippet}...")
-        
-        return "\n".join(context_parts)
-    
-    def _create_prompt(self, observation: str, actions: List[str], context: str) -> str:
-        """Format prompt using the template."""
-        return ALFWORLD_OPENMANUS_TEMPLATE.format(
+    def _create_initial_prompt(self, observation: str, actions: List[str]) -> str:
+        """Create initial prompt using the template for first turn."""
+        return ALFWORLD_OPENMANUS_INITIAL_TEMPLATE.format(
             task_description=self.current_task or "Complete the task",
-            step_count=max(0, self.step_counter - 1),
-            history_length=min(3, len(self.history)),
-            action_history=context,
-            current_step=self.step_counter,
             current_observation=observation,
             admissible_actions=", ".join(actions) if actions else "none available"
         )
     
-    def _query_llm(self, prompt: str) -> str:
-        """Query the LLM API."""
+    def _create_followup_message(self, observation: str, actions: List[str]) -> str:
+        """Create followup message for subsequent turns."""
+        return f"Observation: {observation}\n\nAvailable actions: [{', '.join(actions) if actions else 'none available'}]\n\nPlease respond with your memory recall, reflection, thinking, and action as instructed."
+    
+    def _query_llm_chat(self) -> str:
+        """Query the LLM API using chat history."""
         try:
             headers = {
                 "api-key": self.api_key,
@@ -180,10 +174,7 @@ class LLMAgent:
             url = f"{self.api_endpoint}/openai/deployments/gpt-4o/chat/completions?api-version=2024-05-13"
             
             payload = {
-                "messages": [
-                    {"role": "system", "content": "You are an expert AI agent solving household tasks."},
-                    {"role": "user", "content": prompt}
-                ],
+                "messages": self.chat_history,
                 "max_tokens": 1000,
                 "temperature": 0.7
             }
@@ -215,7 +206,9 @@ class LLMAgent:
                           "open cabinet 1", "take mug 1", "go to sinkbasin 1",
                           "clean mug 1", "go to coffeemachine 1", "put mug 1"]
         
-        idx = (self.step_counter - 1) % len(action_sequence)
+        # Use chat history length to determine step
+        step_num = (len(self.chat_history) - 1) // 2  # Subtract system message, divide by 2 for user/assistant pairs
+        idx = step_num % len(action_sequence)
         action = action_sequence[idx]
         
         # Check if action is valid
@@ -226,7 +219,10 @@ class LLMAgent:
                     action = act
                     break
         
-        return f"<think>\nExploring environment systematically.\n</think>\n\n<action>\n{action}\n</action>"
+        if self.is_first_turn:
+            return f"<think>\nExploring environment systematically for task: {self.current_task}\n</think>\n\n<action>\naction_choice: {action}\n</action>"
+        else:
+            return f"<memory_recall>\nRecalling previous exploration attempts.\n</memory_recall>\n\n<reflection>\nContinuing systematic exploration.\n</reflection>\n\n<think>\nNext logical step in exploration.\n</think>\n\n<action>\naction_choice: {action}\n</action>"
     
     def _extract_action(self, response: str) -> str:
         """Extract action from structured response."""
