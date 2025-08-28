@@ -1,0 +1,37 @@
+
+round 1
+
+think action reflction
+
+alfworld
+
+frokenlake
+
+
+
+round 2
+
+think 
+
+multi turn
+
+input:  + reflection
+
+llm 
+
+output
+<opt toolcall>?
+think
+action
+
+(reflction + update memory)
+
+thinking mode
+
+
+new:
+action + env feekback 
+memory record
+
+Auguest 28
+todo: agent-bench
