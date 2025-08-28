@@ -270,7 +270,22 @@ class ModularStageProcessor:
             tag_pattern = tag.replace(' ', r'\s*')
             pattern = f'<{tag_pattern}>(.*?)</{tag_pattern}>'
             match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-            result[tag.replace(' ', '_')] = match.group(1).strip() if match else None
+            content = match.group(1).strip() if match else None
+            
+            # Special handling for action tag to extract action_choice
+            if tag == 'action' and content:
+                if 'action_choice:' in content:
+                    parts = content.split('action_choice:')
+                    if len(parts) > 1:
+                        action = parts[1].split('\n')[0].strip()
+                        # Remove quotes if present
+                        action = action.strip("'\"")
+                        content = action
+                else:
+                    # Remove quotes from first line
+                    content = content.split('\n')[0].strip().strip("'\"")
+            
+            result[tag.replace(' ', '_')] = content
         
         return result
 

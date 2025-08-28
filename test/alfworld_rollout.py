@@ -94,12 +94,22 @@ class LLMAgent:
         
     def _setup_api(self):
         """Configure API based on environment variables."""
-        self.api_key = os.getenv('OAI_KEY')
-        self.api_endpoint = os.getenv('OAI_ENDPOINT')
+        # Support both OpenAI and Azure OpenAI
+        self.api_key = os.getenv('OPENAI_API_KEY') or os.getenv('OAI_KEY')
+        self.api_base = os.getenv('OPENAI_API_BASE') or os.getenv('OAI_ENDPOINT')
+        self.api_type = os.getenv('OPENAI_API_TYPE', 'openai')  # 'openai' or 'azure'
         
-        if self.api_key and self.api_endpoint:
+        if self.api_key:
             self.api_enabled = True
-            logger.info(f"API configured: {self.api_endpoint[:30]}...")
+            if self.api_type == 'azure' and self.api_base:
+                logger.info(f"Azure OpenAI configured: {self.api_base[:30]}...")
+            elif self.api_type == 'openai':
+                if not self.api_base:
+                    self.api_base = 'https://api.openai.com'
+                logger.info(f"OpenAI API configured")
+            else:
+                self.api_enabled = False
+                logger.warning("Invalid API configuration")
         else:
             self.api_enabled = False
             logger.warning("No API credentials found, using heuristic fallback")
@@ -165,19 +175,29 @@ class LLMAgent:
     def _query_llm_chat(self) -> str:
         """Query the LLM API using chat history."""
         try:
-            headers = {
-                "api-key": self.api_key,
-                "Content-Type": "application/json"
-            }
-            
-            # Azure OpenAI format
-            url = f"{self.api_endpoint}/openai/deployments/gpt-4o/chat/completions?api-version=2024-05-13"
+            # Set headers based on API type
+            if self.api_type == 'azure':
+                headers = {
+                    "api-key": self.api_key,
+                    "Content-Type": "application/json"
+                }
+                url = f"{self.api_base}/openai/deployments/gpt-4o/chat/completions?api-version=2024-05-13"
+            else:  # OpenAI API
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+                url = f"{self.api_base}/v1/chat/completions"
             
             payload = {
+                "model": "gpt-4o" if self.api_type == 'openai' else None,  # OpenAI needs model in payload
                 "messages": self.chat_history,
                 "max_tokens": 1000,
                 "temperature": 0.7
             }
+            
+            # Remove None values from payload
+            payload = {k: v for k, v in payload.items() if v is not None}
             
             response = requests.post(url, headers=headers, json=payload, timeout=30)
             
@@ -235,10 +255,15 @@ class LLMAgent:
             if 'action_choice:' in action_text:
                 parts = action_text.split('action_choice:')
                 if len(parts) > 1:
-                    return parts[1].split('\n')[0].strip()
+                    action = parts[1].split('\n')[0].strip()
+                    # Remove quotes if present
+                    action = action.strip("'\"")
+                    return action
             
-            # Return first line if no special format
-            return action_text.split('\n')[0].strip()
+            # Return first line if no special format, removing quotes
+            action = action_text.split('\n')[0].strip()
+            action = action.strip("'\"")
+            return action
         
         # Smarter fallback: try to extract meaningful action from response
         response_lower = response.lower()
