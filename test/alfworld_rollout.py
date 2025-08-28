@@ -7,12 +7,14 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
-
+from dotenv import load_dotenv
 import requests
 
 # Configure project imports
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+load_dotenv(PROJECT_ROOT / '.env')
 
 from openmanus_rl.multi_turn_rollout.openmanus_rollout import OpenmanusRollout
 from openmanus_rl.environments.env_manager import make_envs
@@ -144,11 +146,11 @@ class LLMAgent:
         # Add user message to chat history
         self.chat_history.append({"role": "user", "content": user_message})
         
-        # Get response from LLM or fallback
-        if self.api_enabled:
-            response = self._query_llm_chat()
-        else:
-            response = self._heuristic_action(admissible_actions)
+        # Get response from LLM only, no fallback
+        if not self.api_enabled:
+            raise RuntimeError("API not configured. Please set OPENAI_API_KEY and OPENAI_API_BASE")
+        
+        response = self._query_llm_chat()
         
         # Add assistant response to chat history
         self.chat_history.append({"role": "assistant", "content": response})
@@ -213,36 +215,12 @@ class LLMAgent:
                 return content
             else:
                 logger.error(f"API error {response.status_code}: {response.text[:200]}")
-                return self._heuristic_action([])
+                raise RuntimeError(f"API request failed with status {response.status_code}: {response.text[:200]}")
                 
         except Exception as e:
             logger.error(f"API exception: {e}")
-            return self._heuristic_action([])
+            raise RuntimeError(f"API request failed: {e}")
     
-    def _heuristic_action(self, available_actions: List[str]) -> str:
-        """Simple heuristic for action selection when API unavailable."""
-        # Basic exploration strategy
-        action_sequence = ["look", "inventory", "go to kitchen", "go to cabinet 1", 
-                          "open cabinet 1", "take mug 1", "go to sinkbasin 1",
-                          "clean mug 1", "go to coffeemachine 1", "put mug 1"]
-        
-        # Use chat history length to determine step
-        step_num = (len(self.chat_history) - 1) // 2  # Subtract system message, divide by 2 for user/assistant pairs
-        idx = step_num % len(action_sequence)
-        action = action_sequence[idx]
-        
-        # Check if action is valid
-        if available_actions and action not in str(available_actions):
-            # Try to find a similar valid action
-            for act in available_actions:
-                if any(keyword in act.lower() for keyword in ['go', 'take', 'put', 'open']):
-                    action = act
-                    break
-        
-        if self.is_first_turn:
-            return f"<think>\nExploring environment systematically for task: {self.current_task}\n</think>\n\n<action>\naction_choice: {action}\n</action>"
-        else:
-            return f"<memory_recall>\nRecalling previous exploration attempts.\n</memory_recall>\n\n<reflection>\nContinuing systematic exploration.\n</reflection>\n\n<think>\nNext logical step in exploration.\n</think>\n\n<action>\naction_choice: {action}\n</action>"
     
     def _extract_action(self, response: str) -> str:
         """Extract action from structured response."""
