@@ -325,16 +325,17 @@ class TrajectoryCollector:
             step.admissible_actions = obs.get('admissible_actions', [None])[0] or []
             
             # Generate action
-            raw_response, _ = agent.act(step.observation_before, step.admissible_actions)
+            raw_response, extracted_action = agent.act(step.observation_before, step.admissible_actions)
             step.llm_response = raw_response
             
-            # Process response through rollout system
-            action, _ = rollout_processor.process_response(
+            # Use the action extracted by agent (which removes quotes properly)
+            # Still process through rollout system for logging/tracking
+            _, _ = rollout_processor.process_response(
                 raw_response,
                 episode_id=f"ep_{datetime.now().strftime('%H%M%S')}",
                 step_id=step_num
             )
-            step.parsed_action = action or "look"
+            step.parsed_action = extracted_action or "look"
             
             # Validate action before execution
             if step.admissible_actions and step.parsed_action not in step.admissible_actions:
