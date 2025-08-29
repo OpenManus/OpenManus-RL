@@ -118,9 +118,15 @@ class WebshopMultiProcessEnv(gym.Env):
         #     self.goal_idxs = range(len(self.env.server.goals))
 
         if not self.is_train:
-            self.goal_idxs = range(500)
+            self.goal_idxs = range(min(500, len(goals)))
         else:
-            self.goal_idxs = range(500, len(goals))
+            # For training, use goals starting from index 500, or all goals if less than 500 available
+            start_idx = min(500, len(goals))
+            if start_idx >= len(goals):
+                # If we don't have enough goals for the split, use all available goals
+                self.goal_idxs = range(len(goals))
+            else:
+                self.goal_idxs = range(start_idx, len(goals))
             
         print(self.goal_idxs)
 

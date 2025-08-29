@@ -45,7 +45,9 @@ class TrajectoryCollector:
         """
 
         raw_prompt = gen_batch.non_tensor_batch['raw_prompt'][item]
-        data_source = gen_batch.non_tensor_batch['data_source'][item]
+        # data_source = gen_batch.non_tensor_batch['data_source'][item]
+        # TODO: tmp
+        data_source = 'webshop'
         
         # Get observation components
         obs_texts = obs.get('text', None)
@@ -464,7 +466,7 @@ class TrajectoryCollector:
             DataProto: Final collected trajectory data with metadata.
         """
         # Initial observations from the environment
-        if self.config.algorithm.filter_groups.enable and is_train:
+        if self.config.algorithm.filter_groups and self.config.algorithm.filter_groups.enable and is_train:
             # Dynamic Sampling (for DAPO and Dynamic GiGPO)
             total_batch_list, total_episode_rewards, total_episode_lengths, total_success, total_traj_uid = \
                 self.dynamic_multi_turn_loop(

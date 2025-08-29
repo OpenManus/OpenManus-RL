@@ -1,4 +1,5 @@
 import gym
+from gym import spaces
 import json
 import random
 import string
@@ -59,6 +60,11 @@ class WebAgentTextEnv(gym.Env):
         self.observation_mode = observation_mode
         self.kwargs = kwargs
 
+        # Define action and observation spaces as required by Gym
+        # These are fake/placeholder spaces since actual actions and observations are strings
+        self.action_space = spaces.Discrete(1)  
+        self.observation_space = spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32)
+
         self._seed = kwargs.get('seed', 42)
 
         random.seed(self._seed)
@@ -104,7 +110,7 @@ class WebAgentTextEnv(gym.Env):
           - click[value]
         If action not valid, perform nothing.
         """
-        info = None
+        info = {}
         self.get_available_actions()
 
         # Determine action type (click, search) and argument
@@ -270,7 +276,7 @@ class WebAgentTextEnv(gym.Env):
         obs = self.observation
         self.prev_obs = [obs]
         self.prev_actions = []
-        return obs, None
+        return obs, {}
 
     def render(self, mode='human'):
         pass
