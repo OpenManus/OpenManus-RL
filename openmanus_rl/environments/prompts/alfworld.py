@@ -16,8 +16,11 @@ You are now at step {current_step} and your current observation is: {current_obs
 Your admissible actions of the current situation are: [{admissible_actions}].
 
 Now it's your turn to take an action.
-You should first reason step-by-step about the current situation. This reasoning process MUST be enclosed within <think> </think> tags. 
-Once you've finished your reasoning, you should choose an admissible action for current step and present it within <action> </action> tags.
+Please respond with your structured analysis following the format you were instructed:
+First, recall relevant past experiences and reason from our conversation history within <memory_recall> </memory_recall> tags.
+Then, reflect on your last action's outcome within <reflection> </reflection> tags.
+Next, plan the next step based on memory and reflection within <think> </think> tags.
+Finally, specify your admissible action from the list within <action> </action> tags.
 """
 
 ALFWORLD_OPENMANUS_INITIAL_TEMPLATE = """
@@ -45,7 +48,7 @@ action_parameters: {{relevant details about the action if applicable}}
 From now on, I will provide you with observations after each action, and you should respond with memory recall, reflection, thinking, and your next action in this format:
 
 <memory_recall>
-[Recall relevant past experiences and reasoning from our conversation history]
+[Recall relevant past experiences and reason from our conversation history]
 - What similar situations have I encountered?
 - What strategies worked or failed before?
 - What objects or locations have I discovered?

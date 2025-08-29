@@ -7,6 +7,10 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing as mp
+import time
+import random
 
 import requests
 
@@ -35,12 +39,12 @@ class ExperimentConfig:
     save_trajectories: bool = True
     output_dir: str = "trajectories"
     history_window: int = 3
+    parallel_tasks: int = 1  # Number of parallel tasks to run
     
-    @property
-    def env_config(self):
+    def env_config(self, seed_offset=0):
         return {
             'env_name': 'alfworld/AlfredTWEnv',
-            'seed': self.seed,
+            'seed': self.seed + seed_offset,
             'max_steps': self.max_steps,
             'history_length': self.history_window,
             'rollout': type('RolloutConfig', (), {'n': 0})()
@@ -299,10 +303,13 @@ class TrajectoryCollector:
         self._setup_output_dir()
     
     def _setup_output_dir(self):
-        """Create output directory if needed."""
+        """Create output directories if needed."""
         Path(self.config.output_dir).mkdir(parents=True, exist_ok=True)
+        # Create subdirectories for trajectories and chat histories
+        Path(os.path.join(self.config.output_dir, "trajectories")).mkdir(parents=True, exist_ok=True)
+        Path(os.path.join(self.config.output_dir, "chat_histories")).mkdir(parents=True, exist_ok=True)
     
-    def collect(self, env, agent, rollout_processor) -> Dict[str, Any]:
+    def collect(self, env, agent, rollout_processor, task_idx: int = 0) -> Tuple[Dict[str, Any], List[Dict], str]:
         """
         Collect a single trajectory.
         
@@ -315,6 +322,9 @@ class TrajectoryCollector:
         # Initialize agent with task
         task_description = obs['text'][0]
         agent.reset(task_description)
+        
+        # Store task index for identification
+        task_idx_for_result = task_idx
         
         logger.info(f"Starting trajectory collection for task: {task_description[:100]}...")
         
@@ -376,20 +386,35 @@ class TrajectoryCollector:
             
             obs = next_obs
         
+        # Extract AlfWorld task ID from gamefile path if available
+        alfworld_task_id = None
+        if trajectory and trajectory[0].metadata.get('info', {}).get('extra.gamefile'):
+            gamefile = trajectory[0].metadata['info']['extra.gamefile']
+            # Extract task name from path like: .../pick_and_place_simple-SoapBottle-None-Toilet-429/...
+            parts = gamefile.split('/')
+            for part in parts:
+                # Match any task type that contains these patterns
+                if any(pattern in part for pattern in ['pick_and_place', 'look_at', 'clean_and_place', 'pick_clean_then_place', 'pick_two']):
+                    alfworld_task_id = part  # Keep the full ID including the number
+                    break
+        
         return {
             'task': task_description,
             'steps': [s.to_dict() for s in trajectory],
             'total_reward': sum(s.reward for s in trajectory),
             'success': any(s.won for s in trajectory),  # True if any step shows won=True
-            'length': len(trajectory)
-        }
+            'length': len(trajectory),
+            'task_idx': task_idx_for_result,
+            'alfworld_task_id': alfworld_task_id
+        }, agent.chat_history, alfworld_task_id  # Return chat history and task ID
     
-    def save(self, trajectory: Dict[str, Any], run_id: str = None) -> str:
-        """Save trajectory to JSON file."""
+    def save(self, trajectory: Dict[str, Any], chat_history: List[Dict] = None, run_id: str = None) -> Tuple[str, str]:
+        """Save trajectory and chat history to JSON files."""
         if run_id is None:
             run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        filename = Path(self.config.output_dir) / f"traj_{run_id}.json"
+        # Save trajectory to trajectories subfolder
+        traj_filename = Path(self.config.output_dir) / "trajectories" / f"traj_{run_id}.json"
         
         # Add metadata
         output = {
@@ -402,38 +427,54 @@ class TrajectoryCollector:
             'trajectory': trajectory
         }
         
-        with open(filename, 'w') as f:
+        with open(traj_filename, 'w') as f:
             json.dump(output, f, indent=2)
         
-        file_size_kb = os.path.getsize(filename) / 1024
-        logger.info(f"Saved trajectory to {filename} ({file_size_kb:.2f} KB)")
+        file_size_kb = os.path.getsize(traj_filename) / 1024
+        logger.info(f"Saved trajectory to {traj_filename} ({file_size_kb:.2f} KB)")
         
-        return str(filename)
+        # Save chat history if provided
+        chat_filename = None
+        if chat_history:
+            chat_filename = Path(self.config.output_dir) / "chat_histories" / f"chat_{run_id}.json"
+            chat_output = {
+                'metadata': {
+                    'timestamp': run_id,
+                    'task_idx': trajectory.get('task_idx', 0),
+                    'task': trajectory.get('task', ''),
+                    'success': trajectory.get('success', False)
+                },
+                'chat_history': chat_history
+            }
+            
+            with open(chat_filename, 'w') as f:
+                json.dump(chat_output, f, indent=2)
+            
+            chat_size_kb = os.path.getsize(chat_filename) / 1024
+            logger.info(f"Saved chat history to {chat_filename} ({chat_size_kb:.2f} KB)")
+        
+        return str(traj_filename), str(chat_filename) if chat_filename else None
 
 
-def run_experiment(config: Optional[ExperimentConfig] = None) -> bool:
+def run_single_task(task_id: int, config: ExperimentConfig, seed_offset: int = 0) -> Tuple[bool, str]:
     """
-    Run a complete trajectory collection experiment.
+    Run a single trajectory collection task.
     
     Args:
-        config: Experiment configuration (uses defaults if None)
+        task_id: Unique ID for this task
+        config: Experiment configuration
+        seed_offset: Offset for environment seed to ensure different tasks
     
     Returns:
-        Success status
+        Tuple of (success status, task description)
     """
-    if config is None:
-        config = ExperimentConfig()
-    
-    logger.info("Starting AlfWorld trajectory collection")
-    logger.info(f"Configuration: batch_size={config.batch_size}, max_steps={config.max_steps}")
+    logger.info(f"[Task {task_id}] Starting trajectory collection with seed offset {seed_offset}")
     
     try:
-        # Initialize environment
-        logger.info("Initializing environment...")
-        
+        # Initialize environment with unique seed
         # Create minimal config for environment
         env_config = type('Config', (), {
-            'env': type('EnvConfig', (), config.env_config)(),
+            'env': type('EnvConfig', (), config.env_config(seed_offset))(),
             'data': type('DataConfig', (), {
                 'train_batch_size': config.batch_size,
                 'val_batch_size': 1
@@ -450,36 +491,99 @@ def run_experiment(config: Optional[ExperimentConfig] = None) -> bool:
         tokenizer = type('Tokenizer', (), {'pad_token_id': 0})()
         rollout = OpenmanusRollout(env_config, tokenizer, None)
         
-        # Collect trajectory
-        trajectory = collector.collect(envs, agent, rollout)
+        # Collect trajectory with task ID
+        trajectory, chat_history, alfworld_task_id = collector.collect(envs, agent, rollout, task_idx=task_id)
         
-        # Save results
+        # Extract task description
+        task_desc = trajectory['task'].split('Your task is to: ')[1].split('.')[0] if 'Your task is to:' in trajectory['task'] else trajectory['task'][:80]
+        
+        # Print immediate result
+        status = "✓" if trajectory['success'] else "✗"
+        print(f"[Task {task_id:3d}] {status} Steps: {trajectory['length']:2d} | {task_desc[:60]}", flush=True)
+        
+        # Save results with unique ID (use AlfWorld task ID if available)
         if config.save_trajectories:
-            saved_path = collector.save(trajectory)
-            logger.info(f"Experiment complete. Results saved to {saved_path}")
+            if alfworld_task_id:
+                # Use full AlfWorld task ID for naming (including the number at the end)
+                run_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{alfworld_task_id}"
+            else:
+                run_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_task{task_id:03d}"
+            saved_traj, saved_chat = collector.save(trajectory, chat_history, run_id)
+            logger.debug(f"[Task {task_id}] Saved to {saved_traj}")
         
-        # Print summary
-        print("\n" + "="*50)
-        print("TRAJECTORY COLLECTION SUMMARY")
-        print("="*50)
-        print(f"Task: {trajectory['task'][:80]}...")
-        print(f"Steps taken: {trajectory['length']}")
-        print(f"Total reward: {trajectory['total_reward']:.2f}")
-        print(f"Success: {'Yes' if trajectory['success'] else 'No'}")
-        
-        return True
+        return trajectory['success'], task_desc
         
     except Exception as e:
-        logger.error(f"Experiment failed: {e}")
+        logger.error(f"[Task {task_id}] Failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        return False, f"Error: {str(e)}"
     
     finally:
         try:
             envs.close()
         except:
             pass
+
+
+def run_parallel_experiments(config: ExperimentConfig, num_tasks: int) -> int:
+    """
+    Run multiple experiments in parallel.
+    
+    Args:
+        config: Experiment configuration
+        num_tasks: Number of tasks to run
+    
+    Returns:
+        Number of successful tasks
+    """
+    logger.info(f"Starting {num_tasks} tasks with up to {config.parallel_tasks} parallel workers")
+    
+    # Determine actual parallelism
+    actual_parallel = min(config.parallel_tasks, num_tasks)
+    
+    # Run tasks
+    successes = 0
+    task_results = []
+    
+    if actual_parallel == 1:
+        # Sequential execution
+        for task_id in range(num_tasks):
+            success, task_desc = run_single_task(task_id, config, seed_offset=task_id * 100)
+            if success:
+                successes += 1
+            task_results.append((task_id, success, task_desc))
+    else:
+        # Parallel execution
+        with ProcessPoolExecutor(max_workers=actual_parallel) as executor:
+            # Submit all tasks
+            futures = {}
+            for task_id in range(num_tasks):
+                future = executor.submit(run_single_task, task_id, config, seed_offset=task_id * 100)
+                futures[future] = task_id
+            
+            # Collect results as they complete
+            for future in as_completed(futures):
+                task_id = futures[future]
+                try:
+                    success, task_desc = future.result()
+                    if success:
+                        successes += 1
+                    task_results.append((task_id, success, task_desc))
+                except Exception as e:
+                    logger.error(f"Task {task_id} failed with exception: {e}")
+                    task_results.append((task_id, False, f"Exception: {str(e)}"))
+    
+    # Print final summary
+    print("\n" + "="*70)
+    print("TRAJECTORY COLLECTION SUMMARY")
+    print("="*70)
+    print(f"Total tasks: {num_tasks}")
+    print(f"Successful: {successes} ({100 * successes / num_tasks:.1f}%)")
+    print(f"Failed: {num_tasks - successes} ({100 * (num_tasks - successes) / num_tasks:.1f}%)")
+    print("="*70)
+    
+    return successes
 
 
 if __name__ == "__main__":
@@ -490,6 +594,7 @@ if __name__ == "__main__":
     parser.add_argument('--steps', type=int, default=10, help='Max steps per episode')
     parser.add_argument('--batch', type=int, default=1, help='Batch size')
     parser.add_argument('--num_tasks', type=int, default=1, help='Number of tasks to run')
+    parser.add_argument('--parallel', type=int, default=1, help='Number of parallel workers')
     parser.add_argument('--no-save', action='store_true', help='Disable trajectory saving')
     
     args = parser.parse_args()
@@ -498,15 +603,16 @@ if __name__ == "__main__":
     exp_config = ExperimentConfig(
         max_steps=args.steps,
         batch_size=args.batch,
-        save_trajectories=not args.no_save
+        save_trajectories=not args.no_save,
+        parallel_tasks=args.parallel
     )
     
-    # Run multiple tasks if requested
-    successes = 0
-    for task_idx in range(args.num_tasks):
-        logger.info(f"\n=== Running task {task_idx + 1}/{args.num_tasks} ===")
-        if run_experiment(exp_config):
-            successes += 1
-    
-    logger.info(f"\n=== Completed {successes}/{args.num_tasks} tasks successfully ===")
-    sys.exit(0 if successes == args.num_tasks else 1)
+    # Run experiments
+    if args.num_tasks == 1:
+        # Single task
+        success, _ = run_single_task(0, exp_config)
+        sys.exit(0 if success else 1)
+    else:
+        # Multiple tasks (possibly parallel)
+        successes = run_parallel_experiments(exp_config, args.num_tasks)
+        sys.exit(0 if successes == args.num_tasks else 1)
