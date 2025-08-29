@@ -76,5 +76,33 @@ action_parameters: {{relevant details about the action if applicable}}
 </action>
 """
 
+# ReAct (Reasoning and Acting) style templates - simple and direct
+ALFWORLD_REACT_INITIAL_TEMPLATE = """
+You are an expert agent operating in the ALFRED Embodied Environment. Your task is to: {task_description}
+
+Current observation: {current_observation}
+Available actions: [{admissible_actions}]
+
+Use the ReAct framework: Think about what to do, then act.
+
+Think: Analyze the current situation and decide what action to take to accomplish your task.
+Act: Choose one action from the available actions list.
+
+Think: {task_description} - I need to break this down into steps. Looking at my current environment, what should I do first?
+
+Act: [choose one action from the list above]
+"""
+
+ALFWORLD_REACT_TEMPLATE = """
+You are an expert agent operating in the ALFRED Embodied Environment. Your task is to: {task_description}
+
+Observation: {current_observation}
+Available actions: [{admissible_actions}]
+
+Think: Based on this new observation, what should I do next to accomplish my task?
+
+Act: [choose one action from the available actions list]
+"""
+
 # Keep the old template name for backward compatibility
 ALFWORLD_OPENMANUS_TEMPLATE = ALFWORLD_OPENMANUS_INITIAL_TEMPLATE

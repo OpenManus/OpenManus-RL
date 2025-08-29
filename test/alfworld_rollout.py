@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from dotenv import load_dotenv
 import multiprocessing as mp
 import time
 import random
@@ -18,9 +19,11 @@ import requests
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+load_dotenv(PROJECT_ROOT / ".env")
+
 from openmanus_rl.multi_turn_rollout.openmanus_rollout import OpenmanusRollout
 from openmanus_rl.environments.env_manager import make_envs
-from openmanus_rl.environments.prompts.alfworld import ALFWORLD_OPENMANUS_INITIAL_TEMPLATE
+from openmanus_rl.environments.prompts.alfworld import ALFWORLD_OPENMANUS_INITIAL_TEMPLATE, ALFWORLD_REACT_INITIAL_TEMPLATE, ALFWORLD_REACT_TEMPLATE
 
 # Configure logging
 logging.basicConfig(
@@ -40,6 +43,7 @@ class ExperimentConfig:
     output_dir: str = "trajectories"
     history_window: int = 3
     parallel_tasks: int = 1  # Number of parallel tasks to run
+    prompt_style: str = "openmanus"  # "openmanus" or "react"
     
     def env_config(self, seed_offset=0):
         return {
@@ -89,12 +93,13 @@ class TrajectoryStep:
 class LLMAgent:
     """Agent that interfaces with LLM APIs using chat-based conversation."""
     
-    def __init__(self):
+    def __init__(self, prompt_style: str = "openmanus"):
         # Check environment for API credentials
         self._setup_api()
         self.chat_history = []  # Store chat messages for conversation flow
         self.current_task = None
         self.is_first_turn = True
+        self.prompt_style = prompt_style  # "openmanus" or "react"
         
     def _setup_api(self):
         """Configure API based on environment variables."""
@@ -116,7 +121,6 @@ class LLMAgent:
                 logger.warning("Invalid API configuration")
         else:
             self.api_enabled = False
-            logger.warning("No API credentials found, using heuristic fallback")
     
     def reset(self, task_description: str):
         """Reset agent state for new episode."""
@@ -124,10 +128,54 @@ class LLMAgent:
         self.current_task = task_description
         self.is_first_turn = True
         
-        # Add system message to initialize the conversation
+        # Choose system message based on prompt style
+        if self.prompt_style == "react":
+            system_instructions = """You are an expert AI agent solving household tasks in the ALFRED environment.
+
+Use the ReAct (Reasoning and Acting) framework:
+1. Think: Reason about what to do next
+2. Act: Choose and execute an action
+
+For each turn, respond in this format:
+Think: [your reasoning about the current situation and what to do next]
+Act: [choose one action from the provided list]
+
+Keep your thinking concise and focused on the immediate next step."""
+        else:  # openmanus prompt style
+            system_instructions = """You are an expert AI agent solving household tasks in the ALFRED environment.
+
+From now on, I will provide you with observations after each action, and you should respond with memory recall, reflection, thinking, and your next action in this format:
+
+<memory_recall>
+[Recall relevant past experiences and reason from our conversation history]
+- What similar situations have I encountered?
+- What strategies worked or failed before?
+- What objects or locations have I discovered?
+- What was my previous reasoning and plans?
+</memory_recall>
+
+<reflection>
+[Reflect on the last action and its outcome]
+- What did my last action accomplish?
+- Was it successful or did it encounter issues?
+- How does this outcome affect my plan?
+- Am I making progress toward the task goal?
+</reflection>
+
+<think>
+[Plan the next step based on memory and reflection]
+- Given what I've learned, what should I do next?
+- How does this action fit into my overall strategy?
+- What do I expect this action to achieve?
+</think>
+
+<action>
+action_choice: [selected admissible action from the list]
+</action>"""
+        
         self.chat_history.append({
             "role": "system", 
-            "content": "You are an expert AI agent solving household tasks in the ALFRED environment."
+            "content": system_instructions
         })
     
     def act(self, observation: str, admissible_actions: List[str]) -> Tuple[str, str]:
@@ -148,108 +196,122 @@ class LLMAgent:
         # Add user message to chat history
         self.chat_history.append({"role": "user", "content": user_message})
         
-        # Get response from LLM or fallback
-        if self.api_enabled:
-            response = self._query_llm_chat()
-        else:
-            response = self._heuristic_action(admissible_actions)
-        
+        # Get response from LLM only, no fallback
+
+        if not self.api_enabled:
+            raise RuntimeError("API not configured. Please set OPENAI_API_KEY and OPENAI_API_BASE")
+
+        response = self._query_llm_chat()
         # Add assistant response to chat history
         self.chat_history.append({"role": "assistant", "content": response})
         
-        # Keep chat history bounded (keep system message + last 10 exchanges)
-        if len(self.chat_history) > 21:  # 1 system + 20 user/assistant messages
-            # Keep system message and last 10 exchanges (20 messages)
-            self.chat_history = [self.chat_history[0]] + self.chat_history[-20:]
+        # Keep full chat history for complete trajectory recording
+        # (removed chat history truncation to preserve all conversation data)
         
         return response, self._extract_action(response)
     
     def _create_initial_prompt(self, observation: str, actions: List[str]) -> str:
         """Create initial prompt using the template for first turn."""
-        return ALFWORLD_OPENMANUS_INITIAL_TEMPLATE.format(
-            task_description=self.current_task or "Complete the task",
-            current_observation=observation,
-            admissible_actions=", ".join(actions) if actions else "none available"
-        )
+        if self.prompt_style == "react":
+            return ALFWORLD_REACT_INITIAL_TEMPLATE.format(
+                task_description=self.current_task or "Complete the task",
+                current_observation=observation,
+                admissible_actions=", ".join(actions) if actions else "none available"
+            )
+        else:
+            return ALFWORLD_OPENMANUS_INITIAL_TEMPLATE.format(
+                task_description=self.current_task or "Complete the task",
+                current_observation=observation,
+                admissible_actions=", ".join(actions) if actions else "none available"
+            )
     
     def _create_followup_message(self, observation: str, actions: List[str]) -> str:
         """Create followup message for subsequent turns."""
-        return f"Observation: {observation}\n\nAvailable actions: [{', '.join(actions) if actions else 'none available'}]\n\nPlease respond with your memory recall, reflection, thinking, and action as instructed."
-    
-    def _query_llm_chat(self) -> str:
-        """Query the LLM API using chat history."""
-        try:
-            # Set headers based on API type
-            if self.api_type == 'azure':
-                headers = {
-                    "api-key": self.api_key,
-                    "Content-Type": "application/json"
-                }
-                url = f"{self.api_base}/openai/deployments/gpt-4o/chat/completions?api-version=2024-05-13"
-            else:  # OpenAI API
-                headers = {
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                }
-                url = f"{self.api_base}/v1/chat/completions"
-            
-            payload = {
-                "model": "gpt-4o" if self.api_type == 'openai' else None,  # OpenAI needs model in payload
-                "messages": self.chat_history,
-                "max_tokens": 1000,
-                "temperature": 0.7
-            }
-            
-            # Remove None values from payload
-            payload = {k: v for k, v in payload.items() if v is not None}
-            
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
-            
-            if response.status_code == 200:
-                content = response.json()['choices'][0]['message']['content']
-                logger.debug(f"LLM response received: {len(content)} chars")
-                
-                # Check if response was truncated (missing action tags)
-                if '<think>' in content and not ('</action>' in content or '</reflect' in content.lower()):
-                    logger.warning(f"Response appears truncated, missing action tags")
-                    # Could implement retry with simpler prompt here
-                
-                return content
-            else:
-                logger.error(f"API error {response.status_code}: {response.text[:200]}")
-                return self._heuristic_action([])
-                
-        except Exception as e:
-            logger.error(f"API exception: {e}")
-            return self._heuristic_action([])
-    
-    def _heuristic_action(self, available_actions: List[str]) -> str:
-        """Simple heuristic for action selection when API unavailable."""
-        # Basic exploration strategy
-        action_sequence = ["look", "inventory", "go to kitchen", "go to cabinet 1", 
-                          "open cabinet 1", "take mug 1", "go to sinkbasin 1",
-                          "clean mug 1", "go to coffeemachine 1", "put mug 1"]
-        
-        # Use chat history length to determine step
-        step_num = (len(self.chat_history) - 1) // 2  # Subtract system message, divide by 2 for user/assistant pairs
-        idx = step_num % len(action_sequence)
-        action = action_sequence[idx]
-        
-        # Check if action is valid
-        if available_actions and action not in str(available_actions):
-            # Try to find a similar valid action
-            for act in available_actions:
-                if any(keyword in act.lower() for keyword in ['go', 'take', 'put', 'open']):
-                    action = act
-                    break
-        
-        if self.is_first_turn:
-            return f"<think>\nExploring environment systematically for task: {self.current_task}\n</think>\n\n<action>\naction_choice: {action}\n</action>"
+        if self.prompt_style == "react":
+            return ALFWORLD_REACT_TEMPLATE.format(
+                task_description=self.current_task or "Complete the task",
+                current_observation=observation,
+                admissible_actions=", ".join(actions) if actions else "none available"
+            )
         else:
-            return f"<memory_recall>\nRecalling previous exploration attempts.\n</memory_recall>\n\n<reflection>\nContinuing systematic exploration.\n</reflection>\n\n<think>\nNext logical step in exploration.\n</think>\n\n<action>\naction_choice: {action}\n</action>"
+            return f"Observation: {observation}\n\nAvailable actions: [{', '.join(actions) if actions else 'none available'}]\n\nPlease respond with your memory recall, reflection, thinking, and action as instructed."
+    
+    def _query_llm_chat(self, max_retries: int = 3) -> str:
+        """Query the LLM API using chat history with retry logic."""
+        for attempt in range(max_retries):
+            try:
+                # Set headers based on API type
+                if self.api_type == 'azure':
+                    headers = {
+                        "api-key": self.api_key,
+                        "Content-Type": "application/json"
+                    }
+                    url = f"{self.api_base}/openai/deployments/gpt-4o/chat/completions?api-version=2024-05-13"
+                else:  # OpenAI API
+                    headers = {
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    }
+                    url = f"{self.api_base}/v1/chat/completions"
+                
+                payload = {
+                    "model": "gpt-4o" if self.api_type == 'openai' else None,  # OpenAI needs model in payload
+                    "messages": self.chat_history,
+                    "max_tokens": 1000,
+                    "temperature": 0.7
+                }
+                
+                # Remove None values from payload
+                payload = {k: v for k, v in payload.items() if v is not None}
+                
+                response = requests.post(url, headers=headers, json=payload, timeout=30)
+                
+                if response.status_code == 200:
+                    content = response.json()['choices'][0]['message']['content']
+                    logger.debug(f"LLM response received: {len(content)} chars")
+                    
+                    # Check if response was truncated (missing action tags)
+                    if '<think>' in content and not ('</action>' in content or '</reflect' in content.lower()):
+                        logger.warning(f"Response appears truncated, missing action tags")
+                        # Could implement retry with simpler prompt here
+                    
+                    return content
+                
+                elif response.status_code in [429, 502, 503, 504]:  # Retry-able errors
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) + 1  # Exponential backoff
+                        logger.warning(f"API error {response.status_code}, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"API error {response.status_code} after {max_retries} attempts: {response.text[:200]}")
+                        raise RuntimeError(f"API request failed with status {response.status_code}: {response.text[:200]}")
+                else:
+                    logger.error(f"API error {response.status_code}: {response.text[:200]}")
+                    raise RuntimeError(f"API request failed with status {response.status_code}: {response.text[:200]}")
+                    
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    logger.warning(f"API timeout, retrying... (attempt {attempt + 1}/{max_retries})")
+                    continue
+                else:
+                    logger.error(f"API timeout after {max_retries} attempts")
+                    raise RuntimeError(f"API request timed out after {max_retries} attempts")
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"API exception: {e}, retrying... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(1)
+                    continue
+                else:
+                    logger.error(f"API exception after {max_retries} attempts: {e}")
+                    raise RuntimeError(f"API request failed: {e}")
+        
+        # Should not reach here, but just in case
+        raise RuntimeError("API request failed after all retry attempts")
     
     def _extract_action(self, response: str) -> str:
-        """Extract action from structured response."""
+        """Extract action from structured response supporting multiple formats."""
+        # Format 1: <action>action_choice: ...</action> (Modular format)
         if '<action>' in response and '</action>' in response:
             start = response.find('<action>') + 8
             end = response.find('</action>')
@@ -267,6 +329,15 @@ class LLMAgent:
             # Return first line if no special format, removing quotes
             action = action_text.split('\n')[0].strip()
             action = action.strip("'\"")
+            return action
+        
+        # Format 2: Act: [action] (ReAct format)
+        import re
+        act_match = re.search(r'Act:\s*(.+?)(?:\n|$)', response, re.IGNORECASE)
+        if act_match:
+            action = act_match.group(1).strip()
+            # Clean up common formatting
+            action = action.strip('[]"\'')
             return action
         
         # Smarter fallback: try to extract meaningful action from response
@@ -305,9 +376,10 @@ class TrajectoryCollector:
     def _setup_output_dir(self):
         """Create output directories if needed."""
         Path(self.config.output_dir).mkdir(parents=True, exist_ok=True)
-        # Create subdirectories for trajectories and chat histories
-        Path(os.path.join(self.config.output_dir, "trajectories")).mkdir(parents=True, exist_ok=True)
-        Path(os.path.join(self.config.output_dir, "chat_histories")).mkdir(parents=True, exist_ok=True)
+        # Create subdirectories for trajectories and chat histories, organized by prompt style
+        prompt_dir = os.path.join(self.config.output_dir, self.config.prompt_style)
+        Path(os.path.join(prompt_dir, "trajectories")).mkdir(parents=True, exist_ok=True)
+        Path(os.path.join(prompt_dir, "chat_histories")).mkdir(parents=True, exist_ok=True)
     
     def collect(self, env, agent, rollout_processor, task_idx: int = 0) -> Tuple[Dict[str, Any], List[Dict], str]:
         """
@@ -317,7 +389,7 @@ class TrajectoryCollector:
             Dictionary containing the full trajectory data.
         """
         trajectory = []
-        obs, _ = env.reset()
+        obs, info = env.reset()
         
         # Initialize agent with task
         task_description = obs['text'][0]
@@ -326,13 +398,21 @@ class TrajectoryCollector:
         # Store task index for identification
         task_idx_for_result = task_idx
         
+        # Get initial admissible actions from reset info
+        current_admissible_actions = []
+        if info and 'admissible_commands' in info[0]:
+            current_admissible_actions = info[0]['admissible_commands']
+        
         logger.info(f"Starting trajectory collection for task: {task_description[:100]}...")
+        logger.info(f"Initial admissible actions: {current_admissible_actions}")
         
         for step_num in range(self.config.max_steps):
             # Create step record
             step = TrajectoryStep(step_num + 1)
             step.observation_before = obs['text'][0]
-            step.admissible_actions = obs.get('admissible_actions', [None])[0] or []
+            
+            # Use the current admissible actions from previous step's info
+            step.admissible_actions = current_admissible_actions
             
             # Generate action
             raw_response, extracted_action = agent.act(step.observation_before, step.admissible_actions)
@@ -347,10 +427,12 @@ class TrajectoryCollector:
             )
             step.parsed_action = extracted_action or "look"
             
-            # Validate action before execution
-            if step.admissible_actions and step.parsed_action not in step.admissible_actions:
-                logger.warning(f"Invalid action '{step.parsed_action}', using 'look' instead")
-                step.parsed_action = "look"
+            # Validate and fix action using AgentBench-style processing
+            if step.admissible_actions:
+                fixed_action = self._process_action_like_agentbench(step.parsed_action, step.admissible_actions)
+                if fixed_action != step.parsed_action:
+                    logger.info(f"Action corrected: '{step.parsed_action}' -> '{fixed_action}'")
+                    step.parsed_action = fixed_action
             
             # Execute in environment
             next_obs, rewards, dones, infos = env.step([step.parsed_action])
@@ -360,9 +442,9 @@ class TrajectoryCollector:
             # Convert any numpy arrays in info to lists for JSON serialization
             info_dict = infos[0] if infos else {}
             
-            # Extract admissible actions from info if not already set
-            if not step.admissible_actions and 'admissible_commands' in info_dict:
-                step.admissible_actions = info_dict['admissible_commands']
+            # Update admissible actions for next step from current step's info
+            if 'admissible_commands' in info_dict:
+                current_admissible_actions = info_dict['admissible_commands']
             
             # Store metadata excluding admissible_commands (to avoid duplication)
             step.metadata = {
@@ -413,8 +495,8 @@ class TrajectoryCollector:
         if run_id is None:
             run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Save trajectory to trajectories subfolder
-        traj_filename = Path(self.config.output_dir) / "trajectories" / f"traj_{run_id}.json"
+        # Save trajectory to trajectories subfolder under prompt style directory
+        traj_filename = Path(self.config.output_dir) / self.config.prompt_style / "trajectories" / f"traj_{run_id}.json"
         
         # Add metadata
         output = {
@@ -436,7 +518,7 @@ class TrajectoryCollector:
         # Save chat history if provided
         chat_filename = None
         if chat_history:
-            chat_filename = Path(self.config.output_dir) / "chat_histories" / f"chat_{run_id}.json"
+            chat_filename = Path(self.config.output_dir) / self.config.prompt_style / "chat_histories" / f"chat_{run_id}.json"
             chat_output = {
                 'metadata': {
                     'timestamp': run_id,
@@ -454,6 +536,66 @@ class TrajectoryCollector:
             logger.info(f"Saved chat history to {chat_filename} ({chat_size_kb:.2f} KB)")
         
         return str(traj_filename), str(chat_filename) if chat_filename else None
+    
+    def _process_action_like_agentbench(self, action: str, choices: List[str], limit: float = 0.6) -> str:
+        """
+        Process action using AgentBench-style BLEU score matching.
+        
+        Args:
+            action: Raw action from AI
+            choices: List of valid actions  
+            limit: BLEU score threshold for fuzzy matching
+        
+        Returns:
+            Processed action (original or best match)
+        """
+        action_clean = action.strip().lower()
+        choices_lower = [choice.lower() for choice in choices]
+        
+        # Exact match (case insensitive)
+        if action_clean in choices_lower:
+            # Return the original case version
+            idx = choices_lower.index(action_clean)
+            return choices[idx]
+        
+        # BLEU score based fuzzy matching
+        try:
+            bleu_scores = [self._simple_bleu_score(choice.lower(), action_clean) for choice in choices]
+            max_idx = max(range(len(bleu_scores)), key=lambda i: bleu_scores[i])
+            max_score = bleu_scores[max_idx]
+            
+            if max_score > limit:
+                logger.debug(f"BLEU match: '{action}' -> '{choices[max_idx]}' (score: {max_score:.3f})")
+                return choices[max_idx]
+        except Exception as e:
+            logger.debug(f"BLEU scoring failed: {e}")
+        
+        # Return original action if no good match found
+        return action
+    
+    def _simple_bleu_score(self, reference: str, candidate: str) -> float:
+        """Simple BLEU score calculation for fuzzy action matching."""
+        ref_tokens = reference.split()
+        cand_tokens = candidate.split()
+        
+        if not ref_tokens or not cand_tokens:
+            return 0.0
+        
+        # Simple token overlap ratio (approximates BLEU-1)
+        ref_set = set(ref_tokens)
+        cand_set = set(cand_tokens)
+        
+        if not ref_set or not cand_set:
+            return 0.0
+        
+        intersection = len(ref_set & cand_set)
+        union = len(ref_set | cand_set)
+        
+        # Jaccard similarity + length penalty
+        jaccard = intersection / union if union > 0 else 0.0
+        length_penalty = min(len(cand_tokens) / len(ref_tokens), 1.0)
+        
+        return jaccard * length_penalty
 
 
 def run_single_task(task_id: int, config: ExperimentConfig, seed_offset: int = 0) -> Tuple[bool, str]:
@@ -481,10 +623,11 @@ def run_single_task(task_id: int, config: ExperimentConfig, seed_offset: int = 0
             })()
         })()
         
+        # Use training environments to access the full training dataset (2,435 tasks)
         envs, _ = make_envs(env_config)
         
         # Initialize components
-        agent = LLMAgent()
+        agent = LLMAgent(prompt_style=config.prompt_style)
         collector = TrajectoryCollector(config)
         
         # Simple tokenizer stub
@@ -595,7 +738,10 @@ if __name__ == "__main__":
     parser.add_argument('--batch', type=int, default=1, help='Batch size')
     parser.add_argument('--num_tasks', type=int, default=1, help='Number of tasks to run')
     parser.add_argument('--parallel', type=int, default=1, help='Number of parallel workers')
+    parser.add_argument('--output_dir', type=str, default='trajectories', help='Directory to save trajectories and chat histories')
     parser.add_argument('--no-save', action='store_true', help='Disable trajectory saving')
+    parser.add_argument('--prompt', type=str, default='openmanus', choices=['openmanus', 'react'], 
+                        help='Prompt style to use: openmanus (complex with memory/reflection) or react (simple Think/Act)')
     
     args = parser.parse_args()
     
@@ -604,7 +750,9 @@ if __name__ == "__main__":
         max_steps=args.steps,
         batch_size=args.batch,
         save_trajectories=not args.no_save,
-        parallel_tasks=args.parallel
+        parallel_tasks=args.parallel,
+        output_dir=args.output_dir,
+        prompt_style=args.prompt
     )
     
     # Run experiments
