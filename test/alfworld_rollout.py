@@ -9,6 +9,9 @@ from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 from dotenv import load_dotenv
 import requests
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import time
 
 # Configure project imports
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -388,25 +391,49 @@ class TrajectoryCollector:
         return str(filename)
 
 
-def run_experiment(config: Optional[ExperimentConfig] = None) -> bool:
+def run_single_task(task_id: int, config_dict: Dict[str, Any]) -> Tuple[int, bool, Optional[str]]:
     """
-    Run a complete trajectory collection experiment.
+    Run a single task in a separate process.
     
     Args:
-        config: Experiment configuration (uses defaults if None)
+        task_id: Unique identifier for this task
+        config_dict: Configuration dictionary (to avoid pickling issues)
     
     Returns:
-        Success status
+        Tuple of (task_id, success, saved_path)
     """
-    if config is None:
-        config = ExperimentConfig()
+    # Ensure environment is loaded in worker process
+    load_dotenv(PROJECT_ROOT / '.env')
     
-    logger.info("Starting AlfWorld trajectory collection")
-    logger.info(f"Configuration: batch_size={config.batch_size}, max_steps={config.max_steps}")
+    # Re-add project root to Python path for worker process
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+    
+    # Recreate config from dict
+    config = ExperimentConfig(**config_dict)
+    
+    # Set up logging for this process
+    process_logger = logging.getLogger(f"worker_{task_id}")
+    process_logger.setLevel(logging.INFO)
+    
+    # Add handler if not already present
+    if not process_logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        process_logger.addHandler(handler)
+    
+    process_logger.info(f"Starting task {task_id}")
+    
+    # Verify API configuration in worker process
+    api_key = os.getenv('OPENAI_API_KEY') or os.getenv('OAI_KEY')
+    if not api_key:
+        process_logger.error(f"Task {task_id}: No API key found in environment")
+        return (task_id, False, None)
     
     try:
         # Initialize environment
-        logger.info("Initializing environment...")
+        process_logger.info("Initializing environment...")
         
         # Create minimal config for environment
         env_config = type('Config', (), {
@@ -430,27 +457,24 @@ def run_experiment(config: Optional[ExperimentConfig] = None) -> bool:
         # Collect trajectory
         trajectory = collector.collect(envs, agent, rollout)
         
-        # Save results
+        # Save results with task_id in filename
+        saved_path = None
         if config.save_trajectories:
-            saved_path = collector.save(trajectory)
-            logger.info(f"Experiment complete. Results saved to {saved_path}")
+            run_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_task{task_id}"
+            saved_path = collector.save(trajectory, run_id)
         
-        # Print summary
-        print("\n" + "="*50)
-        print("TRAJECTORY COLLECTION SUMMARY")
-        print("="*50)
-        print(f"Task: {trajectory['task'][:80]}...")
-        print(f"Steps taken: {trajectory['length']}")
-        print(f"Total reward: {trajectory['total_reward']:.2f}")
-        print(f"Success: {'Yes' if trajectory['success'] else 'No'}")
+        # Log summary for this task
+        process_logger.info(f"Task {task_id} completed: {trajectory['length']} steps, "
+                          f"reward: {trajectory['total_reward']:.2f}, "
+                          f"success: {trajectory['success']}")
         
-        return True
+        return (task_id, True, saved_path)
         
     except Exception as e:
-        logger.error(f"Experiment failed: {e}")
+        process_logger.error(f"Task {task_id} failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        return (task_id, False, None)
     
     finally:
         try:
@@ -459,15 +483,136 @@ def run_experiment(config: Optional[ExperimentConfig] = None) -> bool:
             pass
 
 
+def run_experiment(config: Optional[ExperimentConfig] = None) -> bool:
+    """
+    Run a single trajectory collection experiment (legacy compatibility).
+    
+    Args:
+        config: Experiment configuration (uses defaults if None)
+    
+    Returns:
+        Success status
+    """
+    results = run_parallel_experiments(num_tasks=1, config=config)
+    return len(results['successful']) > 0
+
+
+def run_parallel_experiments(num_tasks: int = 1, 
+                           max_workers: Optional[int] = None,
+                           config: Optional[ExperimentConfig] = None) -> Dict[str, Any]:
+    """
+    Run multiple trajectory collection experiments in parallel.
+    
+    Args:
+        num_tasks: Number of parallel tasks to run
+        max_workers: Maximum number of worker processes (defaults to CPU count)
+        config: Experiment configuration (uses defaults if None)
+    
+    Returns:
+        Dictionary with results summary
+    """
+    if config is None:
+        config = ExperimentConfig()
+    
+    if max_workers is None:
+        max_workers = min(num_tasks, mp.cpu_count())
+    
+    logger.info(f"Starting parallel AlfWorld trajectory collection")
+    logger.info(f"Tasks: {num_tasks}, Max workers: {max_workers}")
+    logger.info(f"Configuration: batch_size={config.batch_size}, max_steps={config.max_steps}")
+    
+    # Convert config to dict for multiprocessing
+    config_dict = asdict(config) if hasattr(config, '__dataclass_fields__') else vars(config)
+    
+    start_time = time.time()
+    successful_tasks = []
+    failed_tasks = []
+    saved_paths = []
+    
+    try:
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_task_id = {
+                executor.submit(run_single_task, task_id, config_dict): task_id 
+                for task_id in range(1, num_tasks + 1)
+            }
+            
+            # Process completed tasks
+            for future in as_completed(future_to_task_id):
+                task_id = future_to_task_id[future]
+                try:
+                    task_id_result, success, saved_path = future.result()
+                    
+                    if success:
+                        successful_tasks.append(task_id_result)
+                        if saved_path:
+                            saved_paths.append(saved_path)
+                        logger.info(f"✓ Task {task_id_result} completed successfully")
+                    else:
+                        failed_tasks.append(task_id_result)
+                        logger.error(f"✗ Task {task_id_result} failed")
+                        
+                except Exception as e:
+                    failed_tasks.append(task_id)
+                    logger.error(f"✗ Task {task_id} failed with exception: {e}")
+    
+    except KeyboardInterrupt:
+        logger.info("Received interrupt signal, shutting down...")
+        return {
+            'successful': successful_tasks,
+            'failed': failed_tasks,
+            'saved_paths': saved_paths,
+            'total_time': time.time() - start_time,
+            'interrupted': True
+        }
+    
+    end_time = time.time()
+    total_time = end_time - start_time
+    
+    # Print summary
+    print("\n" + "="*60)
+    print("PARALLEL TRAJECTORY COLLECTION SUMMARY")
+    print("="*60)
+    print(f"Total tasks: {num_tasks}")
+    print(f"Successful: {len(successful_tasks)}")
+    print(f"Failed: {len(failed_tasks)}")
+    print(f"Success rate: {len(successful_tasks)/num_tasks*100:.1f}%")
+    print(f"Total time: {total_time:.2f}s")
+    print(f"Average time per task: {total_time/num_tasks:.2f}s")
+    print(f"Max workers used: {max_workers}")
+    
+    if saved_paths:
+        print(f"\nTrajectories saved to:")
+        for path in saved_paths[:5]:  # Show first 5 paths
+            print(f"  {path}")
+        if len(saved_paths) > 5:
+            print(f"  ... and {len(saved_paths) - 5} more files")
+    
+    print("="*60)
+    
+    return {
+        'successful': successful_tasks,
+        'failed': failed_tasks, 
+        'saved_paths': saved_paths,
+        'total_time': total_time,
+        'success_rate': len(successful_tasks) / num_tasks,
+        'interrupted': False
+    }
+
+
 if __name__ == "__main__":
     # Parse command line args if needed
     import argparse
     
-    parser = argparse.ArgumentParser(description='Collect AlfWorld trajectories')
+    parser = argparse.ArgumentParser(description='Collect AlfWorld trajectories in parallel')
     parser.add_argument('--steps', type=int, default=10, help='Max steps per episode')
     parser.add_argument('--batch', type=int, default=1, help='Batch size')
     parser.add_argument('--num_tasks', type=int, default=1, help='Number of tasks to run')
+    parser.add_argument('--max_workers', type=int, default=None, 
+                       help='Maximum number of parallel workers (default: CPU count)')
     parser.add_argument('--no-save', action='store_true', help='Disable trajectory saving')
+    parser.add_argument('--sequential', action='store_true', 
+                       help='Run tasks sequentially (disable parallel execution)')
     
     args = parser.parse_args()
     
@@ -478,12 +623,26 @@ if __name__ == "__main__":
         save_trajectories=not args.no_save
     )
     
-    # Run multiple tasks if requested
-    successes = 0
-    for task_idx in range(args.num_tasks):
-        logger.info(f"\n=== Running task {task_idx + 1}/{args.num_tasks} ===")
-        if run_experiment(exp_config):
-            successes += 1
+    if args.sequential:
+        # Legacy sequential execution
+        logger.info("Running tasks sequentially (legacy mode)")
+        successes = 0
+        for task_idx in range(args.num_tasks):
+            logger.info(f"\n=== Running task {task_idx + 1}/{args.num_tasks} ===")
+            if run_experiment(exp_config):
+                successes += 1
+        
+        logger.info(f"\n=== Completed {successes}/{args.num_tasks} tasks successfully ===")
+        success_rate = successes / args.num_tasks
+    else:
+        # New parallel execution
+        results = run_parallel_experiments(
+            num_tasks=args.num_tasks,
+            max_workers=args.max_workers,
+            config=exp_config
+        )
+        successes = len(results['successful'])
+        success_rate = results['success_rate']
     
-    logger.info(f"\n=== Completed {successes}/{args.num_tasks} tasks successfully ===")
-    sys.exit(0 if successes == args.num_tasks else 1)
+    # Exit with appropriate code
+    sys.exit(0 if success_rate == 1.0 else 1)
