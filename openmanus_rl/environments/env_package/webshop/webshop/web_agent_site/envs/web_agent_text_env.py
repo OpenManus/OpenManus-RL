@@ -62,8 +62,8 @@ class WebAgentTextEnv(gym.Env):
 
         # Define action and observation spaces as required by Gym
         # These are fake/placeholder spaces since actual actions and observations are strings
-        self.action_space = spaces.Discrete(1)  
-        self.observation_space = spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32)
+        self.action_space = spaces.Space()
+        self.observation_space = spaces.Space()
 
         self._seed = kwargs.get('seed', 42)
 

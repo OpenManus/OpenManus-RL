@@ -69,7 +69,7 @@ python3 -m verl.trainer.main_ppo \
     +env.seed=0 \
     +env.max_steps=9 \
     +env.rollout.n=4 \
-    +env.webshop.use_small=True \
+    +env.webshop.use_small=False \
     +env.webshop.human_goals=False \
     +env.history_length=4 \
     trainer.critic_warmup=0 \

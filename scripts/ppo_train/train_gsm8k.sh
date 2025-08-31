@@ -12,7 +12,7 @@ export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1 # Patch with https://github.
 
 GPUS_PER_NODE=1
 MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
-python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
+python3 verl/examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
 python3 -c "import transformers; transformers.pipeline('text-generation', model='$MODEL_PATH')"
 ENGINE=vllm #sglang
 

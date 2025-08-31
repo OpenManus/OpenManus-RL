@@ -7,7 +7,7 @@ gradio==4.26.0
 gym==0.24.0
 numpy==1.26.4
 pandas==2.2.3
-pyserini==0.17.0
+pyserini
 pytest==8.3.5
 PyYAML==6.0.2
 rank_bm25==0.2.2

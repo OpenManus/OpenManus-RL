@@ -38,8 +38,8 @@ config = {
 # Convert the config dictionary to a namespace for attribute access
 config = dict_to_namespace(config)
 
-file_path = os.path.join(os.path.dirname(__file__), 'env_package/webshop/webshop/data/items_shuffle_1000.json')
-attr_path = os.path.join(os.path.dirname(__file__), 'env_package/webshop/webshop/data/items_ins_v2_1000.json')
+file_path = os.path.join(os.path.dirname(__file__), 'data/items_shuffle_1000.json')
+attr_path = os.path.join(os.path.dirname(__file__), 'data/items_ins_v2_1000.json')
 
 env_kwargs = {
                     'observation_mode': 'text', 
