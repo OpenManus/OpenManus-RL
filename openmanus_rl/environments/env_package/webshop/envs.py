@@ -105,6 +105,7 @@ class WebshopMultiProcessEnv(gym.Env):
         # Get goals from the first worker
         goals_future = self._workers[0].get_goals.remote()
         goals = ray.get(goals_future)
+        print(f"We have {len(goals)} goals. Example goal: {goals[0]}")
 
         # ------- original ----------#
         # if args.num is None:
@@ -127,8 +128,6 @@ class WebshopMultiProcessEnv(gym.Env):
                 self.goal_idxs = range(len(goals))
             else:
                 self.goal_idxs = range(start_idx, len(goals))
-            
-        print(self.goal_idxs)
 
     # ------------------------------------------------------------------
     # Base API ----------------------------------------------------------

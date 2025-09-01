@@ -1,3 +1,4 @@
+from cgitb import text
 import torch
 import numpy as np
 from verl import DataProto
@@ -113,6 +114,7 @@ class TrajectoryCollector:
 
         else:
             raw_prompt = prompt_with_chat_template
+            print(raw_prompt)
         
         input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
                                                                             tokenizer=self.tokenizer,
@@ -330,11 +332,17 @@ class TrajectoryCollector:
             batch.non_tensor_batch['uid'] = uid_batch
             batch.non_tensor_batch['traj_uid'] = traj_uid
 
+            # Remove timing from batch_output.meta_info to avoid conflict
+            if 'timing' in batch_output.meta_info:
+                batch_output.meta_info.pop('timing')
+            
             batch = batch.union(batch_output)
             
             text_actions = self.tokenizer.batch_decode(batch.batch['responses'], skip_special_tokens=True)
+            print(text_actions)
             
             next_obs, rewards, dones, infos = envs.step(text_actions)
+            print(rewards)
 
             
             if len(rewards.shape) == 2:
