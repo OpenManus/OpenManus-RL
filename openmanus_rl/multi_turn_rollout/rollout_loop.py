@@ -9,10 +9,12 @@ import uuid
 from verl.models.transformers.qwen2_vl import get_rope_index
 from openmanus_rl.multi_turn_rollout.utils import process_image, to_list_of_dict, torch_to_numpy, filter_group_data
 from openmanus_rl.environments import EnvironmentManagerBase
-from typing import List, Dict
+from typing import List, Dict, Optional
+import asyncio
+import json
 
 class TrajectoryCollector:
-    def __init__(self, config, tokenizer: PreTrainedTokenizer, processor=None):
+    def __init__(self, config, tokenizer: PreTrainedTokenizer, processor=None, reward_manager=None):
         """
         Initialize the TrajectoryProcessor class.
         
@@ -20,10 +22,13 @@ class TrajectoryCollector:
             config: Configuration object containing data processing settings
             tokenizer (PreTrainedTokenizer): Tokenizer for text encoding and decoding
             processor: Image processor for multimodal inputs
+            reward_manager: Optional modular reward manager for enhanced rewards
         """
         self.config = config
         self.tokenizer = tokenizer
         self.processor = processor
+        self.reward_manager = reward_manager
+        self.current_module = None  # Track current module being evaluated
 
     def preprocess_single_sample(
         self,
@@ -191,6 +196,60 @@ class TrajectoryCollector:
         return new_batch
 
 
+    async def compute_modular_rewards_if_enabled(
+            self,
+            total_batch_list: List[List[Dict]],
+            episode_rewards: np.ndarray,
+            ) -> np.ndarray:
+        """
+        Compute modular rewards if reward manager is available.
+        
+        Parameters:
+            total_batch_list: List of trajectory data
+            episode_rewards: Environment rewards
+            
+        Returns:
+            Combined rewards (env + model) or original rewards if disabled
+        """
+        if self.reward_manager is None or self.current_module is None:
+            return episode_rewards
+        
+        # Prepare trajectory data for reward computation
+        trajectories = []
+        for batch_steps in total_batch_list:
+            # Reconstruct chat history from steps
+            chat_history = []
+            for step_data in batch_steps:
+                if 'raw_prompt' in step_data:
+                    # Add user message
+                    for msg in step_data['raw_prompt']:
+                        chat_history.append(msg)
+                
+                # Add assistant response
+                if 'responses' in step_data:
+                    response_text = self.tokenizer.decode(step_data['responses'], skip_special_tokens=True)
+                    chat_history.append({
+                        'role': 'assistant',
+                        'content': response_text
+                    })
+            
+            trajectories.append({
+                'chat_history': chat_history,
+                'task_description': batch_steps[0].get('task_description', 'Unknown task')
+            })
+        
+        # Compute modular rewards
+        try:
+            combined_rewards = await self.reward_manager.compute_modular_rewards(
+                trajectories=trajectories,
+                env_rewards=episode_rewards,
+                current_module=self.current_module
+            )
+            return combined_rewards
+        except Exception as e:
+            print(f"Error computing modular rewards: {e}")
+            return episode_rewards
+    
     def gather_rollout_data(
             self,
             total_batch_list: List[List[Dict]],
@@ -484,6 +543,20 @@ class TrajectoryCollector:
         assert len(total_batch_list) == len(total_episode_lengths)
         assert len(total_batch_list) == len(total_traj_uid)
         
+        # Apply modular rewards if enabled
+        if self.reward_manager is not None and self.current_module is not None:
+            # Run async reward computation
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                total_episode_rewards = loop.run_until_complete(
+                    self.compute_modular_rewards_if_enabled(
+                        total_batch_list=total_batch_list,
+                        episode_rewards=total_episode_rewards
+                    )
+                )
+            finally:
+                loop.close()
 
         # Create trajectory data
         gen_batch_output: DataProto = self.gather_rollout_data(
