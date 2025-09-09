@@ -114,7 +114,7 @@ class AlfredTWEnv(object):
     Interface for Textworld Env
     '''
 
-    def __init__(self, config, train_eval="train"):
+    def __init__(self, config, train_eval="train", game_files=None):
         print("Initializing AlfredTWEnv...")
         self.config = config
         self.train_eval = train_eval
@@ -124,7 +124,13 @@ class AlfredTWEnv(object):
                    " the script `alfworld-generate`. Ignoring it and loading games as they are.")
             print(colored(msg, "yellow"))
 
-        self.collect_game_files()
+        if game_files is not None:
+            # Use provided game files directly
+            self.game_files = list(game_files)
+            self.num_games = len(self.game_files)
+            print(f"Using provided game_files: {self.num_games}")
+        else:
+            self.collect_game_files()
         self.use_expert = False
         print(f"use_expert = {self.use_expert}")
     def collect_game_files(self, verbose=False):

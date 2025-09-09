@@ -1,4 +1,9 @@
 import os
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv()
+except Exception:
+    pass
 import time
 import json
 import logging
@@ -137,7 +142,7 @@ if __name__ == "__main__":
     parser.add_argument("--dump_path", default=None, help="If set, write JSONL trajectory to this file")
     parser.add_argument("--base_url", default=None, help="OpenAI-compatible base URL (e.g., vLLM http://127.0.0.1:8000/v1)")
     parser.add_argument("--chat_root", default=None, help="If set, save per-episode chat histories under this root")
-    parser.add_argument("--data_path", default="ref_code/data/tool_use/val.json", help="Path to GAIA dataset")
+    parser.add_argument("--data_path", default="data/gaia/val.json", help="Path to GAIA dataset")
     parser.add_argument("--tools", nargs='+', default=['google_search', 'wikipedia_knowledge_searcher', 'python_code_generator'], 
                        help="List of available tools")
     parser.add_argument("--dry_run", action="store_true", help="仅打印任务分配，不创建环境、不调用模型")
@@ -164,7 +169,7 @@ if __name__ == "__main__":
     # Load GAIA tasks
     logging.info(f"Loading GAIA tasks from {args.data_path}")
     all_tasks = load_gaia_tasks(args.data_path)
-    logging.info(f"Loaded {len(all_tasks)} total tasks")
+    logging.info(f"Loaded {len(all_tasks)} total tasks from {args.data_path}")
     
     # Ensure we have enough tasks for requested envs
     if len(all_tasks) < total_envs:

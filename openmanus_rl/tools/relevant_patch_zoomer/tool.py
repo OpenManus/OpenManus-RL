@@ -1,8 +1,8 @@
 import os
 import cv2
 from pydantic import BaseModel
-from octotools.tools.base import BaseTool
-from octotools.engine.factory import create_llm_engine
+from openmanus_rl.tools.base import BaseTool
+from openmanus_rl.engines.factory import create_llm_engine
 
 class PatchZoomerResponse(BaseModel):
     analysis: str

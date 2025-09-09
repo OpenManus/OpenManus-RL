@@ -1,3 +1,10 @@
+"""
+Reference GAIA scoring script.
+
+Note: This file depends on external utilities (e.g., tasks.utils.ResultAnalyzer)
+that are not part of this repository. It is provided for reference only.
+"""
+
 import concurrent.futures
 import os
 import json
@@ -5,9 +12,12 @@ import argparse
 import tqdm
 
 from pydantic import BaseModel
-from octotools.engine.openai import ChatOpenAI
+from openmanus_rl.engines.openai import ChatOpenAI
 
-from tasks.utils import ResultAnalyzer
+try:
+    from tasks.utils import ResultAnalyzer  # external utility, may not exist in this repo
+except Exception:
+    ResultAnalyzer = None
 
 class AnswerVerification(BaseModel):
     analysis: str
@@ -16,12 +26,14 @@ class AnswerVerification(BaseModel):
 class BinaryAnswerVerification(BaseModel):
     true_false: bool
 
-from octotools.engine.openai import ChatOpenAI
-
 class ResultScorer:
     def __init__(self, llm_engine=None):
-        self.llm_engine = llm_engine or ChatOpenAI(model_string="gpt-4o-mini", is_multimodal=False, enable_cache=True)
-        print(f"\nLocal OpenAI engine {self.llm_engine.model_string} initialized.\n")
+        self.llm_engine = llm_engine or ChatOpenAI(model="gpt-4o-mini")
+        try:
+            model_name = getattr(self.llm_engine, "model", "unknown")
+        except Exception:
+            model_name = "unknown"
+        print(f"\nLocal OpenAI engine {model_name} initialized.\n")
 
     def answer_verification(self, response, correct_answer):
         query_prompt = f"""
@@ -132,7 +144,7 @@ if __name__ == "__main__":
     print("#"*50)
 
     scorer = ResultScorer()
-    analyzer = ResultAnalyzer()
+    analyzer = ResultAnalyzer() if ResultAnalyzer else None
 
     # Load the results
     results = load_data(args.data_file, args.result_dir, args.response_type)
@@ -167,7 +179,7 @@ if __name__ == "__main__":
 
     # Calculate additional statistics if log directory is provided
     log_dir = args.log_dir or args.result_dir.replace("results", "logs")
-    if os.path.exists(log_dir):
+    if analyzer and os.path.exists(log_dir):
 
         if args.response_type == "base_response":
             print("Base response is not supported for scoring.")

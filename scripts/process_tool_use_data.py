@@ -173,9 +173,9 @@ def analyze_data(data: List[Dict]):
 
 def main():
     parser = argparse.ArgumentParser(description="Process tool use data for training")
-    parser.add_argument("--input", type=str, default="../ref_code/data/data.json", 
+    parser.add_argument("--input", type=str, default="../data/gaia/val.json", 
                        help="Input data file path")
-    parser.add_argument("--output", type=str, default="../ref_code/data/tool_use", 
+    parser.add_argument("--output", type=str, default="../data/gaia", 
                        help="Output directory for processed data")
     parser.add_argument("--level", type=str, default=None, 
                        help="Filter by difficulty level (1, 2, 3, etc.)")

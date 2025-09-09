@@ -3,7 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 
-from octotools.tools.base import BaseTool
+from openmanus_rl.tools.base import BaseTool
 
 class Nature_News_Fetcher_Tool(BaseTool):
     def __init__(self):

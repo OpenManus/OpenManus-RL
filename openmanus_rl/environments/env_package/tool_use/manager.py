@@ -80,10 +80,14 @@ class ToolUseEnvironmentManager(EnvironmentManagerBase):
             info['won'] = self.task_completed[i]
             info['step_count'] = self.step_counts[i]
             infos.append(info)
-            
-            # Store in memory
-            self.memory.store({'text_obs': obs, 'action': text_actions[i]}, batch_idx=i)
         
+        # After processing all envs, store this step's observations and actions into memory
+        try:
+            self.memory.store({'text_obs': observations, 'action': text_actions})
+        except Exception:
+            # Be permissive: if memory storage fails, continue without history
+            pass
+
         # Build text observations
         full_text_obs = self.build_text_obs(observations=observations)
         

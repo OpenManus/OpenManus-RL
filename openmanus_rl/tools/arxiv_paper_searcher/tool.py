@@ -2,7 +2,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
-from octotools.tools.base import BaseTool
+from openmanus_rl.tools.base import BaseTool
 
 class ArXiv_Paper_Searcher_Tool(BaseTool):
     def __init__(self):

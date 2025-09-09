@@ -1,4 +1,9 @@
 import os
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv()
+except Exception:
+    pass
 import time
 import json
 import logging
@@ -23,7 +28,8 @@ def build_env(env_name, env_num=1, seed=1, history_length=2, alf_env_type="alfwo
         # Test AlfWorldEnvironmentManager
         from openmanus_rl.environments.env_package.alfworld import alfworld_projection
         from openmanus_rl.environments.env_package.alfworld import build_alfworld_envs
-        alf_config_path = os.path.join(os.path.dirname(__file__), '../../agent_system/environments/env_package/alfworld/configs/config_tw.yaml')
+        alf_config_path = os.path.join(os.path.dirname(__file__), '../../openmanus_rl/environments/env_package/alfworld/configs/config_tw.yaml')
+        # Now with game_files support!
         envs = build_alfworld_envs(alf_config_path, seed=seed, env_num=env_num, group_n=group_n, is_train=True, env_kwargs={}, game_files=game_files)
         # Minimal config object with required fields
         cfg = SimpleNamespace(env=SimpleNamespace(env_name=alf_env_type, history_length=history_length))
@@ -148,7 +154,9 @@ if __name__ == "__main__":
     ]
 
     # -------- Agent setup ----------
-    agent = Agent(model_name=args.model, temperature=args.temperature, base_url=args.base_url)
+    agent = None
+    if not args.dry_run:
+        agent = Agent(model_name=args.model, temperature=args.temperature, base_url=args.base_url)
 
     # Prepare trajectory dump file if requested
     dump_fp = None
@@ -184,7 +192,7 @@ if __name__ == "__main__":
         return list(getattr(tmp_env, 'game_files', []))
 
     # Pre-assign unique game files when requested
-    alf_config_path = os.path.join(os.path.dirname(__file__), '../../agent_system/environments/env_package/alfworld/configs/config_tw.yaml')
+    alf_config_path = os.path.join(os.path.dirname(__file__), '../../openmanus_rl/environments/env_package/alfworld/configs/config_tw.yaml')
     preassigned_game_files = None
     if args.unique_envs:
         try:

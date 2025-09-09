@@ -6,7 +6,7 @@ import time
 import torch
 from transformers import pipeline
 
-from octotools.tools.base import BaseTool
+from openmanus_rl.tools.base import BaseTool
 from PIL import Image, ImageOps
 
 import os

@@ -1,7 +1,7 @@
 import os
 import wikipedia
 
-from octotools.tools.base import BaseTool
+from openmanus_rl.tools.base import BaseTool
 
 class Wikipedia_Knowledge_Searcher_Tool(BaseTool):
     def __init__(self):

@@ -333,7 +333,7 @@ def make_envs(config):
         
         # Load task data
         import json
-        data_path = getattr(config.env, 'data_path', 'ref_code/data/data.json')
+        data_path = getattr(config.env, 'data_path', 'data/gaia/val.json')
         with open(data_path, 'r') as f:
             tasks_data = json.load(f)
         

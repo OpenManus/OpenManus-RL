@@ -35,4 +35,7 @@ verl.egg-info/
 
 test_memory.md
 
-trajectories/traj_*.json
+trajectories/
+
+AGENTS.md
+CLAUDE.md

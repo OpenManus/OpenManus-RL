@@ -6,15 +6,16 @@ Evaluates agent answers against ground truth using LLM judge similar to calculat
 import re
 import json
 from typing import List, Dict, Any, Optional
+import logging
 from pydantic import BaseModel
 from collections import defaultdict
 
 try:
-    from octotools.engine.openai import ChatOpenAI
-    HAS_OCTOTOOLS = True
+    from openmanus_rl.engines.openai import ChatOpenAI
+    HAS_LLM_ENGINE = True
 except ImportError:
-    HAS_OCTOTOOLS = False
-    print("Warning: octotools not available. LLM judge reward will not work.")
+    HAS_LLM_ENGINE = False
+    logging.warning("LLM engine not available. LLM judge reward will not work.")
 
 
 class AnswerVerification(BaseModel):
@@ -31,7 +32,7 @@ class LLMJudgeRewardManager:
     def __init__(self, model_string: str = "gpt-4o-mini"):
         self.model_string = model_string
         self.llm_engine = None
-        if HAS_OCTOTOOLS:
+        if HAS_LLM_ENGINE:
             try:
                 self.llm_engine = ChatOpenAI(
                     model_string=model_string,

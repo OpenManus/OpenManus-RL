@@ -14,22 +14,22 @@ import sys
 from openmanus_rl.environments.env_manager import WebshopEnvironmentManager
 from openmanus_rl.environments.env_package.webshop import build_webshop_envs, webshop_projection
 from openai import OpenAI
-import dotenv
-
-dotenv.load_dotenv()
+try:
+    import dotenv
+    dotenv.load_dotenv()
+except Exception:
+    pass
 
 def build_env(env_name: str, env_num: int = 1, seed: int = 1, history_length: int = 2, use_train_set: bool = False) -> WebshopEnvironmentManager:
     if env_name != "webshop":
         raise ValueError(f"Unsupported environment name: {env_name}")
 
-    resources_per_worker = {"num_cpus": 1}
     env_kwargs = {"observation_mode": "text"}
 
     envs = build_webshop_envs(
         seed=seed,
         env_num=env_num,
         group_n=1,
-        resources_per_worker=resources_per_worker,
         is_train=use_train_set,
         env_kwargs=env_kwargs,
     )

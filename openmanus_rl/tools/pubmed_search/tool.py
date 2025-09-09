@@ -2,7 +2,7 @@ import os
 import json
 from pymed import PubMed
 from metapub import PubMedFetcher
-from octotools.tools.base import BaseTool
+from openmanus_rl.tools.base import BaseTool
 from tenacity import (
     retry,
     stop_after_attempt,

@@ -1,6 +1,6 @@
 import os
-from octotools.tools.base import BaseTool
-from octotools.engine.factory import create_llm_engine
+from openmanus_rl.tools.base import BaseTool
+from openmanus_rl.engines.factory import create_llm_engine
 
 class Generalist_Solution_Generator_Tool(BaseTool):
     require_llm_engine = True

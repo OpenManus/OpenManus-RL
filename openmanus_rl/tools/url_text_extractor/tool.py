@@ -2,7 +2,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 
-from octotools.tools.base import BaseTool
+from openmanus_rl.tools.base import BaseTool
 
 class URL_Text_Extractor_Tool(BaseTool):
     def __init__(self):
