@@ -361,7 +361,16 @@ class ExtendedEnvironmentManager:
     def step_single(self, env_id: int, action: str):
         """Step a single environment with the given action"""
         # Create action list with None/default for other environments
-        actions = ["None"] * self.env_num
+        # Get number of environments from base manager's envs object
+        if hasattr(self.base_manager.envs, 'num_processes'):
+            num_envs = self.base_manager.envs.num_processes
+        elif hasattr(self.base_manager.envs, 'env_num'):
+            num_envs = self.base_manager.envs.env_num
+        else:
+            # Fallback: try to get from the length of last reset observation
+            num_envs = 1  # Default to 1 if we can't determine
+        
+        actions = ["None"] * num_envs
         actions[env_id] = action
         
         # Step all environments
@@ -675,7 +684,12 @@ def run_environment_with_retry(
             obs = obs_dict["text"][env_id]
             reward = reward_dict[env_id]
             done = done_dict[env_id]
-            info = info_dict[env_id] if isinstance(info_dict, dict) else info_dict
+            # info_dict is a list, get the element at env_id
+            info = info_dict[env_id] if isinstance(info_dict, list) else info_dict
+            
+            # Ensure info is a dictionary
+            if not isinstance(info, dict):
+                info = {}
             
             cumulative_reward += reward
             
