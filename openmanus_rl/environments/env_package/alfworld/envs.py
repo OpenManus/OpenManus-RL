@@ -49,6 +49,10 @@ except Exception:  # Fallback lightweight transforms to avoid hard dependency
 
     T = _T()  # minimal drop-in replacement
 import ray
+import threading
+
+# Global lock to prevent racy ray.init calls from multiple threads
+_RAY_INIT_LOCK = threading.Lock()
 
 from openmanus_rl.environments.env_package.alfworld.alfworld.agents.environment import get_environment
 
@@ -124,9 +128,20 @@ class AlfworldEnvs(gym.Env):
     def __init__(self, alf_config_path, seed=0, env_num=1, group_n=1, is_train=True, env_kwargs={}, game_files=None):
         super().__init__()
         
-        # Initialize Ray if not already initialized
+        # Initialize Ray once in a thread-safe and dashboard-free way
         if not ray.is_initialized():
-            ray.init()
+            with _RAY_INIT_LOCK:
+                if not ray.is_initialized():
+                    try:
+                        # Disable dashboard to avoid optional deps like aiohttp_cors
+                        ray.init(ignore_reinit_error=True, include_dashboard=False)
+                    except Exception:
+                        # As a fallback, try minimal init ignoring reinit
+                        try:
+                            ray.init(ignore_reinit_error=True)
+                        except Exception:
+                            # If another thread initialized Ray between checks, continue
+                            pass
             
         eval_dataset = env_kwargs.get('eval_dataset', 'eval_in_distribution')
         config = load_config_file(alf_config_path)

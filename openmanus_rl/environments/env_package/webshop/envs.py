@@ -1,4 +1,8 @@
 import ray
+import threading
+
+# Guard against concurrent ray.init from multiple threads
+_RAY_INIT_LOCK = threading.Lock()
 import gym
 import numpy as np
 
@@ -87,9 +91,17 @@ class WebshopMultiProcessEnv(gym.Env):
     ) -> None:
         super().__init__()
 
-        # Initialize Ray if not already initialized
+        # Initialize Ray once; disable dashboard to avoid optional deps
         if not ray.is_initialized():
-            ray.init()
+            with _RAY_INIT_LOCK:
+                if not ray.is_initialized():
+                    try:
+                        ray.init(ignore_reinit_error=True, include_dashboard=False)
+                    except Exception:
+                        try:
+                            ray.init(ignore_reinit_error=True)
+                        except Exception:
+                            pass
 
         self.group_n = group_n
         self.env_num = env_num

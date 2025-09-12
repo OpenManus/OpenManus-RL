@@ -1,0 +1,30 @@
+{
+  "experiment_info": {
+    "environment": "alfworld",
+    "model": "gpt-4o-mini",
+    "temperature": 0.0,
+    "debugger_enabled": true,
+    "debugger_model": "gpt-4o",
+    "debugger_temperature": 0.0,
+    "max_retries": 1,
+    "total_tasks": 10,
+    "total_batches": 1,
+    "batch_size": 10,
+    "max_steps": 5,
+    "timestamp": "20250912_023755"
+  },
+  "results": {
+    "first_attempt_success_rate": 0.0,
+    "debugger_success_rate": 0.0,
+    "improvement": 0.0,
+    "first_attempt_successes": 0,
+    "debugger_successes": 0,
+    "total_tasks": 10
+  },
+  "statistics": {
+    "first_attempt_mean": 0.0,
+    "first_attempt_std": 0.0,
+    "debugger_mean": 0.0,
+    "debugger_std": 0.0
+  }
+}

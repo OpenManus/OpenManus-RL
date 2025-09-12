@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "batch_idx": 0,
+    "env_id": 6,
+    "test_idx": 0,
+    "model": "gpt-4o-mini",
+    "env_type": "alfworld",
+    "total_attempts": 2,
+    "won": false,
+    "first_attempt_success": false,
+    "final_reward": 0.0,
+    "timestamp": "20250912_024115",
+    "steps_in_final_attempt": 5,
+    "gamefile": ""
+  },
+  "all_attempts_summary": [
+    {
+      "attempt": 1,
+      "won": false,
+      "reward": 0.0,
+      "steps": 5
+    },
+    {
+      "attempt": 2,
+      "won": false,
+      "reward": 0.0,
+      "steps": 5
+    }
+  ]
+}

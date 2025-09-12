@@ -1,24 +1,36 @@
 #!/bin/bash
 # Test script for unified rollout with debugger functionality
 
-# Test 1: AlfWorld with debugger
-echo "Testing AlfWorld with debugger..."
+# Create timestamp for this run
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+BASE_DIR="experiments/unified_debug_${TIMESTAMP}"
+
+# Check if API keys are set
+if [ -z "$OPENAI_API_KEY" ]; then
+    echo "Warning: OPENAI_API_KEY not set. Make sure to set it before running."
+fi
+
+# Test 1: AlfWorld with debugger (small scale for testing)
+echo "=== Test 1: AlfWorld with Debugger ==="
+RUN_DIR="${BASE_DIR}/alfworld"
+echo "Run directory: ${RUN_DIR}"
 python scripts/rollout/openmanus_rollout_debugger.py \
     --env alfworld \
-    --batch_size 2 \
-    --total_envs 4 \
+    --batch_size 100 \
+    --total_envs 10 \
     --test_times 1 \
-    --max_steps 30 \
+    --max_steps 5 \
     --model gpt-4o-mini \
-    --temperature 0.4 \
+    --temperature 0.0 \
     --enable_debugger \
-    --max_debug_retry 3 \
+    --max_debug_retry 2 \
     --debugger_model gpt-4o \
-    --debugger_temperature 0.3 \
-    --debug_output_dir logs/alfworld/debug_analysis \
+    --debugger_temperature 0.0 \
+    --experiment_dir ${RUN_DIR} \
     --save_all_attempts \
-    --dump_path logs/alfworld/trajectories_debug.jsonl \
-    --chat_root logs/alfworld/chats
+    --save_per_task_trajectories \
+    --concurrency 10 \
+    --llm_concurrency 20
 
 # # Test 2: GAIA with debugger
 # echo "Testing GAIA with debugger..."
@@ -55,15 +67,15 @@ python scripts/rollout/openmanus_rollout_debugger.py \
 #     --save_all_attempts \
 #     --dump_path logs/webshop/trajectories_debug.jsonl
 
-# Test 4: Without debugger (baseline)
-echo "Testing without debugger (baseline)..."
-python scripts/rollout/openmanus_rollout_debugger.py \
-    --env alfworld \
-    --batch_size 2 \
-    --total_envs 4 \
-    --test_times 1 \
-    --max_steps 30 \
-    --model gpt-4o-mini \
-    --dump_path logs/alfworld/trajectories_baseline.jsonl
+# # Test 4: Without debugger (baseline)
+# echo "Testing without debugger (baseline)..."
+# python scripts/rollout/openmanus_rollout_debugger.py \
+#     --env alfworld \
+#     --batch_size 2 \
+#     --total_envs 4 \
+#     --test_times 1 \
+#     --max_steps 30 \
+#     --model gpt-4o-mini \
+#     --dump_path logs/alfworld/trajectories_baseline.jsonl
 
-echo "All tests completed. Check logs/ directory for results."
+echo "All tests completed. Check experiments/ directory for results."

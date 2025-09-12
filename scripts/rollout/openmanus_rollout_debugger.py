@@ -21,6 +21,9 @@ import sys
 from openmanus_rl.environments.env_manager import *
 from openai import OpenAI
 from together import Together
+import threading
+import asyncio
+from concurrent.futures import ThreadPoolExecutor as AsyncThreadPoolExecutor
 
 try:
     import dotenv
@@ -69,8 +72,12 @@ class UnifiedAgent:
             "alfworld": None,  # AlfWorld uses prompt templates in the environment
         }
         
-    def get_action_from_llm(self, obs: str) -> str:
+    def get_action_from_llm(self, obs: str, log_timing: bool = True) -> str:
         """Get action from LLM for a single observation"""
+        if log_timing:
+            llm_start = time.time()
+            thread_id = threading.get_ident()
+        
         messages = []
         
         # Add system prompt if available for this environment
@@ -86,7 +93,20 @@ class UnifiedAgent:
             temperature=self.temperature,
             n=1,
         )
+        
+        if log_timing:
+            llm_time = time.time() - llm_start
+            logging.debug(f"[LLM] Thread {thread_id} LLM call took {llm_time:.3f}s")
+        
         return response.choices[0].message.content.strip()
+    
+    def get_action_from_llm_with_shared_pool(self, obs: str, shared_executor, log_timing: bool = True):
+        """Get action from LLM using a shared thread pool executor for better global concurrency"""
+        def _call_llm():
+            return self.get_action_from_llm(obs, log_timing)
+        
+        # Submit to shared executor and return future
+        return shared_executor.submit(_call_llm)
     
     def get_actions_batch(self, prompts: List[str], concurrency: int = 4, 
                          retries: int = 3, backoff: float = 0.5) -> List[str]:
@@ -344,41 +364,37 @@ class TrajectoryManager:
 
 
 class ExtendedEnvironmentManager:
-    """Base class for extended environment managers with single-environment operations"""
-    
+    """Single‑env helpers on top of an existing manager.
+
+    Important:
+    - These helpers are only correct when the underlying manager controls
+      exactly one environment instance (env_num == 1).
+    - This script uses one‑env managers for debugger rollouts so we can
+      freely reset during a rollout without affecting others.
+    """
+
     def __init__(self, base_manager):
+        # Keep a handle to the original manager; delegate attribute access.
         self.base_manager = base_manager
-        # Delegate all attributes to base manager
         self.__dict__.update(base_manager.__dict__)
-    
+
     def reset_single(self, env_id: int):
-        """Reset a single environment and return its observation"""
-        # Note: This is a simplified implementation
-        # In practice, environments may need different handling
+        """Reset the underlying single environment.
+
+        Note: env_id is ignored by design since this wrapper is only used
+        when env_num == 1. We keep the signature for compatibility.
+        """
         obs, infos = self.reset()
         return obs, infos
-    
+
     def step_single(self, env_id: int, action: str):
-        """Step a single environment with the given action"""
-        # Create action list with None/default for other environments
-        # Get number of environments from base manager's envs object
-        if hasattr(self.base_manager.envs, 'num_processes'):
-            num_envs = self.base_manager.envs.num_processes
-        elif hasattr(self.base_manager.envs, 'env_num'):
-            num_envs = self.base_manager.envs.env_num
-        else:
-            # Fallback: try to get from the length of last reset observation
-            num_envs = 1  # Default to 1 if we can't determine
-        
-        actions = ["None"] * num_envs
-        actions[env_id] = action
-        
-        # Step all environments
-        obs, rewards, dones, infos = self.step(actions)
+        """Step the underlying single environment with the given action."""
+        # For a single environment we just forward a singleton action list.
+        obs, rewards, dones, infos = self.step([action])
         return obs, rewards, dones, infos
-    
+
     def __getattr__(self, name):
-        """Delegate unknown attributes to base manager"""
+        # Delegate unknown attributes to the base manager instance.
         return getattr(self.base_manager, name)
 
 
@@ -500,6 +516,39 @@ def load_gaia_tasks(data_path: str, max_tasks: Optional[int] = None) -> List[Dic
     return tasks
 
 
+def get_task_id(env_type: str, env_id: int, info: Dict, batch_idx: int = 0) -> str:
+    """
+    Get a unique task identifier for organizing outputs
+    
+    Args:
+        env_type: Type of environment
+        env_id: Environment ID within batch
+        info: Info dictionary from environment
+        batch_idx: Batch index
+        
+    Returns:
+        Unique task identifier string
+    """
+    if env_type == "alfworld":
+        # Try to extract from gamefile
+        gamefile = info.get("extra.gamefile", "")
+        if gamefile:
+            # Extract just the filename without path
+            task_name = os.path.basename(gamefile).replace(".json", "")
+            return f"alfworld_b{batch_idx:03d}_e{env_id:03d}_{task_name[:50]}"
+        else:
+            return f"alfworld_b{batch_idx:03d}_e{env_id:03d}_unknown"
+    elif env_type == "gaia":
+        pid = info.get("pid", f"unknown_{env_id}")
+        return f"gaia_b{batch_idx:03d}_e{env_id:03d}_{pid}"
+    elif env_type == "webshop":
+        # Try to extract task ID from info
+        task_id = info.get("task_id", f"task_{env_id}")
+        return f"webshop_b{batch_idx:03d}_e{env_id:03d}_{task_id}"
+    else:
+        return f"{env_type}_b{batch_idx:03d}_e{env_id:03d}"
+
+
 def prepare_alfworld_game_files(env_type: str, total_envs: int, seed: int) -> Optional[List[str]]:
     """Prepare unique game files for AlfWorld if requested"""
     if env_type != "alfworld":
@@ -544,13 +593,16 @@ def run_environment_with_retry(
     trajectory_manager: Optional[TrajectoryManager] = None,
     max_retries: int = 5,
     dump_fp=None,
+    dump_lock=None,
     chat_base_dir: str = None,
     batch_idx: int = 0,
     test_idx: int = 0,
     global_env_counter: int = 0,
     run_ts: str = "",
     debug_output_dir: str = None,
-    save_all_attempts: bool = False
+    save_all_attempts: bool = False,
+    task_dir: str = None,
+    shared_llm_executor=None
 ) -> Dict:
     """
     Run a single environment with retry logic using debugger feedback
@@ -564,6 +616,7 @@ def run_environment_with_retry(
     final_info = {}
     all_attempt_trajectories = []
     final_reward = 0
+    first_attempt_success = False  # Track if first attempt was successful
     
     for retry_idx in range(max_retries):
         logging.info(f"  Env {env_id} - Attempt {retry_idx + 1}/{max_retries}")
@@ -587,11 +640,11 @@ def run_environment_with_retry(
         if retry_idx > 0 and debugger and last_trajectory and not won:
             analysis = debugger.analyze_trajectory(last_trajectory, env_type)
             
-            # Save debug analysis if output dir specified
-            if debug_output_dir:
+            # Save debug analysis to task dir if specified
+            if task_dir:
                 debug_file = os.path.join(
-                    debug_output_dir,
-                    f"debug_b{batch_idx}_t{test_idx}_e{env_id}_r{retry_idx}.json"
+                    task_dir,
+                    f"debug_analysis_retry_{retry_idx}.json"
                 )
                 with open(debug_file, "w") as f:
                     json.dump({
@@ -673,7 +726,12 @@ def run_environment_with_retry(
                     debugger_feedback = debugger.generate_feedback(obs, analysis, prev_action, env_type)
                     prompt = debugger_feedback + obs
                 
-                action = agent.get_action_from_llm(prompt)
+                # Use shared LLM executor if available for better concurrency
+                if shared_llm_executor is not None:
+                    llm_future = agent.get_action_from_llm_with_shared_pool(prompt, shared_llm_executor)
+                    action = llm_future.result()  # This will block until LLM responds, but allows other tasks to proceed
+                else:
+                    action = agent.get_action_from_llm(prompt)
             
             # Store raw action for trajectory
             raw_action = action
@@ -737,8 +795,15 @@ def run_environment_with_retry(
                     elif env_type == "webshop":
                         row["task_score"] = float(info.get("task_score", 0))
                     
-                    dump_fp.write(json.dumps(row, ensure_ascii=False) + "\n")
-                    dump_fp.flush()
+                    line = json.dumps(row, ensure_ascii=False) + "\n"
+                    if dump_lock is not None:
+                        # Serialize writes across threads
+                        with dump_lock:
+                            dump_fp.write(line)
+                            dump_fp.flush()
+                    else:
+                        dump_fp.write(line)
+                        dump_fp.flush()
                 except Exception as e:
                     logging.error(f"Failed to write trajectory: {e}")
             
@@ -751,13 +816,21 @@ def run_environment_with_retry(
         # Save this attempt's trajectory
         if trajectory_manager:
             trajectory_manager.save_attempt(env_id)
-        all_attempt_trajectories.append({
+        
+        attempt_data = {
             "retry_idx": retry_idx,
             "trajectory": trajectory_steps.copy(),
             "won": won,
             "reward": cumulative_reward,
             "steps": len(trajectory_steps)
-        })
+        }
+        all_attempt_trajectories.append(attempt_data)
+        
+        # Save individual attempt trajectory to task dir
+        if task_dir:
+            attempt_file = os.path.join(task_dir, f"attempt_{retry_idx + 1}_trajectory.json")
+            with open(attempt_file, "w") as f:
+                json.dump(attempt_data, f, indent=2)
         
         # Save current trajectory for potential debugging
         last_trajectory = trajectory_steps
@@ -766,6 +839,8 @@ def run_environment_with_retry(
         # Check if this attempt was successful
         if won:
             logging.info(f"  Env {env_id} - SUCCESS on attempt {retry_idx + 1}")
+            if retry_idx == 0:
+                first_attempt_success = True
             break  # Success! No need to retry
         else:
             logging.info(f"  Env {env_id} - FAILED on attempt {retry_idx + 1}, will retry with debugging" if debugger and retry_idx < max_retries - 1 else f"  Env {env_id} - FAILED on attempt {retry_idx + 1}")
@@ -774,12 +849,10 @@ def run_environment_with_retry(
         if not debugger:
             break
     
-    # Save final chat history and all attempts if requested
-    if chat_base_dir:
+    # Save final summary to task dir
+    if task_dir:
         try:
-            task_hash = hashlib.sha1(f"{env_type}_{env_id}_{batch_idx}_{test_idx}".encode()).hexdigest()[:8]
-            unique_id = f"b{batch_idx:03d}_t{test_idx:02d}_e{env_id:02d}_{task_hash}_final"
-            out_path = os.path.join(chat_base_dir, f"chat_{unique_id}.json")
+            summary_file = os.path.join(task_dir, "task_summary.json")
             
             meta = {
                 "batch_idx": batch_idx,
@@ -787,11 +860,12 @@ def run_environment_with_retry(
                 "test_idx": test_idx,
                 "model": agent.model_name,
                 "env_type": env_type,
-                "steps": len(last_trajectory) if last_trajectory else 0,
+                "total_attempts": retry_idx + 1,
                 "won": won,
-                "retries": retry_idx + 1,
+                "first_attempt_success": first_attempt_success,
+                "final_reward": final_reward,
                 "timestamp": run_ts,
-                "final_reward": final_reward
+                "steps_in_final_attempt": len(last_trajectory) if last_trajectory else 0
             }
             
             # Add environment-specific metadata
@@ -802,25 +876,30 @@ def run_environment_with_retry(
             elif env_type == "webshop":
                 meta["task_score"] = float(final_info.get("task_score", 0))
             
-            # Save chat history with all attempts if requested
+            # Save summary with all attempts info
             save_data = {
-                "messages": chat_history,
                 "metadata": meta,
-                "final_trajectory": last_trajectory
+                "all_attempts_summary": [
+                    {
+                        "attempt": i + 1,
+                        "won": att["won"],
+                        "reward": att["reward"],
+                        "steps": att["steps"]
+                    }
+                    for i, att in enumerate(all_attempt_trajectories)
+                ]
             }
             
-            if save_all_attempts:
-                save_data["all_attempts"] = all_attempt_trajectories
-            
-            with open(out_path, "w", encoding="utf-8") as f:
+            with open(summary_file, "w", encoding="utf-8") as f:
                 json.dump(save_data, f, ensure_ascii=False, indent=2)
                 
         except Exception as e:
-            logging.error(f"Failed to save chat history: {e}")
+            logging.error(f"Failed to save task summary: {e}")
     
     return {
         "env_id": env_id,
         "won": won,
+        "first_attempt_success": first_attempt_success,
         "reward": final_reward,
         "retries": retry_idx + 1,
         "steps": len(last_trajectory) if last_trajectory else 0,
@@ -858,7 +937,9 @@ def main():
     
     # Execution parameters
     parser.add_argument("--concurrency", type=int, default=4,
-                       help="Max concurrent LLM requests per step")
+                       help="Max concurrent task workers")
+    parser.add_argument("--llm_concurrency", type=int, default=None,
+                       help="Max concurrent LLM requests across all tasks (default: 3x task concurrency)")
     parser.add_argument("--retries", type=int, default=3,
                        help="Retries per request on failure")
     
@@ -867,6 +948,10 @@ def main():
                        help="If set, write JSONL trajectory to this file")
     parser.add_argument("--chat_root", default=None,
                        help="If set, save per-episode chat histories under this root")
+    parser.add_argument("--experiment_dir", default=None,
+                       help="Root directory for all experiment outputs")
+    parser.add_argument("--save_per_task_trajectories", action="store_true",
+                       help="Save each task's trajectories in a separate folder")
     
     # Environment-specific parameters
     parser.add_argument("--alf_env_type", default="alfworld/AlfredTWEnv",
@@ -927,9 +1012,32 @@ def main():
     logging.info(f"Model: {args.model}, Temperature: {args.temperature}")
     logging.info(f"Total envs: {args.total_envs}, Batch size: {args.batch_size}, Max steps: {args.max_steps}")
     
-    # Calculate number of batches
-    num_batches = (args.total_envs + args.batch_size - 1) // args.batch_size
-    logging.info(f"Running {args.total_envs} envs in {num_batches} batches")
+    # Calculate number of batches (deprecated: we keep a fixed env pool)
+    num_batches = 1
+    logging.info(f"Using fixed env pool; batch_size is ignored.")
+    
+    # Prepare experiment directory structure
+    run_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    if args.experiment_dir:
+        # Use the provided experiment directory
+        experiment_root = args.experiment_dir
+        os.makedirs(experiment_root, exist_ok=True)
+        
+        # Create subdirectories
+        trajectories_dir = os.path.join(experiment_root, "trajectories")
+        summaries_dir = os.path.join(experiment_root, "summaries")
+        os.makedirs(trajectories_dir, exist_ok=True)
+        os.makedirs(summaries_dir, exist_ok=True)
+        
+        # Set up dump file path
+        if not args.dump_path:
+            args.dump_path = os.path.join(summaries_dir, "all_trajectories.jsonl")
+        
+        logging.info(f"Experiment directory: {experiment_root}")
+    else:
+        trajectories_dir = None
+        summaries_dir = None
     
     # Prepare output files
     dump_fp = None
@@ -937,15 +1045,17 @@ def main():
         os.makedirs(os.path.dirname(args.dump_path) or ".", exist_ok=True)
         dump_fp = open(args.dump_path, "a", encoding="utf-8")
         logging.info(f"Dumping trajectories to: {args.dump_path}")
-    
-    # Prepare chat history directories
-    run_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    chat_base_dir = None
-    if args.chat_root:
-        chat_ts_root = os.path.join(args.chat_root, 'trajectories', run_ts)
-        chat_base_dir = os.path.join(chat_ts_root, args.env, args.model.replace('/', '_'))
-        os.makedirs(chat_base_dir, exist_ok=True)
-        logging.info(f"Saving chats to: {chat_base_dir}")
+
+    # Pre-initialize Ray (once) for Ray-based envs to avoid thread-race on ray.init
+    if args.env in ("alfworld", "webshop"):
+        try:
+            import os as _os
+            _os.environ.setdefault("RAY_DISABLE_DASHBOARD", "1")
+            import ray as _ray
+            if not _ray.is_initialized():
+                _ray.init(ignore_reinit_error=True, include_dashboard=False)
+        except Exception as e:
+            logging.warning(f"Ray pre-initialization skipped or failed: {e}")
     
     def _sanitize(s: str) -> str:
         """Sanitize string for filename"""
@@ -960,12 +1070,19 @@ def main():
         gaia_tasks = load_gaia_tasks(args.gaia_data_path)
         logging.info(f"Loaded {len(gaia_tasks)} tasks")
         
-        if len(gaia_tasks) < args.total_envs:
-            logging.warning(f"Only {len(gaia_tasks)} tasks available, adjusting total_envs")
-            args.total_envs = len(gaia_tasks)
-            num_batches = (args.total_envs + args.batch_size - 1) // args.batch_size
+        # Trim to what will actually be used by a fixed pool of envs
+        pool_size = max(1, int(args.total_envs))
+        rounds = max(1, int(args.test_times))
+        max_needed = min(len(gaia_tasks), pool_size * rounds)
+        if len(gaia_tasks) > max_needed:
+            logging.info(f"Trimming GAIA tasks to {max_needed} (pool_size={pool_size}, rounds={rounds})")
+            gaia_tasks = gaia_tasks[:max_needed]
+        elif len(gaia_tasks) < max_needed:
+            logging.warning(f"Only {len(gaia_tasks)} GAIA tasks available, reducing rounds to fit availability")
+            rounds = max(1, len(gaia_tasks) // pool_size)
+            args.test_times = rounds
         
-        # Shuffle tasks for random sampling
+        # Shuffle tasks for random sampling variety
         rng = random.Random(args.seed)
         rng.shuffle(gaia_tasks)
         
@@ -1005,6 +1122,16 @@ def main():
         env_type=args.env
     )
     
+    # Create shared LLM executor pool for better concurrency across all tasks
+    # Use more workers than task concurrency to handle LLM I/O wait time
+    if args.llm_concurrency is not None:
+        llm_pool_size = args.llm_concurrency
+    else:
+        llm_pool_size = min(50, args.concurrency * 3)  # 3x task concurrency for LLM calls
+    
+    shared_llm_executor = ThreadPoolExecutor(max_workers=llm_pool_size)
+    logging.info(f"Created shared LLM executor pool with {llm_pool_size} workers")
+    
     # Initialize debugger and trajectory manager if enabled
     debugger = None
     trajectory_manager = None
@@ -1024,12 +1151,20 @@ def main():
 
     # Statistics tracking
     all_overall_success_rates = []
+    all_first_attempt_success_rates = []  # Track first attempt success rates
+    all_debugger_success_rates = []  # Track success rates after debugger assistance
     all_task_success_history = defaultdict(list)
     global_env_counter = 0
     
+    # Track overall statistics
+    total_first_attempt_successes = 0
+    total_debugger_successes = 0
+    total_tasks = 0
+    
     # Main rollout loop
     try:
-        for batch_idx in range(num_batches):
+        # Legacy batch loop disabled — we use a fixed env pool below.
+        for batch_idx in range(0):
             # Calculate actual batch size
             current_batch_size = min(args.batch_size, args.total_envs - batch_idx * args.batch_size)
             logging.info(f"\n========== Starting Batch {batch_idx + 1}/{num_batches} with {current_batch_size} envs ==========")
@@ -1058,13 +1193,6 @@ def main():
             elif args.env == "webshop":
                 env_kwargs["use_train_set"] = args.webshop_train
             
-            # Create environment
-            env_manager = EnvironmentFactory.build_env(
-                args.env, 
-                with_debugger=args.enable_debugger,
-                **env_kwargs
-            )
-            
             # Batch-level statistics
             batch_overall_success_rates = []
             batch_task_success_history = defaultdict(list)
@@ -1077,62 +1205,168 @@ def main():
                     
                     # Run with retry logic if debugger is enabled
                     if args.enable_debugger:
-                        # Run each environment with retry logic
-                        env_results = []
-                        for env_id in range(current_batch_size):
-                            logging.info(f"\nRunning Env {env_id + 1}/{current_batch_size} in Batch {batch_idx + 1}")
-                            result = run_environment_with_retry(
-                                env_id=env_id,
-                                env_manager=env_manager,
-                                agent=agent,
-                                max_steps=args.max_steps,
-                                env_type=args.env,
-                                debugger=debugger,
-                                trajectory_manager=trajectory_manager,
-                                max_retries=args.max_debug_retry,
-                                dump_fp=dump_fp,
-                                chat_base_dir=chat_base_dir,
-                                batch_idx=batch_idx,
-                                test_idx=test_idx,
-                                global_env_counter=global_env_counter,
-                                run_ts=run_ts,
-                                debug_output_dir=args.debug_output_dir,
-                                save_all_attempts=args.save_all_attempts
+                        # Build per-env managers (env_num == 1) so each rollout can reset independently
+                        per_env_build_args = []
+                        for i in range(current_batch_size):
+                            single_kwargs = dict(env_kwargs)
+                            single_kwargs["env_num"] = 1
+                            # Slice GAIA tasks to a single task
+                            if args.env == "gaia" and "tasks_data" in single_kwargs:
+                                # Select the i-th task within this batch
+                                start = batch_idx * args.batch_size
+                                single_kwargs["tasks_data"] = [gaia_tasks[start + i]]
+                            # Pin one gamefile for AlfWorld if provided
+                            if args.env == "alfworld" and "game_files" in single_kwargs and single_kwargs["game_files"]:
+                                single_kwargs["game_files"] = [single_kwargs["game_files"][i]]
+                            per_env_build_args.append(single_kwargs)
+
+                        # Helper to run a single rollout in its own env
+                        def _run_one(env_idx: int):
+                            task_start_time = time.time()
+                            thread_id = threading.get_ident()
+                            logging.info(f"[PARALLEL] Task {env_idx + 1} starting on thread {thread_id} at {task_start_time:.3f}")
+                            
+                            # Create one-env manager for this rollout
+                            env_init_start = time.time()
+                            local_env = EnvironmentFactory.build_env(
+                                args.env,
+                                with_debugger=True,
+                                **per_env_build_args[env_idx]
                             )
-                            env_results.append(result)
+                            env_init_time = time.time() - env_init_start
+                            logging.info(f"[PARALLEL] Task {env_idx + 1} env init took {env_init_time:.3f}s")
+                            
+                            try:
+                                # Reset once to compute task id and make task dir
+                                reset_start = time.time()
+                                init_obs, init_infos = local_env.reset()
+                                info0 = init_infos[0] if isinstance(init_infos, list) else init_infos
+                                task_id_local = get_task_id(args.env, env_idx, info0, batch_idx)
+                                task_dir_local = None
+                                if args.save_per_task_trajectories and trajectories_dir:
+                                    task_dir_local = os.path.join(trajectories_dir, task_id_local)
+                                    os.makedirs(task_dir_local, exist_ok=True)
+                                reset_time = time.time() - reset_start
+                                logging.info(f"[PARALLEL] Task {env_idx + 1} reset took {reset_time:.3f}s")
+
+                                logging.info(f"[PARALLEL] Task {env_idx + 1}/{current_batch_size} in Batch {batch_idx + 1} - {task_id_local}")
+
+                                # Execute rollout with retry/debugging; env_id is 0 for single-env managers
+                                rollout_start = time.time()
+                                res = run_environment_with_retry(
+                                    env_id=0,
+                                    env_manager=local_env,
+                                    agent=agent,
+                                    max_steps=args.max_steps,
+                                    env_type=args.env,
+                                    debugger=debugger,
+                                    trajectory_manager=trajectory_manager,
+                                    max_retries=args.max_debug_retry,
+                                    dump_fp=dump_fp,
+                                    dump_lock=dump_lock,
+                                    chat_base_dir=None,
+                                    batch_idx=batch_idx,
+                                    test_idx=test_idx,
+                                    global_env_counter=global_env_counter + env_idx,
+                                    run_ts=run_ts,
+                                    debug_output_dir=None,
+                                    save_all_attempts=args.save_all_attempts,
+                                    task_dir=task_dir_local,
+                                    shared_llm_executor=shared_llm_executor,
+                                )
+                                rollout_time = time.time() - rollout_start
+                                total_time = time.time() - task_start_time
+                                logging.info(f"[PARALLEL] Task {env_idx + 1} rollout took {rollout_time:.3f}s, total time: {total_time:.3f}s")
+                                
+                                res["task_id"] = task_id_local
+                                res["timing"] = {
+                                    "env_init_time": env_init_time,
+                                    "reset_time": reset_time, 
+                                    "rollout_time": rollout_time,
+                                    "total_time": total_time,
+                                    "thread_id": thread_id
+                                }
+                                # Preserve original batch env_id in result for consistency
+                                res["env_id"] = env_idx
+                                return res
+                            finally:
+                                # Ensure resources for this single env are released
+                                cleanup_start = time.time()
+                                try:
+                                    local_env.envs.close()
+                                    cleanup_time = time.time() - cleanup_start
+                                    logging.info(f"[PARALLEL] Task {env_idx + 1} cleanup took {cleanup_time:.3f}s")
+                                except Exception as e:
+                                    logging.warning(f"[PARALLEL] Task {env_idx + 1} cleanup failed: {e}")
+
+                        # Run all envs in parallel using a thread pool (LLM calls are also IO-bound)
+                        dump_lock = threading.Lock() if dump_fp is not None else None
+                        env_results = []
+                        
+                        batch_parallel_start = time.time()
+                        logging.info(f"[PARALLEL] Starting parallel execution of {current_batch_size} tasks with {args.concurrency} workers")
+                        
+                        with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
+                            futures = [ex.submit(_run_one, i) for i in range(current_batch_size)]
+                            logging.info(f"[PARALLEL] All {len(futures)} tasks submitted to thread pool")
+                            
+                            completed_count = 0
+                            for fut in as_completed(futures):
+                                result = fut.result()
+                                env_results.append(result)
+                                completed_count += 1
+                                logging.info(f"[PARALLEL] Task completed ({completed_count}/{current_batch_size}): Task {result['env_id'] + 1} in {result['timing']['total_time']:.3f}s")
+                        
+                        batch_parallel_time = time.time() - batch_parallel_start
+                        logging.info(f"[PARALLEL] All {current_batch_size} tasks completed in {batch_parallel_time:.3f}s")
+                        
+                        # Analyze parallel performance
+                        if env_results and "timing" in env_results[0]:
+                            total_task_times = [r["timing"]["total_time"] for r in env_results]
+                            avg_task_time = np.mean(total_task_times)
+                            max_task_time = np.max(total_task_times)
+                            min_task_time = np.min(total_task_times)
+                            theoretical_sequential_time = sum(total_task_times)
+                            parallel_efficiency = theoretical_sequential_time / (batch_parallel_time * current_batch_size) if batch_parallel_time > 0 else 0
+                            
+                            logging.info(f"[PARALLEL] Performance Analysis:")
+                            logging.info(f"  Average task time: {avg_task_time:.3f}s")
+                            logging.info(f"  Max task time: {max_task_time:.3f}s (bottleneck)")
+                            logging.info(f"  Min task time: {min_task_time:.3f}s")
+                            logging.info(f"  Theoretical sequential time: {theoretical_sequential_time:.3f}s")
+                            logging.info(f"  Actual parallel time: {batch_parallel_time:.3f}s")
+                            logging.info(f"  Speedup: {theoretical_sequential_time/batch_parallel_time:.2f}x")
+                            logging.info(f"  Parallel efficiency: {parallel_efficiency:.2f} ({parallel_efficiency*100:.1f}%)")
                         
                         # Collect statistics from results
                         overall_success_this_round = np.array([r['won'] for r in env_results])
+                        first_attempt_success_this_round = np.array([r['first_attempt_success'] for r in env_results])
                         task_success_cnt = defaultdict(int)
                         task_total_cnt = defaultdict(int)
                         
+                        # Update overall statistics
+                        total_tasks += len(env_results)
+                        total_first_attempt_successes += first_attempt_success_this_round.sum()
+                        total_debugger_successes += overall_success_this_round.sum()
+                        
                         # Process results for task-specific statistics
                         for result in env_results:
-                            if args.env == "alfworld":
-                                # Extract task type from result
-                                task_types = ["pick_and_place", "pick_two_obj_and_place",
-                                            "look_at_obj_in_light", "pick_heat_then_place_in_recep",
-                                            "pick_cool_then_place_in_recep", "pick_clean_then_place_in_recep"]
-                                task_id = "other"
-                                # Note: We'd need to get this from the result's trajectory info
-                                # For now, use a placeholder
-                                if result.get('trajectory'):
-                                    # Try to infer from trajectory
-                                    task_id = "task"
-                            elif args.env == "gaia":
-                                task_id = f"task_{result['env_id']}"
-                            else:  # webshop
-                                task_id = f"task_{result['env_id']}"
-                            
+                            task_id = result.get('task_id', f"task_{result['env_id']}")
                             task_total_cnt[task_id] = 1
                             if result['won']:
                                 task_success_cnt[task_id] = 1
                         
-                        # Skip the normal rollout loop
+                        # Calculate success rates
                         round_success_rate = overall_success_this_round.mean()
-                        batch_overall_success_rates.append(round_success_rate)
+                        first_attempt_rate = first_attempt_success_this_round.mean()
                         
-                        logging.info(f"Batch {batch_idx + 1} Test {test_idx} overall success: {round_success_rate:.4f}")
+                        batch_overall_success_rates.append(round_success_rate)
+                        all_first_attempt_success_rates.append(first_attempt_rate)
+                        all_debugger_success_rates.append(round_success_rate)
+                        
+                        logging.info(f"Batch {batch_idx + 1} Test {test_idx} Results:")
+                        logging.info(f"  First attempt success rate: {first_attempt_rate:.4f}")
+                        logging.info(f"  Success rate after debugger: {round_success_rate:.4f}")
                         
                         # Log per-task results if needed
                         for task, total in task_total_cnt.items():
@@ -1142,10 +1376,17 @@ def main():
                         
                         logging.info(f"Batch {batch_idx + 1} Test {test_idx} time elapsed: {time.time() - start_time:.2f}s\n")
                         continue  # Skip the normal rollout code below
-                    
                     # Normal rollout without debugger (original code)
+                    env_manager = EnvironmentFactory.build_env(
+                        args.env,
+                        with_debugger=False,
+                        **env_kwargs
+                    )
                     obs, infos = env_manager.reset()
                     env_dones = [False] * current_batch_size
+                    
+                    # Set chat_base_dir from args
+                    chat_base_dir = args.chat_root
                     
                     # Per-env chat buffers
                     chats = [[] for _ in range(current_batch_size)]
@@ -1333,16 +1574,185 @@ def main():
                 # Update global counter
                 global_env_counter += current_batch_size
                 
-                # Clean up resources
+                # Clean up resources for non-debugger batch manager (if any)
                 try:
-                    env_manager.envs.close()
-                    logging.info(f"Released resources for Batch {batch_idx + 1}")
+                    if 'env_manager' in locals() and hasattr(env_manager, 'envs'):
+                        env_manager.envs.close()
+                        logging.info(f"Released resources for Batch {batch_idx + 1}")
                 except Exception as e:
                     logging.warning(f"Failed to release resources: {e}")
                 
                 logging.info(f"========== Finished Batch {batch_idx + 1}/{num_batches}, processed {global_env_counter}/{args.total_envs} envs ==========\n")
-        
+
+        # ===== Fixed-pool parallel rollout (preferred path) =====
+        pool_size = max(1, int(args.total_envs))
+        rounds = max(1, int(args.test_times))
+
+        logging.info(f"\n========== Fixed Env Pool ==========")
+        logging.info(f"Parallel envs: {pool_size} | Rounds per env: {rounds}")
+
+        if args.enable_debugger:
+            # Build per-env managers (single-env each) once and reuse with reset()
+            common_kwargs = {"env_num": 1, "seed": args.seed, "history_length": args.history_length}
+            if args.env == "gaia":
+                common_kwargs["available_tools"] = args.gaia_tools
+                common_kwargs["max_steps"] = args.max_steps
+                # Distribute trimmed tasks across envs
+                per_env_tasks: List[List[Dict]] = [[] for _ in range(pool_size)]
+                for k, task in enumerate(gaia_tasks or []):
+                    per_env_tasks[k % pool_size].append(task)
+            elif args.env == "alfworld":
+                common_kwargs["alf_env_type"] = args.alf_env_type
+                per_env_files: List[Optional[str]] = [None] * pool_size
+                if args.unique_envs and alfworld_game_files:
+                    take = min(len(alfworld_game_files), pool_size)
+                    for i in range(take):
+                        per_env_files[i] = alfworld_game_files[i]
+            elif args.env == "webshop":
+                common_kwargs["use_train_set"] = args.webshop_train
+
+            env_pool = []
+            for i in range(pool_size):
+                kwargs_i = dict(common_kwargs)
+                if args.env == "gaia":
+                    kwargs_i["tasks_data"] = per_env_tasks[i] if gaia_tasks is not None else []
+                if args.env == "alfworld" and (args.unique_envs and alfworld_game_files):
+                    kwargs_i["game_files"] = [per_env_files[i]] if per_env_files[i] else None
+                mgr = EnvironmentFactory.build_env(args.env, with_debugger=True, **kwargs_i)
+                env_pool.append(mgr)
+
+            def _run_one_round(env_idx: int, round_idx: int):
+                # Reset to get task id and ensure fresh episode
+                init_obs, init_infos = env_pool[env_idx].reset()
+                info0 = init_infos[0] if isinstance(init_infos, list) else init_infos
+                task_id = get_task_id(args.env, env_idx, info0, round_idx)
+
+                task_dir = None
+                if summaries_dir and args.save_per_task_trajectories:
+                    task_dir = os.path.join(summaries_dir, _sanitize(task_id))
+                    os.makedirs(task_dir, exist_ok=True)
+
+                res = run_environment_with_retry(
+                    env_id=0,
+                    env_manager=env_pool[env_idx],
+                    agent=agent,
+                    max_steps=args.max_steps,
+                    env_type=args.env,
+                    debugger=debugger,
+                    trajectory_manager=trajectory_manager,
+                    max_retries=args.max_debug_retry,
+                    dump_fp=dump_fp,
+                    dump_lock=(threading.Lock() if dump_fp is not None else None),
+                    chat_base_dir=None,
+                    batch_idx=0,
+                    test_idx=round_idx,
+                    global_env_counter=env_idx,
+                    run_ts=run_ts,
+                    debug_output_dir=None,
+                    save_all_attempts=args.save_all_attempts,
+                    task_dir=task_dir,
+                    shared_llm_executor=shared_llm_executor,
+                )
+                res["task_id"] = task_id
+                res["env_id"] = env_idx
+                return res
+
+            for r in range(rounds):
+                logging.info(f"\n========== Round {r + 1}/{rounds} ==========")
+                env_results = []
+                with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
+                    futures = [ex.submit(_run_one_round, i, r) for i in range(pool_size)]
+                    for fut in as_completed(futures):
+                        env_results.append(fut.result())
+
+                # Update stats
+                overall = np.array([rr['won'] for rr in env_results])
+                first_attempt = np.array([rr['first_attempt_success'] for rr in env_results])
+                total_tasks += len(env_results)
+                total_first_attempt_successes += first_attempt.sum()
+                total_debugger_successes += overall.sum()
+                all_first_attempt_success_rates.append(first_attempt.mean())
+                all_debugger_success_rates.append(overall.mean())
+
+            # Close pool
+            for mgr in env_pool:
+                try:
+                    mgr.envs.close()
+                except Exception:
+                    pass
+
+            global_env_counter = pool_size
+
+        else:
+            # Without debugger: build a single multi-env manager once and reuse
+            env_kwargs = {
+                "env_num": pool_size,
+                "seed": args.seed,
+                "history_length": args.history_length,
+            }
+            if args.env == "gaia":
+                # Distribute trimmed tasks across envs as a flat list
+                env_kwargs["tasks_data"] = gaia_tasks
+                env_kwargs["available_tools"] = args.gaia_tools
+                env_kwargs["max_steps"] = args.max_steps
+            elif args.env == "alfworld":
+                env_kwargs["alf_env_type"] = args.alf_env_type
+                if args.unique_envs and alfworld_game_files:
+                    env_kwargs["game_files"] = alfworld_game_files[:pool_size]
+            elif args.env == "webshop":
+                env_kwargs["use_train_set"] = args.webshop_train
+
+            env_manager = EnvironmentFactory.build_env(args.env, with_debugger=False, **env_kwargs)
+
+            # Repeat for a number of rounds; each round calls reset() and steps to done
+            for test_idx in range(rounds):
+                obs, infos = env_manager.reset()
+                env_dones = [False] * pool_size
+                overall_success_this_round = np.zeros(pool_size, dtype=bool)
+
+                for step_idx in range(args.max_steps):
+                    # Collect prompts for active envs
+                    prompts, idx_map = [], []
+                    for i in range(pool_size):
+                        if not env_dones[i]:
+                            prompts.append(obs["text"][i])
+                            idx_map.append(i)
+                    if not prompts:
+                        break
+
+                    batch_actions = agent.get_actions_batch(prompts, concurrency=args.concurrency, retries=args.retries)
+                    actions = ["None"] * pool_size
+                    for k, i in enumerate(idx_map):
+                        actions[i] = batch_actions[k]
+
+                    prev_prompts = obs["text"]
+                    raw_actions = actions.copy()
+                    obs, rewards, dones, infos = env_manager.step(actions.copy())
+
+                    for i in range(pool_size):
+                        if env_dones[i]:
+                            continue
+                        if dones[i]:
+                            env_dones[i] = True
+                            overall_success_this_round[i] = bool(infos[i].get("won", False))
+                    if all(env_dones):
+                        break
+
+                # Update simple aggregate for non-debugger path
+                all_overall_success_rates.append(overall_success_this_round.mean())
+
+            try:
+                env_manager.envs.close()
+            except Exception:
+                pass
+            global_env_counter = pool_size
+
     finally:
+        # Clean up shared LLM executor
+        if 'shared_llm_executor' in locals():
+            shared_llm_executor.shutdown(wait=True)
+            logging.info("Shared LLM executor pool shut down")
+        
         if dump_fp is not None:
             dump_fp.flush()
             dump_fp.close()
@@ -1351,13 +1761,72 @@ def main():
     # Final summary
     logging.info("=============== Final Summary ===============")
     logging.info(f"Environment: {args.env}")
-    logging.info(f"Total batches: {num_batches} | Batch size: {args.batch_size} | Total envs processed: {global_env_counter}")
+    logging.info(f"Total batches: {num_batches} | Parallel envs: {max(1, int(args.total_envs))} | Total tasks run: {total_tasks}")
     
-    if all_overall_success_rates:
+    # Report both first attempt and debugger-assisted success rates
+    if args.enable_debugger and total_tasks > 0:
+        first_attempt_success_rate = total_first_attempt_successes / total_tasks
+        debugger_success_rate = total_debugger_successes / total_tasks
+        improvement = debugger_success_rate - first_attempt_success_rate
+        
+        logging.info("\n========== Success Rate Analysis ==========")
+        logging.info(f"First Attempt Success Rate: {first_attempt_success_rate:.4f} ({total_first_attempt_successes}/{total_tasks})")
+        logging.info(f"Success Rate with Debugger: {debugger_success_rate:.4f} ({total_debugger_successes}/{total_tasks})")
+        logging.info(f"Improvement from Debugger: +{improvement:.4f} ({improvement*100:.2f}%)")
+        
+        if all_first_attempt_success_rates:
+            logging.info(
+                f"First Attempt (avg ± std): "
+                f"{np.mean(all_first_attempt_success_rates):.4f} ± {np.std(all_first_attempt_success_rates):.4f}"
+            )
+        if all_debugger_success_rates:
+            logging.info(
+                f"With Debugger (avg ± std): "
+                f"{np.mean(all_debugger_success_rates):.4f} ± {np.std(all_debugger_success_rates):.4f}"
+            )
+    elif all_overall_success_rates:
         logging.info(
             f"Overall success avg ± std: "
             f"{np.mean(all_overall_success_rates):.4f} ± {np.std(all_overall_success_rates):.4f}"
         )
+    
+    # Save final experiment summary to file if experiment_dir is set
+    if summaries_dir:
+        summary_file = os.path.join(summaries_dir, "experiment_summary.json")
+        experiment_summary = {
+            "experiment_info": {
+                "environment": args.env,
+                "model": args.model,
+                "temperature": args.temperature,
+                "debugger_enabled": args.enable_debugger,
+                "debugger_model": args.debugger_model if args.enable_debugger else None,
+                "debugger_temperature": args.debugger_temperature if args.enable_debugger else None,
+                "max_retries": args.max_debug_retry if args.enable_debugger else 1,
+                "total_tasks": total_tasks,
+                "total_batches": num_batches,
+                "batch_size": args.batch_size,
+                "max_steps": args.max_steps,
+                "timestamp": run_ts
+            },
+            "results": {
+                "first_attempt_success_rate": float(total_first_attempt_successes) / total_tasks if total_tasks > 0 else 0,
+                "debugger_success_rate": float(total_debugger_successes) / total_tasks if total_tasks > 0 else 0,
+                "improvement": (float(total_debugger_successes) - float(total_first_attempt_successes)) / total_tasks if total_tasks > 0 else 0,
+                "first_attempt_successes": int(total_first_attempt_successes),
+                "debugger_successes": int(total_debugger_successes),
+                "total_tasks": int(total_tasks)
+            },
+            "statistics": {
+                "first_attempt_mean": float(np.mean(all_first_attempt_success_rates)) if all_first_attempt_success_rates else 0,
+                "first_attempt_std": float(np.std(all_first_attempt_success_rates)) if all_first_attempt_success_rates else 0,
+                "debugger_mean": float(np.mean(all_debugger_success_rates)) if all_debugger_success_rates else 0,
+                "debugger_std": float(np.std(all_debugger_success_rates)) if all_debugger_success_rates else 0
+            }
+        }
+        
+        with open(summary_file, "w") as f:
+            json.dump(experiment_summary, f, indent=2)
+        logging.info(f"\nExperiment summary saved to: {summary_file}")
     
     # Environment-specific summaries
     if args.env == "alfworld":
