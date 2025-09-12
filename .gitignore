@@ -1,5 +1,5 @@
 .env
-
+.experiments/
 # virtual env
 venv/
 
