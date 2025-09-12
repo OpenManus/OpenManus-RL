@@ -5,15 +5,15 @@
 echo "Running basic test without debugger..."
 python scripts/rollout/alfworld_debugger.py \
     --env_name alfworld \
-    --batch_size 2 \
-    --total_envs 2 \
+    --batch_size 4 \
+    --total_envs 4 \
     --test_times 1 \
     --max_steps 30 \
     --model gpt-4o-mini \
-    --temperature 0.4 \
+    --temperature 0.0 \
     --dump_path logs/test_no_debugger.jsonl
 
-# Test with debugger enabled
+# Test with debugger ebled
 echo "Running test with debugger enabled..."
 python scripts/rollout/alfworld_debugger.py \
     --env_name alfworld \

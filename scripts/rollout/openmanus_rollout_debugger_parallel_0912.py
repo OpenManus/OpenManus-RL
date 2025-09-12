@@ -19,7 +19,6 @@ import random
 import hashlib
 import sys
 from openmanus_rl.environments.env_manager import *
-from scripts.rollout.baselines import run_best_of_n, run_tree_search, SearchParams
 from openai import OpenAI
 from together import Together
 import threading
@@ -944,18 +943,6 @@ def main():
     parser.add_argument("--retries", type=int, default=3,
                        help="Retries per request on failure")
     
-    # Strategy selection
-    parser.add_argument("--strategy", choices=["debugger", "bon", "tot", "dfsdt"], default="debugger",
-                       help="Rollout strategy: LLM Debugger, Best-of-N, Tree-of-Thought DFS, or DFSDT")
-    parser.add_argument("--bon_n", type=int, default=5, help="Best-of-N: number of independent rollouts")
-    parser.add_argument("--beam_size", type=int, default=3, help="ToT/DFSDT: candidate branching per state")
-    parser.add_argument("--value_threshold", type=float, default=0.15, help="ToT: prune if top value below threshold")
-    parser.add_argument("--max_nodes", type=int, default=100, help="ToT/DFSDT: max expansions")
-    parser.add_argument("--diversity_back_steps", type=int, default=2, help="DFSDT: backtrack steps on failure")
-    parser.add_argument("--diversity_back_steps_alt", type=int, default=3, help="DFSDT: alternate backtrack if needed")
-    parser.add_argument("--propose_k", type=int, default=4, help="ToT/DFSDT: proposals when no explicit list")
-    parser.add_argument("--search_retry", type=int, default=5, help="ToT/DFSDT: maximum tries when used as fallback after a failed attempt")
-
     # Output parameters
     parser.add_argument("--dump_path", default=None,
                        help="If set, write JSONL trajectory to this file")
@@ -1148,7 +1135,7 @@ def main():
     # Initialize debugger and trajectory manager if enabled
     debugger = None
     trajectory_manager = None
-    if args.enable_debugger and args.strategy == "debugger":
+    if args.enable_debugger:
         debugger = LLMDebugger(
             model_name=args.debugger_model,
             temperature=args.debugger_temperature,
@@ -1238,7 +1225,7 @@ def main():
                             task_start_time = time.time()
                             thread_id = threading.get_ident()
                             logging.info(f"[PARALLEL] Task {env_idx + 1} starting on thread {thread_id} at {task_start_time:.3f}")
-
+                            
                             # Create one-env manager for this rollout
                             env_init_start = time.time()
                             local_env = EnvironmentFactory.build_env(
@@ -1248,7 +1235,7 @@ def main():
                             )
                             env_init_time = time.time() - env_init_start
                             logging.info(f"[PARALLEL] Task {env_idx + 1} env init took {env_init_time:.3f}s")
-
+                            
                             try:
                                 # Reset once to compute task id and make task dir
                                 reset_start = time.time()
@@ -1256,164 +1243,49 @@ def main():
                                 info0 = init_infos[0] if isinstance(init_infos, list) else init_infos
                                 task_id_local = get_task_id(args.env, env_idx, info0, batch_idx)
                                 task_dir_local = None
-                                if args.save_per_task_trajectories and summaries_dir:
-                                    task_dir_local = os.path.join(summaries_dir, _sanitize(task_id_local))
+                                if args.save_per_task_trajectories and trajectories_dir:
+                                    task_dir_local = os.path.join(trajectories_dir, task_id_local)
                                     os.makedirs(task_dir_local, exist_ok=True)
                                 reset_time = time.time() - reset_start
                                 logging.info(f"[PARALLEL] Task {env_idx + 1} reset took {reset_time:.3f}s")
 
                                 logging.info(f"[PARALLEL] Task {env_idx + 1}/{current_batch_size} in Batch {batch_idx + 1} - {task_id_local}")
 
-                                # Execute rollout per strategy; env_id is 0 for single-env managers
+                                # Execute rollout with retry/debugging; env_id is 0 for single-env managers
                                 rollout_start = time.time()
-                                if args.strategy == "debugger":
-                                    res = run_environment_with_retry(
-                                        env_id=0,
-                                        env_manager=local_env,
-                                        agent=agent,
-                                        max_steps=args.max_steps,
-                                        env_type=args.env,
-                                        debugger=debugger,
-                                        trajectory_manager=trajectory_manager,
-                                        max_retries=args.max_debug_retry,
-                                        dump_fp=dump_fp,
-                                        dump_lock=dump_lock,
-                                        chat_base_dir=None,
-                                        batch_idx=batch_idx,
-                                        test_idx=test_idx,
-                                        global_env_counter=global_env_counter + env_idx,
-                                        run_ts=run_ts,
-                                        debug_output_dir=None,
-                                        save_all_attempts=args.save_all_attempts,
-                                        task_dir=task_dir_local,
-                                        shared_llm_executor=shared_llm_executor,
-                                    )
-                                elif args.strategy == "bon":
-                                    # Helper closure to attempt a single rollout (no debugger, one attempt)
-                                    def _single_attempt():
-                                        return run_environment_with_retry(
-                                            env_id=0,
-                                            env_manager=local_env,
-                                            agent=agent,
-                                            max_steps=args.max_steps,
-                                            env_type=args.env,
-                                            debugger=None,
-                                            trajectory_manager=None,
-                                            max_retries=1,
-                                            dump_fp=dump_fp,
-                                            dump_lock=dump_lock,
-                                            chat_base_dir=None,
-                                            batch_idx=batch_idx,
-                                            test_idx=test_idx,
-                                            global_env_counter=global_env_counter + env_idx,
-                                            run_ts=run_ts,
-                                            debug_output_dir=None,
-                                            save_all_attempts=False,
-                                            task_dir=None,
-                                            shared_llm_executor=shared_llm_executor,
-                                        )
-                                    res = run_best_of_n(
-                                        N=args.bon_n,
-                                        env_manager=local_env,
-                                        agent=agent,
-                                        max_steps=args.max_steps,
-                                        env_type=args.env,
-                                        single_attempt_fn=_single_attempt,
-                                    )
-                                else:
-                                    # ToT-DFS or DFSDT only after a failed simple attempt
-                                    def _single_attempt():
-                                        return run_environment_with_retry(
-                                            env_id=0,
-                                            env_manager=local_env,
-                                            agent=agent,
-                                            max_steps=args.max_steps,
-                                            env_type=args.env,
-                                            debugger=None,
-                                            trajectory_manager=None,
-                                            max_retries=1,
-                                            dump_fp=dump_fp,
-                                            dump_lock=dump_lock,
-                                            chat_base_dir=None,
-                                            batch_idx=batch_idx,
-                                            test_idx=test_idx,
-                                            global_env_counter=global_env_counter + env_idx,
-                                            run_ts=run_ts,
-                                            debug_output_dir=None,
-                                            save_all_attempts=True,
-                                            task_dir=task_dir_local,
-                                            shared_llm_executor=shared_llm_executor,
-                                        )
-                                    first = _single_attempt()
-                                    if first.get("won", False):
-                                        res = first
-                                    else:
-                                        # Start search attempts; continue attempt numbering
-                                        sp = SearchParams(
-                                            beam_size=args.beam_size,
-                                            value_threshold=args.value_threshold,
-                                            max_nodes=args.max_nodes,
-                                            max_depth=args.max_steps,
-                                            diversity_back_steps=args.diversity_back_steps,
-                                            diversity_back_steps_alt=args.diversity_back_steps_alt,
-                                            propose_k=args.propose_k,
-                                        )
-                                        mode = "tot" if args.strategy == "tot" else "dfsdt"
-                                        res = first
-                                        attempt_idx = 2  # attempt_1 was the first naive attempt
-                                        for tr in range(args.search_retry):
-                                            sr = run_tree_search(
-                                                env_manager=local_env,
-                                                agent=agent,
-                                                max_steps=args.max_steps,
-                                                env_type=args.env,
-                                                params=sp,
-                                                mode=mode,
-                                                task_dir=task_dir_local if args.save_per_task_trajectories else None,
-                                                attempt_id=attempt_idx if args.save_per_task_trajectories else None,
-                                            )
-                                            attempt_idx += 1
-                                            # Merge summary-like fields
-                                            res.setdefault("search_attempts", []).append({
-                                                "won": sr.get("won", False),
-                                                "steps": sr.get("steps", 0),
-                                                "strategy": mode,
-                                            })
-                                            if sr.get("won", False):
-                                                res = sr
-                                                break
+                                res = run_environment_with_retry(
+                                    env_id=0,
+                                    env_manager=local_env,
+                                    agent=agent,
+                                    max_steps=args.max_steps,
+                                    env_type=args.env,
+                                    debugger=debugger,
+                                    trajectory_manager=trajectory_manager,
+                                    max_retries=args.max_debug_retry,
+                                    dump_fp=dump_fp,
+                                    dump_lock=dump_lock,
+                                    chat_base_dir=None,
+                                    batch_idx=batch_idx,
+                                    test_idx=test_idx,
+                                    global_env_counter=global_env_counter + env_idx,
+                                    run_ts=run_ts,
+                                    debug_output_dir=None,
+                                    save_all_attempts=args.save_all_attempts,
+                                    task_dir=task_dir_local,
+                                    shared_llm_executor=shared_llm_executor,
+                                )
                                 rollout_time = time.time() - rollout_start
                                 total_time = time.time() - task_start_time
                                 logging.info(f"[PARALLEL] Task {env_idx + 1} rollout took {rollout_time:.3f}s, total time: {total_time:.3f}s")
-
+                                
                                 res["task_id"] = task_id_local
                                 res["timing"] = {
                                     "env_init_time": env_init_time,
-                                    "reset_time": reset_time,
+                                    "reset_time": reset_time, 
                                     "rollout_time": rollout_time,
                                     "total_time": total_time,
-                                    "thread_id": thread_id,
+                                    "thread_id": thread_id
                                 }
-                                # If ToT/DFSDT, refresh summary file to include search attempts
-                                if args.strategy in ("tot", "dfsdt") and task_dir_local:
-                                    try:
-                                        summary_file = os.path.join(task_dir_local, "task_summary.json")
-                                        meta = {
-                                            "model": agent.model_name,
-                                            "env_type": args.env,
-                                            "strategy": args.strategy,
-                                            "total_attempts": 1 + len(res.get("search_attempts", [])),
-                                            "won": bool(res.get("won", False)),
-                                            "timestamp": run_ts,
-                                        }
-                                        with open(summary_file, "w", encoding="utf-8") as f:
-                                            json.dump({
-                                                "metadata": meta,
-                                                "search_attempts": res.get("search_attempts", []),
-                                            }, f, ensure_ascii=False, indent=2)
-                                    except Exception as e:
-                                        logging.debug(f"Failed to write updated summary: {e}")
-
                                 # Preserve original batch env_id in result for consistency
                                 res["env_id"] = env_idx
                                 return res
@@ -1719,7 +1591,7 @@ def main():
         logging.info(f"\n========== Fixed Env Pool ==========")
         logging.info(f"Parallel envs: {pool_size} | Rounds per env: {rounds}")
 
-        if args.strategy != "debugger" or args.enable_debugger:
+        if args.enable_debugger:
             # Build per-env managers (single-env each) once and reuse with reset()
             common_kwargs = {"env_num": 1, "seed": args.seed, "history_length": args.history_length}
             if args.env == "gaia":
@@ -1760,138 +1632,27 @@ def main():
                     task_dir = os.path.join(summaries_dir, _sanitize(task_id))
                     os.makedirs(task_dir, exist_ok=True)
 
-                if args.strategy == "debugger":
-                    res = run_environment_with_retry(
-                        env_id=0,
-                        env_manager=env_pool[env_idx],
-                        agent=agent,
-                        max_steps=args.max_steps,
-                        env_type=args.env,
-                        debugger=debugger,
-                        trajectory_manager=trajectory_manager,
-                        max_retries=args.max_debug_retry,
-                        dump_fp=dump_fp,
-                        dump_lock=(threading.Lock() if dump_fp is not None else None),
-                        chat_base_dir=None,
-                        batch_idx=0,
-                        test_idx=round_idx,
-                        global_env_counter=env_idx,
-                        run_ts=run_ts,
-                        debug_output_dir=None,
-                        save_all_attempts=args.save_all_attempts,
-                        task_dir=task_dir,
-                        shared_llm_executor=shared_llm_executor,
-                    )
-                elif args.strategy == "bon":
-                    def _single_attempt():
-                        return run_environment_with_retry(
-                            env_id=0,
-                            env_manager=env_pool[env_idx],
-                            agent=agent,
-                            max_steps=args.max_steps,
-                            env_type=args.env,
-                            debugger=None,
-                            trajectory_manager=None,
-                            max_retries=1,
-                            dump_fp=dump_fp,
-                            dump_lock=(threading.Lock() if dump_fp is not None else None),
-                            chat_base_dir=None,
-                            batch_idx=0,
-                            test_idx=round_idx,
-                            global_env_counter=env_idx,
-                            run_ts=run_ts,
-                            debug_output_dir=None,
-                            save_all_attempts=False,
-                            task_dir=None,
-                            shared_llm_executor=shared_llm_executor,
-                        )
-                    res = run_best_of_n(
-                        N=args.bon_n,
-                        env_manager=env_pool[env_idx],
-                        agent=agent,
-                        max_steps=args.max_steps,
-                        env_type=args.env,
-                        single_attempt_fn=_single_attempt,
-                    )
-                else:
-                    # Run a naive single attempt first; if fails, run ToT/DFSDT up to search_retry times
-                    def _single_attempt():
-                        return run_environment_with_retry(
-                            env_id=0,
-                            env_manager=env_pool[env_idx],
-                            agent=agent,
-                            max_steps=args.max_steps,
-                            env_type=args.env,
-                            debugger=None,
-                            trajectory_manager=None,
-                            max_retries=1,
-                            dump_fp=dump_fp,
-                            dump_lock=(threading.Lock() if dump_fp is not None else None),
-                            chat_base_dir=None,
-                            batch_idx=0,
-                            test_idx=round_idx,
-                            global_env_counter=env_idx,
-                            run_ts=run_ts,
-                            debug_output_dir=None,
-                            save_all_attempts=True,
-                            task_dir=task_dir,
-                            shared_llm_executor=shared_llm_executor,
-                        )
-                    first = _single_attempt()
-                    if first.get("won", False):
-                        res = first
-                    else:
-                        sp = SearchParams(
-                            beam_size=args.beam_size,
-                            value_threshold=args.value_threshold,
-                            max_nodes=args.max_nodes,
-                            max_depth=args.max_steps,
-                            diversity_back_steps=args.diversity_back_steps,
-                            diversity_back_steps_alt=args.diversity_back_steps_alt,
-                            propose_k=args.propose_k,
-                        )
-                        mode = "tot" if args.strategy == "tot" else "dfsdt"
-                        res = first
-                        attempt_idx = 2
-                        for tr in range(args.search_retry):
-                            sr = run_tree_search(
-                                env_manager=env_pool[env_idx],
-                                agent=agent,
-                                max_steps=args.max_steps,
-                                env_type=args.env,
-                                params=sp,
-                                mode=mode,
-                                task_dir=task_dir if args.save_per_task_trajectories else None,
-                                attempt_id=attempt_idx if args.save_per_task_trajectories else None,
-                            )
-                            attempt_idx += 1
-                            res.setdefault("search_attempts", []).append({
-                                "won": sr.get("won", False),
-                                "steps": sr.get("steps", 0),
-                                "strategy": mode,
-                            })
-                            if sr.get("won", False):
-                                res = sr
-                                break
-                        # Refresh summary with combined attempts
-                        if task_dir and args.strategy in ("tot", "dfsdt"):
-                            try:
-                                summary_file = os.path.join(task_dir, "task_summary.json")
-                                meta = {
-                                    "model": agent.model_name,
-                                    "env_type": args.env,
-                                    "strategy": args.strategy,
-                                    "total_attempts": 1 + len(res.get("search_attempts", [])),
-                                    "won": bool(res.get("won", False)),
-                                    "timestamp": run_ts,
-                                }
-                                with open(summary_file, "w", encoding="utf-8") as f:
-                                    json.dump({
-                                        "metadata": meta,
-                                        "search_attempts": res.get("search_attempts", []),
-                                    }, f, ensure_ascii=False, indent=2)
-                            except Exception as e:
-                                logging.debug(f"Failed to write updated summary: {e}")
+                res = run_environment_with_retry(
+                    env_id=0,
+                    env_manager=env_pool[env_idx],
+                    agent=agent,
+                    max_steps=args.max_steps,
+                    env_type=args.env,
+                    debugger=debugger,
+                    trajectory_manager=trajectory_manager,
+                    max_retries=args.max_debug_retry,
+                    dump_fp=dump_fp,
+                    dump_lock=(threading.Lock() if dump_fp is not None else None),
+                    chat_base_dir=None,
+                    batch_idx=0,
+                    test_idx=round_idx,
+                    global_env_counter=env_idx,
+                    run_ts=run_ts,
+                    debug_output_dir=None,
+                    save_all_attempts=args.save_all_attempts,
+                    task_dir=task_dir,
+                    shared_llm_executor=shared_llm_executor,
+                )
                 res["task_id"] = task_id
                 res["env_id"] = env_idx
                 return res
