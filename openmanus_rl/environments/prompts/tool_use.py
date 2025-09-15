@@ -22,7 +22,7 @@ tool: [tool_name]
 parameters: {{"param1": "value1", "param2": "value2"}}
 </tool_call>
 
-Now it's your turn to take an action. You should first reason step-by-step about the current situation. This reasoning process MUST be enclosed within <think> </think> tags.
+Now it's your turn to take an action. You should first reason step-by-step about the current situation. This reasoning process MUST be enclosed within <plan> </plan> tags.
 Once you've finished your reasoning, you should either use a tool or provide your final answer within <answer> </answer> tags.
 """
 TOOL_USE_TEMPLATE_LAST_STEP = """
@@ -52,30 +52,29 @@ Available Tools:
 
 You should first recall relevant past experiences and reason from our conversation history, then MUST summarize within <memory_recall> </memory_recall> tags like this:
 
-<memory_analysis>
-[Recall relevant past experiences and reason from our conversation history]
-- Please summarize the most relavent memory for this step.
-- Please explain why this memory is helpful for the next reflection and planning.
-</memory_analysis>
+<memory>
+Look at the past observations and actions from our conversation history.
+- Please retrieve the most relavent memory for this step including the relevant observation and action in a RAG style along with the step number.
+- These memory should be helpful milestones to solve this task.git reset --soft HEAD~1
+</memory>
 
 After that, you should reflect on the last action and its outcome, then MUST summarize within <reflection> </reflection> tags like this:
 
 <reflection>
-[Reflect on the last action and its outcome]
-- What did my last action accomplish?
-- Was it successful or did it encounter issues?
-- How does this outcome affect my plan?
+Reflect on the last action and its outcome
+- Did I complete the task goal?
+- Was last action successful or did it encounter issues?
 - Am I making progress toward the task goal?
+- If the action did not go as expected and did not result in progress, provide constructive feedback to guide the next planning step.
 </reflection>
 
-Given from the analysis from the memory analysis and reflection, if we get the final answer, we should provide it within <answer> </answer> tags.
-If we don't get the final answer, you should plan the next step based on memory and reflection, then MUST summarize within <plan> </think> tags like this:
+Given from the analysis from the memory and reflection, if we get the final answer, we should provide it within <answer> </answer> tags.
+If we don't get the final answer, you should plan the next step based on memory and reflection, then MUST summarize within <plan> </plan> tags like this:
 
 <plan>
-[Plan the next step based on memory and reflection]
+Plan the next step based on memory and reflection
 - Given what I've learned, what should I do next?
 - Please explain why this plan is helpful for the next action?
-- How does this action fit into my overall strategy?
 - What do I expect this action to achieve?
 </plan>
 
