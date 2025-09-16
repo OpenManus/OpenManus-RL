@@ -59,11 +59,11 @@ def build_common_args(args, strategy: str):
         cmd += [
             "--beam_size", str(args.beam_size),
             "--value_threshold", str(args.value_threshold),
-            "--max_nodes", str(args.max_nodes),
+            # max_nodes removed; we use max_steps + beam to constrain
             "--diversity_back_steps", str(args.diversity_back_steps),
             "--diversity_back_steps_alt", str(args.diversity_back_steps_alt),
             "--propose_k", str(args.propose_k),
-            "--search_retry", str(args.search_retry),
+            "--max_try", str(args.max_try),
         ]
     elif strategy == "debugger":
         cmd += [
@@ -111,11 +111,11 @@ def main():
     # ToT/DFSDT
     ap.add_argument("--beam_size", type=int, default=3)
     ap.add_argument("--value_threshold", type=float, default=0.15)
-    ap.add_argument("--max_nodes", type=int, default=30)
+    # Max nodes removed from interface in smoke; search constrained by max_steps
     ap.add_argument("--diversity_back_steps", type=int, default=2)
     ap.add_argument("--diversity_back_steps_alt", type=int, default=3)
     ap.add_argument("--propose_k", type=int, default=4)
-    ap.add_argument("--search_retry", type=int, default=5)
+    ap.add_argument("--max_try", type=int, default=5)
 
     args = ap.parse_args()
 

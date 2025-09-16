@@ -48,7 +48,7 @@ def extract_actions_from_obs(obs_text: str, env_type: str) -> List[str]:
 class SearchParams:
     beam_size: int = 3                  # Number of candidates to expand per state
     value_threshold: float = 0.15       # Prune if top value below this
-    max_nodes: int = 100                # Safety budget for expansions
+    max_try: int = 10                   # Maximum complete trajectory attempts
     max_depth: Optional[int] = None     # Defaults to episode max steps if None
     diversity_back_steps: int = 2       # DFSDT: steps to backtrack on failure
     diversity_back_steps_alt: int = 3   # DFSDT: escalated backtrack if still failing
@@ -154,7 +154,8 @@ def run_best_of_n(
     agent,
     max_steps: int,
     env_type: str,
-    single_attempt_fn: Callable[[], Dict],
+    single_attempt_fn: Callable[[int], Dict],  # Now takes attempt_idx parameter
+    task_dir: Optional[str] = None,
 ) -> Dict:
     """Run N independent attempts and return the first successful result if any.
 
@@ -162,21 +163,51 @@ def run_best_of_n(
     the same structure as run_environment_with_retry does. We stop on first success.
     """
     best = None
+    all_attempts = []
+    
     for i in range(max(1, int(N))):
         logging.info(f"[Best-of-N] Attempt {i + 1}/{N}")
-        res = single_attempt_fn()
+        res = single_attempt_fn(i + 1)  # Pass attempt number
+        all_attempts.append({
+            "attempt": i + 1,
+            "won": res.get("won", False),
+            "reward": res.get("reward", 0.0),
+            "steps": res.get("steps", 0)
+        })
+        
         if best is None:
             best = res
         # Prefer successful
         if res.get("won", False):
             res["strategy"] = "best_of_n"
             res["bon_attempt"] = i + 1
+            res["all_bon_attempts"] = all_attempts
             return res
+    
     # None succeeded; return the last/best available
     if best is None:
         best = {"won": False, "reward": 0.0, "steps": 0}
     best["strategy"] = "best_of_n"
     best["bon_attempt"] = N
+    best["all_bon_attempts"] = all_attempts
+    
+    # Save Best-of-N summary to task directory
+    if task_dir:
+        try:
+            import os
+            import json
+            summary_file = os.path.join(task_dir, "best_of_n_summary.json")
+            with open(summary_file, "w") as f:
+                json.dump({
+                    "strategy": "best_of_n",
+                    "total_attempts": N,
+                    "won": best.get("won", False),
+                    "best_attempt": best.get("bon_attempt", N),
+                    "all_attempts": all_attempts
+                }, f, indent=2)
+        except Exception as e:
+            logging.warning(f"Failed to save Best-of-N summary: {e}")
+    
     return best
 
 
@@ -214,12 +245,14 @@ def run_tree_search(
         "mode": mode,
         "beam_size": params.beam_size,
         "value_threshold": params.value_threshold,
-        "max_nodes": params.max_nodes,
+        "max_try": params.max_try,
         "max_depth": params.max_depth or max_steps,
         "diversity_back_steps": params.diversity_back_steps,
         "diversity_back_steps_alt": params.diversity_back_steps_alt,
         "propose_k": params.propose_k,
         "expansions": [],  # list of dict per expansion
+        "complete_trajectories": 0,  # count of complete trajectory attempts
+        "termination_reason": None,  # why search ended
     }
 
     def state_key_from_obs(obs_text: str) -> str:
@@ -239,7 +272,7 @@ def run_tree_search(
 
     # Depth-first search using replay on backtrack
     best_found = {"won": False, "reward": 0.0, "steps": 0, "trajectory": []}
-    expansions = 0
+    expansions = 0  # Keep for detailed logging, but use complete_trajectories for main control
 
     # Initial reset
     obs_dict, info_dict = env_manager.reset_single(0)
@@ -268,7 +301,8 @@ def run_tree_search(
     first_candidates = next_candidates_for_state(obs, info)
     stack.append((0, obs, info, first_candidates, 0))
 
-    while stack and expansions < params.max_nodes and step_idx < (params.max_depth or max_steps):
+    # Main search loop - continue until max_try complete trajectories attempted OR search space exhausted
+    while stack and search_log["complete_trajectories"] < params.max_try:
         depth, node_obs, node_info, cand_list, next_i = stack.pop()
         # Refresh state by replaying to 'depth'
         if depth != len(current_path):
@@ -327,6 +361,34 @@ def run_tree_search(
         if not chosen:
             continue
 
+        # Check if we've reached max_steps for current trajectory
+        if step_idx >= (params.max_depth or max_steps):
+            logging.debug(f"[{mode.upper()}] Reached max_steps {params.max_depth or max_steps} for current trajectory, marking as done")
+            done = True
+            won = False
+            new_info = {"won": False}
+            # Count this as a complete trajectory attempt
+            search_log["complete_trajectories"] += 1
+            logging.info(f"[{mode.upper()}] Completed trajectory {search_log['complete_trajectories']}/{params.max_try}: won=False (max_steps reached)")
+            
+            # Reset for next trajectory attempt if we haven't reached max_try
+            if search_log["complete_trajectories"] < params.max_try:
+                # Reset environment and search state for next attempt
+                obs_dict, info_dict = env_manager.reset_single(0)
+                obs = obs_dict["text"][0]
+                info = info_dict[0] if isinstance(info_dict, list) else info_dict
+                current_path = []
+                step_idx = 0
+                trajectory_steps = []
+                
+                # Restart search from initial state
+                first_candidates = next_candidates_for_state(obs, info)
+                stack.append((0, obs, info, first_candidates, 0))
+                logging.debug(f"[{mode.upper()}] Starting trajectory attempt {search_log['complete_trajectories'] + 1}/{params.max_try}")
+                continue
+            else:
+                break
+
         # Apply chosen action
         expansions += 1
         search_log["expansions"].append({
@@ -354,44 +416,55 @@ def run_tree_search(
         if done:
             won = bool(new_info.get("won", False))
             final_info = new_info
+            
+            # Count this as a complete trajectory attempt
+            search_log["complete_trajectories"] += 1
+            logging.info(f"[{mode.upper()}] Completed trajectory {search_log['complete_trajectories']}/{params.max_try}: won={won} (natural completion)")
+            
             if won:
+                logging.info(f"[{mode.upper()}] SUCCESS! Won on trajectory {search_log['complete_trajectories']}")
                 break
-            # DFSDT backtracking on failure: back off N steps and try diversity
-            if mode == "dfsdt":
-                # First backtrack N steps; if already tried, escalate
-                back = params.diversity_back_steps
-                if step_idx >= 2 and not won:
-                    back = params.diversity_back_steps_alt if len(current_path) >= (params.diversity_back_steps + 1) else params.diversity_back_steps
-                new_depth = max(0, len(current_path) - back)
-                # Replay to new_depth
-                obs_dict, info_dict, reached = replay_until(env_manager, current_path[:new_depth])
-                obs_back = obs_dict["text"][0]
-                info_back = info_dict[0] if isinstance(info_dict, list) else info_dict
-                # Prepare diverse candidates by avoiding previously tried at this state
-                tried_here = tried_at_state.get(state_key_from_obs(obs_back), [])
-                diverse = next_candidates_for_state(obs_back, info_back, tried_here)
-                # Push back the backtracked node with new candidate list
-                search_log["expansions"].append({
-                    "depth": new_depth,
-                    "obs_key": state_key_from_obs(obs_back),
-                    "candidates": diverse,
-                    "scores": [],
-                    "action": None,
-                    "event": "backtrack_and_diversify",
-                })
-                stack.append((new_depth, obs_back, info_back, diverse, 0))
-                # Trim path and trajectory
-                current_path[:] = current_path[:new_depth]
-                trajectory_steps[:] = trajectory_steps[:new_depth]
-                step_idx = new_depth
+                
+            # If failed and we haven't reached max_try, start a new trajectory attempt
+            if search_log["complete_trajectories"] < params.max_try:
+                logging.info(f"[{mode.upper()}] Starting new trajectory attempt {search_log['complete_trajectories'] + 1}/{params.max_try}")
+                
+                # Reset environment and search state for next attempt
+                obs_dict, info_dict = env_manager.reset_single(0)
+                obs = obs_dict["text"][0]
+                info = info_dict[0] if isinstance(info_dict, list) else info_dict
+                current_path = []
+                step_idx = 0
+                trajectory_steps = []
+                
+                # Clear the stack and restart search from initial state
+                stack.clear()
+                first_candidates = next_candidates_for_state(obs, info)
+                stack.append((0, obs, info, first_candidates, 0))
                 continue
-            # ToT: if terminal and not won, backtrack by one to try siblings if any
-            continue
+            else:
+                logging.info(f"[{mode.upper()}] Reached max_try limit, stopping search")
+                break
 
-        # Not done; continue DFS from the new state
-        next_cands = next_candidates_for_state(new_obs, new_info)
-        stack.append((len(current_path), new_obs, new_info, next_cands, 0))
+        # Continue DFS from the new state if not done
+        if not done:
+            next_cands = next_candidates_for_state(new_obs, new_info)
+            stack.append((len(current_path), new_obs, new_info, next_cands, 0))
 
+    # Log why the search ended and record reason
+    if won:
+        search_log["termination_reason"] = "success"
+        logging.info(f"[{mode.upper()}] Search completed successfully after {search_log['complete_trajectories']} trajectories")
+    elif search_log["complete_trajectories"] >= params.max_try:
+        search_log["termination_reason"] = "max_try_reached"
+        logging.info(f"[{mode.upper()}] Search stopped: reached max_try limit ({params.max_try} trajectories)")
+    elif not stack:
+        search_log["termination_reason"] = "search_space_exhausted"
+        logging.info(f"[{mode.upper()}] Search stopped: search space exhausted after {search_log['complete_trajectories']} trajectories (no more paths to explore)")
+    else:
+        search_log["termination_reason"] = "unknown"
+        logging.info(f"[{mode.upper()}] Search stopped: unknown reason after {search_log['complete_trajectories']} trajectories")
+    
     # Build result
     res = {
         "env_id": 0,
@@ -404,6 +477,7 @@ def run_tree_search(
         "trajectory": trajectory_steps,
         "all_attempts": None,
         "strategy": mode,
+        "termination_reason": search_log.get("termination_reason", "unknown"),
     }
     # Persist logs if requested
     if task_dir and attempt_id is not None:

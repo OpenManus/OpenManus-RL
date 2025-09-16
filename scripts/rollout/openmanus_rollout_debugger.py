@@ -9,6 +9,7 @@ import time
 import json
 import logging
 import argparse
+import shutil
 from types import SimpleNamespace
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
@@ -950,11 +951,10 @@ def main():
     parser.add_argument("--bon_n", type=int, default=5, help="Best-of-N: number of independent rollouts")
     parser.add_argument("--beam_size", type=int, default=3, help="ToT/DFSDT: candidate branching per state")
     parser.add_argument("--value_threshold", type=float, default=0.15, help="ToT: prune if top value below threshold")
-    parser.add_argument("--max_nodes", type=int, default=100, help="ToT/DFSDT: max expansions")
+    parser.add_argument("--max_try", type=int, default=10, help="ToT/DFSDT/Debugger: maximum complete trajectory attempts")
     parser.add_argument("--diversity_back_steps", type=int, default=2, help="DFSDT: backtrack steps on failure")
     parser.add_argument("--diversity_back_steps_alt", type=int, default=3, help="DFSDT: alternate backtrack if needed")
     parser.add_argument("--propose_k", type=int, default=4, help="ToT/DFSDT: proposals when no explicit list")
-    parser.add_argument("--search_retry", type=int, default=5, help="ToT/DFSDT: maximum tries when used as fallback after a failed attempt")
 
     # Output parameters
     parser.add_argument("--dump_path", default=None,
@@ -980,8 +980,8 @@ def main():
     # Debugger options
     parser.add_argument("--enable_debugger", action="store_true",
                        help="Enable LLM debugger for failed trajectories")
-    parser.add_argument("--max_debug_retry", type=int, default=5,
-                       help="Maximum number of retry attempts with debugger feedback (default: 5)")
+    parser.add_argument("--max_debug_retry", type=int, default=None,
+                       help="Deprecated: use --max_try instead. If set, overrides --max_try for debugger strategy.")
     parser.add_argument("--debugger_model", default="gpt-4o",
                        help="Model to use for trajectory debugging")
     parser.add_argument("--debugger_temperature", type=float, default=0.3,
@@ -1008,6 +1008,13 @@ def main():
             "gaia": 30,
             "webshop": 30
         }[args.env]
+    
+    # Unified max_try logic: use max_debug_retry if set (for backward compatibility), otherwise use max_try
+    def get_max_retries():
+        if args.max_debug_retry is not None:
+            logging.warning("--max_debug_retry is deprecated, use --max_try instead")
+            return args.max_debug_retry
+        return args.max_try
     
     # Setup logging
     os.makedirs(f"logs/{args.env}", exist_ok=True)
@@ -1155,7 +1162,7 @@ def main():
             base_url=args.base_url
         )
         trajectory_manager = TrajectoryManager()
-        logging.info(f"Debugger enabled with model {args.debugger_model}, max retries: {args.max_debug_retry}")
+        logging.info(f"Debugger enabled with model {args.debugger_model}, max retries: {get_max_retries()}")
         
         # Create debug output directory if specified
         if args.debug_output_dir:
@@ -1256,8 +1263,8 @@ def main():
                                 info0 = init_infos[0] if isinstance(init_infos, list) else init_infos
                                 task_id_local = get_task_id(args.env, env_idx, info0, batch_idx)
                                 task_dir_local = None
-                                if args.save_per_task_trajectories and summaries_dir:
-                                    task_dir_local = os.path.join(summaries_dir, _sanitize(task_id_local))
+                                if args.save_per_task_trajectories and trajectories_dir:
+                                    task_dir_local = os.path.join(trajectories_dir, _sanitize(task_id_local))
                                     os.makedirs(task_dir_local, exist_ok=True)
                                 reset_time = time.time() - reset_start
                                 logging.info(f"[PARALLEL] Task {env_idx + 1} reset took {reset_time:.3f}s")
@@ -1275,7 +1282,7 @@ def main():
                                         env_type=args.env,
                                         debugger=debugger,
                                         trajectory_manager=trajectory_manager,
-                                        max_retries=args.max_debug_retry,
+                                        max_retries=get_max_retries(),
                                         dump_fp=dump_fp,
                                         dump_lock=dump_lock,
                                         chat_base_dir=None,
@@ -1290,7 +1297,13 @@ def main():
                                     )
                                 elif args.strategy == "bon":
                                     # Helper closure to attempt a single rollout (no debugger, one attempt)
-                                    def _single_attempt():
+                                    def _single_attempt(attempt_idx: int):
+                                        # Create attempt-specific task directory
+                                        attempt_task_dir = None
+                                        if task_dir_local:
+                                            attempt_task_dir = os.path.join(task_dir_local, f"attempt_{attempt_idx}")
+                                            os.makedirs(attempt_task_dir, exist_ok=True)
+                                        
                                         return run_environment_with_retry(
                                             env_id=0,
                                             env_manager=local_env,
@@ -1309,7 +1322,7 @@ def main():
                                             run_ts=run_ts,
                                             debug_output_dir=None,
                                             save_all_attempts=False,
-                                            task_dir=None,
+                                            task_dir=attempt_task_dir,
                                             shared_llm_executor=shared_llm_executor,
                                         )
                                     res = run_best_of_n(
@@ -1319,69 +1332,46 @@ def main():
                                         max_steps=args.max_steps,
                                         env_type=args.env,
                                         single_attempt_fn=_single_attempt,
+                                        task_dir=task_dir_local,
                                     )
                                 else:
-                                    # ToT-DFS or DFSDT only after a failed simple attempt
-                                    def _single_attempt():
-                                        return run_environment_with_retry(
-                                            env_id=0,
+                                    # ToT-DFS or DFSDT: run up to max_try independent search attempts (one file per attempt)
+                                    sp = SearchParams(
+                                        beam_size=args.beam_size,
+                                        value_threshold=args.value_threshold,
+                                        max_try=1,  # single trajectory per call
+                                        max_depth=args.max_steps,
+                                        diversity_back_steps=args.diversity_back_steps,
+                                        diversity_back_steps_alt=args.diversity_back_steps_alt,
+                                        propose_k=args.propose_k,
+                                    )
+                                    mode = "tot" if args.strategy == "tot" else "dfsdt"
+                                    res = None
+                                    # Optionally clear task dir (already cleared earlier when created)
+                                    for attempt_idx in range(1, args.max_try + 1):
+                                        logging.info(f"[{mode.upper()}] Starting trajectory attempt {attempt_idx}/{args.max_try}")
+                                        sr = run_tree_search(
                                             env_manager=local_env,
                                             agent=agent,
                                             max_steps=args.max_steps,
                                             env_type=args.env,
-                                            debugger=None,
-                                            trajectory_manager=None,
-                                            max_retries=1,
-                                            dump_fp=dump_fp,
-                                            dump_lock=dump_lock,
-                                            chat_base_dir=None,
-                                            batch_idx=batch_idx,
-                                            test_idx=test_idx,
-                                            global_env_counter=global_env_counter + env_idx,
-                                            run_ts=run_ts,
-                                            debug_output_dir=None,
-                                            save_all_attempts=True,
-                                            task_dir=task_dir_local,
-                                            shared_llm_executor=shared_llm_executor,
+                                            params=sp,
+                                            mode=mode,
+                                            task_dir=task_dir_local if args.save_per_task_trajectories else None,
+                                            attempt_id=attempt_idx if args.save_per_task_trajectories else None,
                                         )
-                                    first = _single_attempt()
-                                    if first.get("won", False):
-                                        res = first
-                                    else:
-                                        # Start search attempts; continue attempt numbering
-                                        sp = SearchParams(
-                                            beam_size=args.beam_size,
-                                            value_threshold=args.value_threshold,
-                                            max_nodes=args.max_nodes,
-                                            max_depth=args.max_steps,
-                                            diversity_back_steps=args.diversity_back_steps,
-                                            diversity_back_steps_alt=args.diversity_back_steps_alt,
-                                            propose_k=args.propose_k,
-                                        )
-                                        mode = "tot" if args.strategy == "tot" else "dfsdt"
-                                        res = first
-                                        attempt_idx = 2  # attempt_1 was the first naive attempt
-                                        for tr in range(args.search_retry):
-                                            sr = run_tree_search(
-                                                env_manager=local_env,
-                                                agent=agent,
-                                                max_steps=args.max_steps,
-                                                env_type=args.env,
-                                                params=sp,
-                                                mode=mode,
-                                                task_dir=task_dir_local if args.save_per_task_trajectories else None,
-                                                attempt_id=attempt_idx if args.save_per_task_trajectories else None,
-                                            )
-                                            attempt_idx += 1
-                                            # Merge summary-like fields
-                                            res.setdefault("search_attempts", []).append({
-                                                "won": sr.get("won", False),
-                                                "steps": sr.get("steps", 0),
-                                                "strategy": mode,
-                                            })
-                                            if sr.get("won", False):
-                                                res = sr
-                                                break
+                                        if res is None:
+                                            res = sr.copy()
+                                            res["search_attempts"] = []
+                                        res["search_attempts"].append({
+                                            "won": sr.get("won", False),
+                                            "steps": sr.get("steps", 0),
+                                            "strategy": mode,
+                                        })
+                                        if sr.get("won", False):
+                                            logging.info(f"[{mode.upper()}] SUCCESS on attempt {attempt_idx}")
+                                            res = sr
+                                            break
                                 rollout_time = time.time() - rollout_start
                                 total_time = time.time() - task_start_time
                                 logging.info(f"[PARALLEL] Task {env_idx + 1} rollout took {rollout_time:.3f}s, total time: {total_time:.3f}s")
@@ -1394,7 +1384,7 @@ def main():
                                     "total_time": total_time,
                                     "thread_id": thread_id,
                                 }
-                                # If ToT/DFSDT, refresh summary file to include search attempts
+                                # If ToT/DFSDT, refresh summary file to include search result
                                 if args.strategy in ("tot", "dfsdt") and task_dir_local:
                                     try:
                                         summary_file = os.path.join(task_dir_local, "task_summary.json")
@@ -1402,14 +1392,15 @@ def main():
                                             "model": agent.model_name,
                                             "env_type": args.env,
                                             "strategy": args.strategy,
-                                            "total_attempts": 1 + len(res.get("search_attempts", [])),
+                                            "total_attempts": 2,  # 1 naive + 1 tree search
                                             "won": bool(res.get("won", False)),
                                             "timestamp": run_ts,
                                         }
                                         with open(summary_file, "w", encoding="utf-8") as f:
                                             json.dump({
                                                 "metadata": meta,
-                                                "search_attempts": res.get("search_attempts", []),
+                                                "naive_attempt": {"won": first.get("won", False), "steps": first.get("steps", 0)},
+                                                "search_result": res.get("search_result", {}),
                                             }, f, ensure_ascii=False, indent=2)
                                     except Exception as e:
                                         logging.debug(f"Failed to write updated summary: {e}")
@@ -1756,8 +1747,8 @@ def main():
                 task_id = get_task_id(args.env, env_idx, info0, round_idx)
 
                 task_dir = None
-                if summaries_dir and args.save_per_task_trajectories:
-                    task_dir = os.path.join(summaries_dir, _sanitize(task_id))
+                if trajectories_dir and args.save_per_task_trajectories:
+                    task_dir = os.path.join(trajectories_dir, _sanitize(task_id))
                     os.makedirs(task_dir, exist_ok=True)
 
                 if args.strategy == "debugger":
@@ -1769,7 +1760,7 @@ def main():
                         env_type=args.env,
                         debugger=debugger,
                         trajectory_manager=trajectory_manager,
-                        max_retries=args.max_debug_retry,
+                        max_retries=get_max_retries(),
                         dump_fp=dump_fp,
                         dump_lock=(threading.Lock() if dump_fp is not None else None),
                         chat_base_dir=None,
@@ -1783,7 +1774,13 @@ def main():
                         shared_llm_executor=shared_llm_executor,
                     )
                 elif args.strategy == "bon":
-                    def _single_attempt():
+                    def _single_attempt(attempt_idx: int):
+                        # Create attempt-specific task directory
+                        attempt_task_dir = None
+                        if task_dir:
+                            attempt_task_dir = os.path.join(task_dir, f"attempt_{attempt_idx}")
+                            os.makedirs(attempt_task_dir, exist_ok=True)
+                        
                         return run_environment_with_retry(
                             env_id=0,
                             env_manager=env_pool[env_idx],
@@ -1802,7 +1799,7 @@ def main():
                             run_ts=run_ts,
                             debug_output_dir=None,
                             save_all_attempts=False,
-                            task_dir=None,
+                            task_dir=attempt_task_dir,
                             shared_llm_executor=shared_llm_executor,
                         )
                     res = run_best_of_n(
@@ -1812,86 +1809,70 @@ def main():
                         max_steps=args.max_steps,
                         env_type=args.env,
                         single_attempt_fn=_single_attempt,
+                        task_dir=task_dir,
                     )
                 else:
-                    # Run a naive single attempt first; if fails, run ToT/DFSDT up to search_retry times
-                    def _single_attempt():
-                        return run_environment_with_retry(
-                            env_id=0,
+                    # ToT/DFSDT direct: run up to max_try independent trajectories (one file per attempt)
+                    sp = SearchParams(
+                        beam_size=args.beam_size,
+                        value_threshold=args.value_threshold,
+                        max_try=1,
+                        max_depth=args.max_steps,
+                        diversity_back_steps=args.diversity_back_steps,
+                        diversity_back_steps_alt=args.diversity_back_steps_alt,
+                        propose_k=args.propose_k,
+                    )
+                    mode = "tot" if args.strategy == "tot" else "dfsdt"
+                    res = None
+                    # Clear task dir for fresh attempts
+                    if task_dir and os.path.exists(task_dir):
+                        try:
+                            shutil.rmtree(task_dir)
+                        except Exception as e:
+                            logging.warning(f"Failed to clear task dir {task_dir}: {e}")
+                        os.makedirs(task_dir, exist_ok=True)
+                    for attempt_idx in range(1, args.max_try + 1):
+                        logging.info(f"[{mode.upper()}] Starting trajectory attempt {attempt_idx}/{args.max_try}")
+                        sr = run_tree_search(
                             env_manager=env_pool[env_idx],
                             agent=agent,
                             max_steps=args.max_steps,
                             env_type=args.env,
-                            debugger=None,
-                            trajectory_manager=None,
-                            max_retries=1,
-                            dump_fp=dump_fp,
-                            dump_lock=(threading.Lock() if dump_fp is not None else None),
-                            chat_base_dir=None,
-                            batch_idx=0,
-                            test_idx=round_idx,
-                            global_env_counter=env_idx,
-                            run_ts=run_ts,
-                            debug_output_dir=None,
-                            save_all_attempts=True,
-                            task_dir=task_dir,
-                            shared_llm_executor=shared_llm_executor,
+                            params=sp,
+                            mode=mode,
+                            task_dir=task_dir if args.save_per_task_trajectories else None,
+                            attempt_id=attempt_idx if args.save_per_task_trajectories else None,
                         )
-                    first = _single_attempt()
-                    if first.get("won", False):
-                        res = first
-                    else:
-                        sp = SearchParams(
-                            beam_size=args.beam_size,
-                            value_threshold=args.value_threshold,
-                            max_nodes=args.max_nodes,
-                            max_depth=args.max_steps,
-                            diversity_back_steps=args.diversity_back_steps,
-                            diversity_back_steps_alt=args.diversity_back_steps_alt,
-                            propose_k=args.propose_k,
-                        )
-                        mode = "tot" if args.strategy == "tot" else "dfsdt"
-                        res = first
-                        attempt_idx = 2
-                        for tr in range(args.search_retry):
-                            sr = run_tree_search(
-                                env_manager=env_pool[env_idx],
-                                agent=agent,
-                                max_steps=args.max_steps,
-                                env_type=args.env,
-                                params=sp,
-                                mode=mode,
-                                task_dir=task_dir if args.save_per_task_trajectories else None,
-                                attempt_id=attempt_idx if args.save_per_task_trajectories else None,
-                            )
-                            attempt_idx += 1
-                            res.setdefault("search_attempts", []).append({
-                                "won": sr.get("won", False),
-                                "steps": sr.get("steps", 0),
-                                "strategy": mode,
-                            })
-                            if sr.get("won", False):
-                                res = sr
-                                break
-                        # Refresh summary with combined attempts
-                        if task_dir and args.strategy in ("tot", "dfsdt"):
-                            try:
-                                summary_file = os.path.join(task_dir, "task_summary.json")
-                                meta = {
-                                    "model": agent.model_name,
-                                    "env_type": args.env,
-                                    "strategy": args.strategy,
-                                    "total_attempts": 1 + len(res.get("search_attempts", [])),
-                                    "won": bool(res.get("won", False)),
-                                    "timestamp": run_ts,
-                                }
-                                with open(summary_file, "w", encoding="utf-8") as f:
-                                    json.dump({
-                                        "metadata": meta,
-                                        "search_attempts": res.get("search_attempts", []),
-                                    }, f, ensure_ascii=False, indent=2)
-                            except Exception as e:
-                                logging.debug(f"Failed to write updated summary: {e}")
+                        if res is None:
+                            res = sr.copy()
+                            res["search_attempts"] = []
+                        res["search_attempts"].append({
+                            "won": sr.get("won", False),
+                            "steps": sr.get("steps", 0),
+                            "strategy": mode,
+                        })
+                        if sr.get("won", False):
+                            res = sr
+                            break
+                    # Write summary
+                    if task_dir and args.strategy in ("tot", "dfsdt"):
+                        try:
+                            summary_file = os.path.join(task_dir, "task_summary.json")
+                            meta = {
+                                "model": agent.model_name,
+                                "env_type": args.env,
+                                "strategy": args.strategy,
+                                "total_attempts": len(res.get("search_attempts", [])) if res.get("search_attempts") else 0,
+                                "won": bool(res.get("won", False)),
+                                "timestamp": run_ts,
+                            }
+                            with open(summary_file, "w", encoding="utf-8") as f:
+                                json.dump({
+                                    "metadata": meta,
+                                    "search_attempts": res.get("search_attempts", []),
+                                }, f, ensure_ascii=False, indent=2)
+                        except Exception as e:
+                            logging.debug(f"Failed to write updated summary: {e}")
                 res["task_id"] = task_id
                 res["env_id"] = env_idx
                 return res
@@ -2040,7 +2021,7 @@ def main():
                 "debugger_enabled": args.enable_debugger,
                 "debugger_model": args.debugger_model if args.enable_debugger else None,
                 "debugger_temperature": args.debugger_temperature if args.enable_debugger else None,
-                "max_retries": args.max_debug_retry if args.enable_debugger else 1,
+                "max_retries": get_max_retries() if args.enable_debugger else 1,
                 "total_tasks": total_tasks,
                 "total_batches": num_batches,
                 "batch_size": args.batch_size,
