@@ -10,26 +10,26 @@ echo "========================================="
 
 # Step 1: Stop and remove existing OpenManus container if it exists
 echo "Cleaning up existing OpenManus container..."
-docker stop openmanus-debugger 2>/dev/null || true
-docker rm openmanus-debugger 2>/dev/null || true
+docker stop openmanus-debugger2 2>/dev/null || true
+docker rm openmanus-debugger2 2>/dev/null || true
 
 # Step 2: Create a new container from the existing snapshot image
 echo "Starting new OpenManus-RL container..."
-docker run -it -d --name openmanus-debugger \
+docker run -it -d --name openmanus-debugger2 \
   --ipc=host --shm-size=64g \
   --device=/dev/kfd --device=/dev/dri --group-add video \
   -e HIP_VISIBLE_DEVICES=0 \
   -v "$PWD:/workspace" \
   -v "/root/models:/root/models" \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
-  -p 8002:8000 \
+  -p 8003:8000 \
   -w /workspace \
   verl-agent:rocm-snap1 bash
 
 echo "Container started. Setting up environment..."
 
 # Step 3: Install dependencies inside the container
-docker exec -it openmanus-debugger bash -c '
+docker exec -it openmanus-debugger2 bash -c '
 export PATH="$HOME/.local/bin:$PATH"
 command -v uv || (curl -LsSf https://astral.sh/uv/install.sh | sh)
 
@@ -52,7 +52,7 @@ echo "Environment setup complete!"
 
 echo "========================================="
 echo "Setup complete! You can now:"
-echo "1. Enter the container: docker exec -it openmanus-debugger bash"
+echo "1. Enter the container: docker exec -it openmanus-debugger2 bash"
 echo "2. Activate the environment: source /opt/openmanus-venv/bin/activate"
 echo "3. Run the unified script from /workspace"
 echo "========================================="

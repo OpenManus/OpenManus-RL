@@ -417,7 +417,7 @@ class AdvancedDebugger(LLMDebugger):
                     )
                 else:
                     logging.warning("No critical error found by advanced debugger")
-            
+            ## TODO: add the critical error to fix the trajectory
         except Exception as exc:
             logging.error(f"Advanced debugger API call failed: {exc}")
             logging.error(f"Exception type: {type(exc).__name__}")

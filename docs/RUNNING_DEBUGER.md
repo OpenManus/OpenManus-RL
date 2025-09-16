@@ -11,3 +11,6 @@ Fix errors in OpenManus-RL/scripts/rollout/openmanus_rollout_debugger.py
 
 Error1: json not as expected in Advance Debugger, Line 381
 Error2: Get back to the critical steps and append the suggestion after the obs prompt
+
+Need to adjust the json parsing in the /root/muxin/OpenManus-RL/scripts/AgentDebugger
+TODO: add the critical error to fix the trajectory

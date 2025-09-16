@@ -230,104 +230,73 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable.
     def _parse_critical_error(self, response: str) -> CriticalError:
         """Parse LLM response for critical error"""
 
+        # Try to extract JSON from response - handle nested braces
+        # First try to find a complete JSON object
+        json_start = response.find('{')
+        if json_start == -1:
+            raise ValueError("No JSON found in response")
+
+        # Count braces to find the complete JSON object
+        brace_count = 0
+        json_end = json_start
+        for i in range(json_start, len(response)):
+            if response[i] == '{':
+                brace_count += 1
+            elif response[i] == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    json_end = i + 1
+                    break
+
+        if brace_count != 0:
+            # Fallback to regex if brace counting fails
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+            else:
+                raise ValueError("Malformed JSON in response")
+        else:
+            json_str = response[json_start:json_end]
+
+        # Clean up common JSON issues
+        # Remove any trailing commas before closing braces/brackets
+        json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+        # Replace single quotes with double quotes (if any)
+        json_str = re.sub(r"'([^']*)'", r'"\1"', json_str)
+
         try:
-            # Try to extract JSON from response - handle nested braces
-            # First try to find a complete JSON object
-            json_start = response.find('{')
-            if json_start == -1:
-                raise ValueError("No JSON found in response")
-
-            # Count braces to find the complete JSON object
-            brace_count = 0
-            json_end = json_start
-            for i in range(json_start, len(response)):
-                if response[i] == '{':
-                    brace_count += 1
-                elif response[i] == '}':
-                    brace_count -= 1
-                    if brace_count == 0:
-                        json_end = i + 1
+            error_data = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parse error: {e}")
+            logger.error(f"Attempted to parse: {json_str[:500]}...")
+            raise ValueError(f"Invalid JSON format: {e}")
+        
+        # Validate error type matches module
+        module = error_data.get('critical_module', 'unknown')
+        error_type = error_data.get('error_type', 'unknown')
+        
+        # Auto-correct if error type doesn't match module
+        if module in self.module_error_types:
+            if error_type not in self.module_error_types[module]:
+                # Try to find the correct module for this error type
+                for mod, types in self.module_error_types.items():
+                    if error_type in types:
+                        logger.warning(f"Correcting module from {module} to {mod} for error type {error_type}")
+                        module = mod
                         break
-
-            if brace_count != 0:
-                # Fallback to regex if brace counting fails
-                json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group(0)
-                else:
-                    raise ValueError("Malformed JSON in response")
-            else:
-                json_str = response[json_start:json_end]
-
-            # Clean up common JSON issues
-            # Remove any trailing commas before closing braces/brackets
-            json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
-            # Replace single quotes with double quotes (if any)
-            json_str = re.sub(r"'([^']*)'", r'"\1"', json_str)
-
-            try:
-                error_data = json.loads(json_str)
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON parse error: {e}")
-                logger.error(f"Attempted to parse: {json_str[:500]}...")
-                raise ValueError(f"Invalid JSON format: {e}")
+        
+        return CriticalError(
+            critical_step=error_data.get('critical_step', 1),
+            critical_module=module,
+            error_type=error_type,
+            root_cause=error_data.get('root_cause', 'No root cause identified'),
+            evidence=error_data.get('evidence', 'No evidence provided'),
+            correction_guidance=error_data.get('correction_guidance', 'No guidance provided'),
+            cascading_effects=error_data.get('cascading_effects', []),
+            confidence=float(error_data.get('confidence', 0.5))
+        )
             
-            # Validate error type matches module
-            module = error_data.get('critical_module', 'unknown')
-            error_type = error_data.get('error_type', 'unknown')
             
-            # Auto-correct if error type doesn't match module
-            if module in self.module_error_types:
-                if error_type not in self.module_error_types[module]:
-                    # Try to find the correct module for this error type
-                    for mod, types in self.module_error_types.items():
-                        if error_type in types:
-                            logger.warning(f"Correcting module from {module} to {mod} for error type {error_type}")
-                            module = mod
-                            break
-            
-            return CriticalError(
-                critical_step=error_data.get('critical_step', 1),
-                critical_module=module,
-                error_type=error_type,
-                root_cause=error_data.get('root_cause', 'No root cause identified'),
-                evidence=error_data.get('evidence', 'No evidence provided'),
-                correction_guidance=error_data.get('correction_guidance', 'No guidance provided'),
-                cascading_effects=error_data.get('cascading_effects', []),
-                confidence=float(error_data.get('confidence', 0.5))
-            )
-            
-        except Exception as e:
-            logger.error(f"Failed to parse critical error: {e}")
-
-            # Try to extract key information from the raw response using regex
-            step_match = re.search(r'(?:critical_step|step)["\s:]+(\d+)', response, re.IGNORECASE)
-            module_match = re.search(r'(?:critical_module|module)["\s:]+["\']*([a-z_]+)', response, re.IGNORECASE)
-            error_match = re.search(r'(?:error_type|type)["\s:]+["\']*([a-z_]+)', response, re.IGNORECASE)
-
-            if step_match and module_match and error_match:
-                logger.info("Extracted partial information from malformed response")
-                return CriticalError(
-                    critical_step=int(step_match.group(1)),
-                    critical_module=module_match.group(1),
-                    error_type=error_match.group(1),
-                    root_cause="Extracted from malformed JSON response",
-                    evidence="Parse error - partial extraction",
-                    correction_guidance="Review original trajectory for details",
-                    cascading_effects=[],
-                    confidence=0.3
-                )
-            else:
-                return CriticalError(
-                    critical_step=1,
-                    critical_module='unknown',
-                    error_type='parse_error',
-                    root_cause=f"Parse error: {str(e)}",
-                    evidence="Failed to parse analysis",
-                    correction_guidance="Unable to provide guidance due to parse error",
-                    cascading_effects=[],
-                    confidence=0.0
-                )
     
     async def call_llm(self, prompt: str) -> str:
         """Call LLM API"""
