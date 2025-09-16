@@ -25,12 +25,14 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --enable_debugger \
     --max_debug_retry 2 \
     --debugger_model gpt-4o \
+    --debugger_type advanced \
     --debugger_temperature 0.0 \
     --experiment_dir ${RUN_DIR} \
     --save_all_attempts \
     --save_per_task_trajectories \
     --concurrency 10 \
-    --llm_concurrency 20
+    --llm_concurrency 20 
+
 
 # # Test 2: GAIA with debugger
 # echo "Testing GAIA with debugger..."

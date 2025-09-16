@@ -526,7 +526,8 @@ REQUIRED OUTPUT FORMAT (JSON):
                 },
                 {"role": "user", "content": prompt}
             ],
-            "temperature": self.config.get('temperature', 0.0)
+            "temperature": self.config.get('temperature', 0.0),
+            "response_format": {"type": "json_object"}
         }
         
         proxy = os.getenv('HTTPS_PROXY') or os.getenv('https_proxy')

@@ -340,7 +340,8 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable.
                 },
                 {"role": "user", "content": prompt}
             ],
-            "temperature": self.config.get('temperature', 0.0)
+            "temperature": self.config.get('temperature', 0.0),
+            "response_format": {"type": "json_object"}
         }
         
         proxy = os.getenv('HTTPS_PROXY') or os.getenv('https_proxy')
@@ -372,10 +373,11 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable.
         step_analyses = phase1_results.get('step_analyses', [])
 
         # Build analysis prompt
+        chat_history = trajectory_data.get('messages') or trajectory_data.get('chat_history') or []
         prompt = self._build_critical_error_prompt(
-            task_description,
             step_analyses,
-            trajectory_data
+            task_description,
+            chat_history
         )
 
         # Call LLM

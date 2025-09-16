@@ -26,6 +26,22 @@ from together import Together
 import threading
 import asyncio
 from concurrent.futures import ThreadPoolExecutor as AsyncThreadPoolExecutor
+from dataclasses import asdict, is_dataclass
+
+try:
+    from scripts.AgentDebugger.api_interface import AgentErrorDetectorAPI
+    ADVANCED_DEBUGGER_AVAILABLE = True
+except ImportError:
+    AgentErrorDetectorAPI = None  # type: ignore[assignment]
+    ADVANCED_DEBUGGER_AVAILABLE = False
+
+
+def _json_safe_copy(data: Any) -> Any:
+    """Return a JSON-serializable copy of the provided data."""
+    try:
+        return json.loads(json.dumps(data, default=str))
+    except Exception:
+        return str(data)
 
 try:
     import dotenv
@@ -161,7 +177,13 @@ class LLMDebugger:
                 api_key=os.environ.get('OPENAI_API_KEY', ''),
             )
     
-    def analyze_trajectory(self, trajectory: List[Dict], env_type: str) -> Dict:
+    def analyze_trajectory(
+        self,
+        trajectory: List[Dict],
+        env_type: str,
+        chat_history: Optional[List[Dict]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict:
         """
         Analyze a failed trajectory and identify the failure point and reason
         
@@ -318,6 +340,240 @@ Output only the feedback message, nothing else."""
                 lines.append(f"  Done: {step['done']}, Won: {step.get('won', False)}")
             lines.append("")
         return "\n".join(lines)
+
+
+class AdvancedDebugger(LLMDebugger):
+    """Adapter that connects the rollout debugger to the advanced analysis API."""
+
+    def __init__(
+        self,
+        model_name: str = "gpt-4o",
+        temperature: float = 0.3,
+        base_url: str | None = None,
+        analysis_model: Optional[str] = None,
+    ) -> None:
+        super().__init__(model_name=model_name, temperature=temperature, base_url=base_url)
+
+        if not ADVANCED_DEBUGGER_AVAILABLE:
+            raise ImportError("Advanced debugger API is not available in the current environment")
+
+        self.api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not self.api_key:
+            raise ValueError("OPENAI_API_KEY must be set to use the advanced debugger")
+
+        self.analysis_model = analysis_model or model_name
+        self.detector = AgentErrorDetectorAPI(self.api_key, model=self.analysis_model)
+
+    def analyze_trajectory(
+        self,
+        trajectory: List[Dict],
+        env_type: str,
+        chat_history: Optional[List[Dict]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict:
+        if not chat_history:
+            msg = "Advanced debugger requires chat history; none provided for analysis"
+            logging.error(msg)
+            raise RuntimeError(msg)
+
+        # Build the trajectory_json payload that the API expects
+        trajectory_json = self._build_trajectory_json(trajectory, env_type, chat_history, metadata)
+        
+        # Log the structure of trajectory_json for debugging
+        logging.info(
+            "Advanced debugger starting analysis: steps=%s chat_messages=%s env=%s",
+            len(trajectory),
+            len(chat_history),
+            env_type,
+        )
+        
+        # Log detailed structure for debugging
+        if trajectory:
+            logging.debug("First trajectory step: %s", trajectory[0])
+        if chat_history:
+            logging.debug("First chat message: %s", chat_history[0])
+        
+        # Validate trajectory_json structure
+        if 'messages' not in trajectory_json or not trajectory_json['messages']:
+            logging.warning("trajectory_json has empty or missing messages!")
+        if 'trajectory' not in trajectory_json or not trajectory_json['trajectory']:
+            logging.warning("trajectory_json has empty or missing trajectory!")
+
+        try:
+            # Call the API with the properly formatted trajectory_json
+            result = self._run_async(self.detector.analyze_trajectory(trajectory_json))
+            
+            logging.info(
+                "Advanced debugger API response received: type=%s keys=%s",
+                type(result).__name__,
+                list(result.keys()) if isinstance(result, dict) else None,
+            )
+            
+            # Log the actual critical error if found
+            if isinstance(result, dict) and 'critical_error' in result:
+                critical = result['critical_error']
+                if critical:
+                    logging.info(
+                        "Critical error identified: step=%s module=%s type=%s",
+                        critical.get('critical_step'),
+                        critical.get('critical_module'),
+                        critical.get('error_type')
+                    )
+                else:
+                    logging.warning("No critical error found by advanced debugger")
+            
+        except Exception as exc:
+            logging.error(f"Advanced debugger API call failed: {exc}")
+            logging.error(f"Exception type: {type(exc).__name__}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            raise RuntimeError(f"Advanced debugger API call failed: {exc}") from exc
+
+        # Convert the API result to the expected format
+        converted = self._convert_api_result(result, trajectory, env_type)
+        
+        # Add metadata
+        safe_metadata = _json_safe_copy(metadata or {})
+        converted["metadata"] = safe_metadata
+        
+        return converted
+
+    def _run_async(self, coroutine):
+        """Run an async coroutine in a temporary event loop."""
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(coroutine)
+        finally:
+            asyncio.set_event_loop(None)
+            loop.close()
+
+    def _build_trajectory_json(
+        self,
+        trajectory: List[Dict],
+        env_type: str,
+        chat_history: List[Dict],
+        metadata: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Build the trajectory_json payload that the API expects."""
+        
+        # Create clean metadata
+        safe_metadata = _json_safe_copy(metadata or {})
+        if not isinstance(safe_metadata, dict):
+            safe_metadata = {"metadata": safe_metadata}
+
+        safe_metadata.setdefault("environment", env_type)
+        safe_metadata.setdefault("task_success", False)
+        safe_metadata.setdefault("won", False)
+        
+        # Build the complete trajectory_json structure expected by the API
+        trajectory_json = {
+            "metadata": safe_metadata,
+            "messages": chat_history,  # This is the chat history between agent and environment
+            "trajectory": trajectory,  # This is the trajectory steps with observations/actions
+            "environment": env_type,
+            "task_success": safe_metadata.get("won", False),
+        }
+        
+        logging.debug(
+            "Built trajectory_json with %d messages, %d trajectory steps",
+            len(chat_history),
+            len(trajectory)
+        )
+        
+        return trajectory_json
+
+    def _convert_api_result(
+        self,
+        result: Dict[str, Any],
+        trajectory: List[Dict[str, Any]],
+        env_type: str,
+    ) -> Dict[str, Any]:
+        """Convert the API result to the expected format, no fallbacks."""
+        
+        if not isinstance(result, dict):
+            raise TypeError(f"API result must be a dict, got {type(result).__name__}")
+        
+        # Extract phase1 errors and critical error from API response
+        phase1_errors = result.get('phase1_errors')
+        critical_error = result.get('critical_error')
+        
+        if not critical_error:
+            raise ValueError("Advanced debugger API did not return a critical error")
+        
+        if not isinstance(critical_error, dict):
+            raise TypeError(f"Critical error must be a dict, got {type(critical_error).__name__}")
+        
+        # Extract required fields from critical error
+        critical_step = critical_error.get('critical_step')
+        if critical_step is None:
+            raise ValueError("Critical error missing 'critical_step' field")
+        
+        critical_module = critical_error.get('critical_module')
+        if not critical_module:
+            raise ValueError("Critical error missing 'critical_module' field")
+        
+        error_type = critical_error.get('error_type')
+        if not error_type:
+            raise ValueError("Critical error missing 'error_type' field")
+        
+        # Get other fields with required values (no defaults)
+        root_cause = critical_error.get('root_cause')
+        if not root_cause:
+            raise ValueError("Critical error missing 'root_cause' field")
+        
+        correction_guidance = critical_error.get('correction_guidance')
+        if not correction_guidance:
+            raise ValueError("Critical error missing 'correction_guidance' field")
+        
+        # Convert step number (API uses 1-based, we need 0-based index)
+        try:
+            critical_step_int = int(critical_step)
+            failure_step = max(critical_step_int - 1, 0)  # Convert to 0-based
+            
+            # Ensure within bounds
+            if trajectory:
+                max_index = len(trajectory) - 1
+                failure_step = min(failure_step, max_index)
+            
+            # Calculate the step before failure
+            critical_step_index = failure_step - 1
+            if critical_step_index < -1:
+                critical_step_index = -1
+                
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Invalid critical_step value: {critical_step}") from e
+        
+        # Build failure type string
+        failure_type = f"{critical_module}::{error_type}"
+        
+        # Get evidence and other details
+        evidence = critical_error.get('evidence', '')
+        confidence = critical_error.get('confidence', 0.0)
+        cascading_effects = critical_error.get('cascading_effects', [])
+        
+        # Build the result
+        converted_result = {
+            "failure_step": failure_step,
+            "failure_type": failure_type,
+            "reason": root_cause,
+            "suggestion": correction_guidance,
+            "critical_step": critical_step_index,
+            "raw_critical_error": _json_safe_copy(critical_error),
+            "phase1_errors": _json_safe_copy(phase1_errors) if phase1_errors else None,
+            "evidence": evidence,
+            "confidence": confidence,
+            "cascading_effects": cascading_effects,
+        }
+        
+        logging.info(
+            "Converted API result: failure_step=%d, failure_type=%s, confidence=%.2f",
+            failure_step,
+            failure_type,
+            confidence
+        )
+        
+        return converted_result
 
 
 class TrajectoryManager:
@@ -614,6 +870,8 @@ def run_environment_with_retry(
     """
     
     last_trajectory = None  # Track the last trajectory for debugging
+    last_chat_history: Optional[List[Dict[str, Any]]] = None
+    last_metadata: Optional[Dict[str, Any]] = None
     won = False
     final_info = {}
     all_attempt_trajectories = []
@@ -640,7 +898,12 @@ def run_environment_with_retry(
         
         # If this is a retry, analyze the failed trajectory
         if retry_idx > 0 and debugger and last_trajectory and not won:
-            analysis = debugger.analyze_trajectory(last_trajectory, env_type)
+            analysis = debugger.analyze_trajectory(
+                last_trajectory,
+                env_type,
+                chat_history=last_chat_history,
+                metadata=last_metadata,
+            )
             
             # Save debug analysis to task dir if specified
             if task_dir:
@@ -677,7 +940,13 @@ def run_environment_with_retry(
         obs_dict, info_dict = env_manager.reset_single(env_id)
         obs = obs_dict["text"][env_id]
         info = info_dict[env_id] if isinstance(info_dict, dict) else info_dict
-        
+
+        if not isinstance(info, dict):
+            info = {}
+
+        initial_info = info.copy()
+        initial_observation = obs
+
         for step_idx in range(max_steps):
             if env_done:
                 break
@@ -816,6 +1085,8 @@ def run_environment_with_retry(
                 break
         
         # Save this attempt's trajectory
+        attempt_final_info = info if isinstance(info, dict) else {}
+
         if trajectory_manager:
             trajectory_manager.save_attempt(env_id)
         
@@ -826,6 +1097,24 @@ def run_environment_with_retry(
             "reward": cumulative_reward,
             "steps": len(trajectory_steps)
         }
+        
+        attempt_metadata = {
+            "environment": env_type,
+            "attempt_index": retry_idx + 1,
+            "max_steps": max_steps,
+            "success": bool(won),
+            "won": bool(won),
+            "initial_observation": initial_observation,
+            "final_observation": obs,
+            "initial_info": _json_safe_copy(initial_info),
+            "final_info": _json_safe_copy(attempt_final_info),
+            "trajectory_length": len(trajectory_steps),
+            "chat_history_length": len(chat_history),
+            "timestamp": run_ts,
+        }
+        if replay_to_step >= 0:
+            attempt_metadata["replay_to_step"] = replay_to_step
+        attempt_data["metadata"] = attempt_metadata
         all_attempt_trajectories.append(attempt_data)
         
         # Save individual attempt trajectory to task dir
@@ -836,6 +1125,8 @@ def run_environment_with_retry(
         
         # Save current trajectory for potential debugging
         last_trajectory = trajectory_steps
+        last_chat_history = list(chat_history)
+        last_metadata = attempt_metadata
         final_reward = cumulative_reward
         
         # Check if this attempt was successful
@@ -980,6 +1271,8 @@ def main():
     # Debugger options
     parser.add_argument("--enable_debugger", action="store_true",
                        help="Enable LLM debugger for failed trajectories")
+    parser.add_argument("--debugger_type", choices=["naive", "advanced"], default="naive",
+                       help="Select debugger implementation: naive heuristic or advanced API")
     parser.add_argument("--max_debug_retry", type=int, default=None,
                        help="Deprecated: use --max_try instead. If set, overrides --max_try for debugger strategy.")
     parser.add_argument("--debugger_model", default="gpt-4o",
@@ -1156,13 +1449,32 @@ def main():
     debugger = None
     trajectory_manager = None
     if args.enable_debugger and args.strategy == "debugger":
-        debugger = LLMDebugger(
-            model_name=args.debugger_model,
-            temperature=args.debugger_temperature,
-            base_url=args.base_url
-        )
+        debugger_type_label = args.debugger_type
+        if args.debugger_type == "advanced":
+            try:
+                debugger = AdvancedDebugger(
+                    model_name=args.debugger_model,
+                    temperature=args.debugger_temperature,
+                    base_url=args.base_url,
+                    analysis_model=args.debugger_model,
+                )
+            except Exception as exc:
+                logging.error(f"Failed to initialize advanced debugger: {exc}")
+                raise
+        else:
+            debugger = LLMDebugger(
+                model_name=args.debugger_model,
+                temperature=args.debugger_temperature,
+                base_url=args.base_url
+            )
+            debugger_type_label = "naive"
         trajectory_manager = TrajectoryManager()
-        logging.info(f"Debugger enabled with model {args.debugger_model}, max retries: {get_max_retries()}")
+        logging.info(
+            "Debugger enabled (%s) with model %s, max retries: %s",
+            debugger_type_label,
+            args.debugger_model,
+            get_max_retries(),
+        )
         
         # Create debug output directory if specified
         if args.debug_output_dir:
@@ -1392,15 +1704,15 @@ def main():
                                             "model": agent.model_name,
                                             "env_type": args.env,
                                             "strategy": args.strategy,
-                                            "total_attempts": 2,  # 1 naive + 1 tree search
+                                            "total_attempts": len(res.get("search_attempts", [])),
                                             "won": bool(res.get("won", False)),
                                             "timestamp": run_ts,
                                         }
                                         with open(summary_file, "w", encoding="utf-8") as f:
                                             json.dump({
                                                 "metadata": meta,
-                                                "naive_attempt": {"won": first.get("won", False), "steps": first.get("steps", 0)},
-                                                "search_result": res.get("search_result", {}),
+                                                "search_attempts": res.get("search_attempts", []),
+                                                "final_result": {"won": res.get("won", False), "steps": res.get("steps", 0)},
                                             }, f, ensure_ascii=False, indent=2)
                                     except Exception as e:
                                         logging.debug(f"Failed to write updated summary: {e}")

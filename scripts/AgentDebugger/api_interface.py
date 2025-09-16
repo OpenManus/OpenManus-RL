@@ -18,9 +18,9 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Import the latest detection modules
-from analysis_v5_error_detection import ErrorTypeDetector
-from analysis_phase2_v3_critical import CriticalErrorAnalyzer
-from error_definitions_loader_v3 import ErrorDefinitionsLoader
+from analysis_error_detection import ErrorTypeDetector
+from analysis_phase2_critical import CriticalErrorAnalyzer
+from error_definitions_loader import ErrorDefinitionsLoader
 
 
 class AgentErrorDetectorAPI:
