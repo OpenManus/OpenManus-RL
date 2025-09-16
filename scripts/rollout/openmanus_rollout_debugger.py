@@ -377,6 +377,8 @@ class AdvancedDebugger(LLMDebugger):
             raise RuntimeError(msg)
 
         # Build the trajectory_json payload that the API expects
+        
+        ### Fix: trajectory_json is not a valid JSON object for the API
         trajectory_json = self._build_trajectory_json(trajectory, env_type, chat_history, metadata)
         
         # Log the structure of trajectory_json for debugging
