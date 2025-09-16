@@ -394,12 +394,6 @@ class AdvancedDebugger(LLMDebugger):
             logging.debug("First trajectory step: %s", trajectory[0])
         if chat_history:
             logging.debug("First chat message: %s", chat_history[0])
-        
-        # Validate trajectory_json structure
-        if 'messages' not in trajectory_json or not trajectory_json['messages']:
-            logging.warning("trajectory_json has empty or missing messages!")
-        if 'trajectory' not in trajectory_json or not trajectory_json['trajectory']:
-            logging.warning("trajectory_json has empty or missing trajectory!")
 
         try:
             # Call the API with the properly formatted trajectory_json
@@ -450,6 +444,32 @@ class AdvancedDebugger(LLMDebugger):
             asyncio.set_event_loop(None)
             loop.close()
 
+    def _validate_trajectory_json(self, data: Dict) -> None:
+        """Validate trajectory_json conforms to API expected format.
+
+        Raises:
+            ValueError: If the structure doesn't meet API requirements
+        """
+        if not isinstance(data.get('metadata'), dict):
+            raise ValueError("trajectory_json missing valid 'metadata' dict")
+
+        metadata = data['metadata']
+        if not metadata.get('environment'):
+            raise ValueError("metadata missing 'environment' field")
+
+        if not ('success' in metadata or 'won' in metadata):
+            raise ValueError("metadata missing 'success' or 'won' field")
+
+        messages = data.get('messages', [])
+        if not messages:
+            raise ValueError("trajectory_json missing or empty 'messages'")
+
+        for i, msg in enumerate(messages):
+            if not isinstance(msg.get('role'), str):
+                raise ValueError(f"Message {i} missing valid 'role' field")
+            if not isinstance(msg.get('content'), str):
+                raise ValueError(f"Message {i} missing valid 'content' field")
+
     def _build_trajectory_json(
         self,
         trajectory: List[Dict],
@@ -458,31 +478,47 @@ class AdvancedDebugger(LLMDebugger):
         metadata: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """Build the trajectory_json payload that the API expects."""
-        
+
         # Create clean metadata
         safe_metadata = _json_safe_copy(metadata or {})
         if not isinstance(safe_metadata, dict):
             safe_metadata = {"metadata": safe_metadata}
 
         safe_metadata.setdefault("environment", env_type)
+        # Note: task_success is kept for internal use, but API reads 'success' or 'won'
         safe_metadata.setdefault("task_success", False)
         safe_metadata.setdefault("won", False)
-        
-        # Build the complete trajectory_json structure expected by the API
+        # API expects 'success' field for task completion status
+        safe_metadata.setdefault("success", safe_metadata.get("won", False))
+
+        # Preserve task-related fields if they exist
+        if metadata:
+            if "task" in metadata:
+                safe_metadata.setdefault("task", metadata["task"])
+            if "task_id" in metadata:
+                safe_metadata.setdefault("task_id", metadata["task_id"])
+
+        # Build the trajectory_json structure expected by the API
+        # The API's parse_trajectory_from_dict extracts steps from messages
         trajectory_json = {
             "metadata": safe_metadata,
-            "messages": chat_history,  # This is the chat history between agent and environment
-            "trajectory": trajectory,  # This is the trajectory steps with observations/actions
-            "environment": env_type,
-            "task_success": safe_metadata.get("won", False),
+            "messages": chat_history,  # API extracts trajectory from chat messages
+            "chat_history": chat_history,  # Backward compatibility
         }
-        
+
+        # Validate the structure before returning
+        try:
+            self._validate_trajectory_json(trajectory_json)
+        except ValueError as e:
+            logging.error(f"Invalid trajectory_json structure: {e}")
+            raise
+
         logging.debug(
-            "Built trajectory_json with %d messages, %d trajectory steps",
+            "Built trajectory_json with %d messages, metadata keys: %s",
             len(chat_history),
-            len(trajectory)
+            list(safe_metadata.keys())
         )
-        
+
         return trajectory_json
 
     def _convert_api_result(
