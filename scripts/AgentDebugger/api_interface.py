@@ -33,7 +33,7 @@ class AgentErrorDetectorAPI:
     3. Get correction guidance for trajectory reload
     """
 
-    def __init__(self, api_key: str, model: str = "gpt-4.1-2025-04-14"):
+    def __init__(self, api_key: str, model: str = "gpt-4.1-2025-04-14", capture_debug_data: bool = False):
         """
         Initialize the error detector
 
@@ -50,8 +50,9 @@ class AgentErrorDetectorAPI:
             "timeout": 60
         }
 
+        self.capture_debug_data = capture_debug_data
         self.phase1_detector = ErrorTypeDetector(self.api_config)
-        self.phase2_analyzer = CriticalErrorAnalyzer(self.api_config)
+        self.phase2_analyzer = CriticalErrorAnalyzer(self.api_config, capture_debug_data=capture_debug_data)
         self.error_loader = ErrorDefinitionsLoader()
 
     async def analyze_trajectory(self, trajectory_json: Dict) -> Dict:
@@ -70,12 +71,17 @@ class AgentErrorDetectorAPI:
         # Phase 2: Find critical error
         phase2_results = await self.find_critical_error(phase1_results, trajectory_json)
 
-        return {
+        result = {
             'phase1_errors': phase1_results,
             'critical_error': phase2_results.get('critical_error'),
             'task_success': phase1_results.get('task_success', False),
             'environment': phase1_results.get('environment', 'unknown')
         }
+
+        if self.capture_debug_data and phase2_results.get('debug_payload'):
+            result['debug_payload'] = phase2_results['debug_payload']
+
+        return result
 
     async def detect_errors(self, trajectory_json: Dict) -> Dict:
         """

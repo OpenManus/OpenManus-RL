@@ -9,7 +9,6 @@ import json
 import os
 import asyncio
 import aiohttp
-import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
@@ -36,16 +35,16 @@ class CriticalError:
 class CriticalErrorAnalyzer:
     """Identifies critical failure points in trajectories"""
     
-    def __init__(self, api_config: Dict[str, Any]):
+    def __init__(self, api_config: Dict[str, Any], capture_debug_data: bool = False):
         self.config = api_config
         self.headers = {
             "Authorization": f"Bearer {api_config['api_key']}",
             "Content-Type": "application/json"
         }
-        
+
         # Load error definitions
         self.error_loader = ErrorDefinitionsLoader()
-        
+
         # Module-specific error types (from loader)
         self.module_error_types = {
             'memory': [e for e in self.error_loader.get_valid_error_types('memory') if e != 'no_error'],
@@ -55,6 +54,10 @@ class CriticalErrorAnalyzer:
             'system': [e for e in self.error_loader.get_valid_error_types('system') if e != 'no_error'],
             'others': [e for e in self.error_loader.get_valid_error_types('others') if e != 'no_error']
         }
+
+        # Optional debugging toggle so callers can capture raw prompts/responses when parsing fails
+        self.capture_debug_data = capture_debug_data
+        self._last_debug_payload: Optional[Dict[str, Any]] = None
     
     def load_phase1_results(self, file_path: str) -> Dict[str, Any]:
         """Load Phase 1 error detection results"""
@@ -228,48 +231,18 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable.
         return prompt
     
     def _parse_critical_error(self, response: str) -> CriticalError:
-        """Parse LLM response for critical error"""
-
-        # Try to extract JSON from response - handle nested braces
-        # First try to find a complete JSON object
-        json_start = response.find('{')
-        if json_start == -1:
-            raise ValueError("No JSON found in response")
-
-        # Count braces to find the complete JSON object
-        brace_count = 0
-        json_end = json_start
-        for i in range(json_start, len(response)):
-            if response[i] == '{':
-                brace_count += 1
-            elif response[i] == '}':
-                brace_count -= 1
-                if brace_count == 0:
-                    json_end = i + 1
-                    break
-
-        if brace_count != 0:
-            # Fallback to regex if brace counting fails
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-            else:
-                raise ValueError("Malformed JSON in response")
-        else:
-            json_str = response[json_start:json_end]
-
-        # Clean up common JSON issues
-        # Remove any trailing commas before closing braces/brackets
-        json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
-        # Replace single quotes with double quotes (if any)
-        json_str = re.sub(r"'([^']*)'", r'"\1"', json_str)
+        """Parse LLM response for critical error."""
 
         try:
-            error_data = json.loads(json_str)
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON parse error: {e}")
-            logger.error(f"Attempted to parse: {json_str[:500]}...")
-            raise ValueError(f"Invalid JSON format: {e}")
+            error_data = json.loads(response)
+        except json.JSONDecodeError as exc:
+            logger.error("Failed to decode critical error response: %s", exc)
+            logger.error("Raw response (first 500 chars): %s", response[:500])
+            raise ValueError(f"Invalid JSON format: {exc}") from exc
+
+        if not isinstance(error_data, dict):
+            logger.error("Critical error response is not a JSON object: %s", type(error_data).__name__)
+            raise ValueError("Critical error response must be a JSON object")
         
         # Validate error type matches module
         module = error_data.get('critical_module', 'unknown')
@@ -355,11 +328,24 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable.
         # Parse response
         critical_error = self._parse_critical_error(response)
 
-        return {
+        result = {
             'critical_error': asdict(critical_error),
             'task_success': False,
             'environment': phase1_results.get('environment', 'unknown')
         }
+
+        if self.capture_debug_data:
+            debug_payload = {
+                'prompt': prompt,
+                'raw_response': response,
+                'parsed_critical_error': result['critical_error'],
+            }
+            self._last_debug_payload = debug_payload
+            result['debug_payload'] = debug_payload
+        else:
+            self._last_debug_payload = None
+
+        return result
 
     async def process_trajectory(
         self,

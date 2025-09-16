@@ -291,6 +291,21 @@ Output only the JSON, no additional text."""
             Feedback string to prepend to the agent's next prompt
         """
         
+        critical = analysis.get('raw_critical_error') or {}
+        critical_lines = []
+        if critical:
+            critical_lines.append(f"Critical Module: {critical.get('critical_module', 'unknown')}")
+            critical_lines.append(f"Critical Step (1-based): {critical.get('critical_step', 'unknown')}")
+            critical_lines.append(f"Root Cause: {critical.get('root_cause', 'N/A')}")
+            guidance = critical.get('correction_guidance')
+            if guidance:
+                critical_lines.append(f"Correction Guidance: {guidance}")
+            evidence = critical.get('evidence')
+            if evidence:
+                critical_lines.append(f"Evidence: {evidence}")
+
+        critical_text = "\n".join(critical_lines) if critical_lines else "No additional critical error details available."
+
         feedback_prompt = f"""Based on a previous failed attempt, generate helpful feedback for the agent.
 
 ENVIRONMENT: {env_type}
@@ -305,6 +320,9 @@ FAILURE ANALYSIS:
 - Type: {analysis['failure_type']}
 - Reason: {analysis['reason']}
 - Suggestion: {analysis['suggestion']}
+
+CRITICAL ERROR DETAILS:
+{critical_text}
 
 Generate a concise, actionable feedback message (2-3 sentences max) that:
 1. Warns the agent about the previous mistake
@@ -351,6 +369,7 @@ class AdvancedDebugger(LLMDebugger):
         temperature: float = 0.3,
         base_url: str | None = None,
         analysis_model: Optional[str] = None,
+        capture_debug_data: bool = False,
     ) -> None:
         super().__init__(model_name=model_name, temperature=temperature, base_url=base_url)
 
@@ -362,7 +381,12 @@ class AdvancedDebugger(LLMDebugger):
             raise ValueError("OPENAI_API_KEY must be set to use the advanced debugger")
 
         self.analysis_model = analysis_model or model_name
-        self.detector = AgentErrorDetectorAPI(self.api_key, model=self.analysis_model)
+        self.capture_debug_data = capture_debug_data
+        self.detector = AgentErrorDetectorAPI(
+            self.api_key,
+            model=self.analysis_model,
+            capture_debug_data=capture_debug_data,
+        )
 
     def analyze_trajectory(
         self,
@@ -380,6 +404,7 @@ class AdvancedDebugger(LLMDebugger):
         
         ### Fix: trajectory_json is not a valid JSON object for the API
         trajectory_json = self._build_trajectory_json(trajectory, env_type, chat_history, metadata)
+        debug_input_payload = _json_safe_copy(trajectory_json) if self.capture_debug_data else None
         
         # Log the structure of trajectory_json for debugging
         logging.info(
@@ -417,7 +442,6 @@ class AdvancedDebugger(LLMDebugger):
                     )
                 else:
                     logging.warning("No critical error found by advanced debugger")
-            ## TODO: add the critical error to fix the trajectory
         except Exception as exc:
             logging.error(f"Advanced debugger API call failed: {exc}")
             logging.error(f"Exception type: {type(exc).__name__}")
@@ -427,11 +451,19 @@ class AdvancedDebugger(LLMDebugger):
 
         # Convert the API result to the expected format
         converted = self._convert_api_result(result, trajectory, env_type)
-        
+
+        if self.capture_debug_data:
+            if isinstance(result, dict):
+                debug_payload = result.get('debug_payload')
+                if debug_payload is not None:
+                    converted['debug_payload'] = _json_safe_copy(debug_payload)
+            if debug_input_payload is not None:
+                converted['debug_input'] = debug_input_payload
+
         # Add metadata
         safe_metadata = _json_safe_copy(metadata or {})
         converted["metadata"] = safe_metadata
-        
+
         return converted
 
     def _run_async(self, coroutine):
@@ -949,13 +981,19 @@ def run_environment_with_retry(
                     task_dir,
                     f"debug_analysis_retry_{retry_idx}.json"
                 )
+                debug_record = {
+                    "retry": retry_idx,
+                    "analysis": analysis,
+                    "trajectory": last_trajectory,
+                    "env_type": env_type
+                }
+
+                if getattr(debugger, "capture_debug_data", False):
+                    debug_record["chat_history"] = last_chat_history
+                    debug_record["attempt_metadata"] = last_metadata
+
                 with open(debug_file, "w") as f:
-                    json.dump({
-                        "retry": retry_idx,
-                        "analysis": analysis,
-                        "trajectory": last_trajectory,
-                        "env_type": env_type
-                    }, f, indent=2)
+                    json.dump(debug_record, f, indent=2)
             
             logging.info(f"    Debugger analysis - Failure at step {analysis['failure_step']}: {analysis['failure_type']}")
             logging.info(f"    Suggestion: {analysis['suggestion']}")
@@ -1321,6 +1359,8 @@ def main():
                        help="Directory to save debug analysis results")
     parser.add_argument("--save_all_attempts", action="store_true",
                        help="Save trajectories for all retry attempts")
+    parser.add_argument("--debugger_capture_api_debug", action="store_true",
+                        help="Include advanced debugger request/response payloads in outputs for troubleshooting")
     
     # Other options
     parser.add_argument("--unique_envs", action="store_true",
@@ -1495,6 +1535,7 @@ def main():
                     temperature=args.debugger_temperature,
                     base_url=args.base_url,
                     analysis_model=args.debugger_model,
+                    capture_debug_data=args.debugger_capture_api_debug,
                 )
             except Exception as exc:
                 logging.error(f"Failed to initialize advanced debugger: {exc}")
