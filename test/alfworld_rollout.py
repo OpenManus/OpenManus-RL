@@ -7,16 +7,18 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
-
+from dotenv import load_dotenv
 import requests
 
 # Configure project imports
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+load_dotenv(PROJECT_ROOT / '.env')
+
 from openmanus_rl.multi_turn_rollout.openmanus_rollout import OpenmanusRollout
 from openmanus_rl.environments.env_manager import make_envs
-from openmanus_rl.environments.prompts.alfworld import ALFWORLD_OPENMANUS_TEMPLATE
+from openmanus_rl.environments.prompts.alfworld import ALFWORLD_OPENMANUS_INITIAL_TEMPLATE
 
 # Configure logging
 logging.basicConfig(
@@ -83,110 +85,121 @@ class TrajectoryStep:
 
 
 class LLMAgent:
-    """Agent that interfaces with LLM APIs for action generation."""
+    """Agent that interfaces with LLM APIs using chat-based conversation."""
     
     def __init__(self):
         # Check environment for API credentials
         self._setup_api()
-        self.history = []
+        self.chat_history = []  # Store chat messages for conversation flow
         self.current_task = None
-        self.step_counter = 0
+        self.is_first_turn = True
         
     def _setup_api(self):
         """Configure API based on environment variables."""
-        self.api_key = os.getenv('OAI_KEY')
-        self.api_endpoint = os.getenv('OAI_ENDPOINT')
+        # Support both OpenAI and Azure OpenAI
+        self.api_key = os.getenv('OPENAI_API_KEY') or os.getenv('OAI_KEY')
+        self.api_base = os.getenv('OPENAI_API_BASE') or os.getenv('OAI_ENDPOINT')
+        self.api_type = os.getenv('OPENAI_API_TYPE', 'openai')  # 'openai' or 'azure'
         
-        if self.api_key and self.api_endpoint:
+        if self.api_key:
             self.api_enabled = True
-            logger.info(f"API configured: {self.api_endpoint[:30]}...")
+            if self.api_type == 'azure' and self.api_base:
+                logger.info(f"Azure OpenAI configured: {self.api_base[:30]}...")
+            elif self.api_type == 'openai':
+                if not self.api_base:
+                    self.api_base = 'https://api.openai.com'
+                logger.info(f"OpenAI API configured")
+            else:
+                self.api_enabled = False
+                logger.warning("Invalid API configuration")
         else:
             self.api_enabled = False
             logger.warning("No API credentials found, using heuristic fallback")
     
     def reset(self, task_description: str):
         """Reset agent state for new episode."""
-        self.history.clear()
+        self.chat_history = []
         self.current_task = task_description
-        self.step_counter = 0
+        self.is_first_turn = True
+        
+        # Add system message to initialize the conversation
+        self.chat_history.append({
+            "role": "system", 
+            "content": "You are an expert AI agent solving household tasks in the ALFRED environment."
+        })
     
     def act(self, observation: str, admissible_actions: List[str]) -> Tuple[str, str]:
         """
-        Generate action based on current observation.
+        Generate action based on current observation using chat conversation.
         
         Returns:
             Tuple of (raw_response, action)
         """
-        self.step_counter += 1
-        
-        # Build context from recent history
-        context = self._build_context()
-        
-        # Generate prompt using template
-        prompt = self._create_prompt(observation, admissible_actions, context)
-        
-        # Get response from LLM or fallback
-        if self.api_enabled:
-            response = self._query_llm(prompt)
+        if self.is_first_turn:
+            # First turn: use initial template with task description
+            user_message = self._create_initial_prompt(observation, admissible_actions)
+            self.is_first_turn = False
         else:
-            response = self._heuristic_action(admissible_actions)
+            # Subsequent turns: just provide observation and actions
+            user_message = self._create_followup_message(observation, admissible_actions)
         
-        # Update history
-        self.history.append({
-            'step': self.step_counter,
-            'observation': observation[:200],  # Truncate for memory
-            'response': response
-        })
+        # Add user message to chat history
+        self.chat_history.append({"role": "user", "content": user_message})
         
-        # Keep history bounded
-        if len(self.history) > 5:
-            self.history.pop(0)
+        # Get response from LLM only, no fallback
+        if not self.api_enabled:
+            raise RuntimeError("API not configured. Please set OPENAI_API_KEY and OPENAI_API_BASE")
+        
+        response = self._query_llm_chat()
+        
+        # Add assistant response to chat history
+        self.chat_history.append({"role": "assistant", "content": response})
+        
+        # Keep chat history bounded (keep system message + last 10 exchanges)
+        if len(self.chat_history) > 21:  # 1 system + 20 user/assistant messages
+            # Keep system message and last 10 exchanges (20 messages)
+            self.chat_history = [self.chat_history[0]] + self.chat_history[-20:]
         
         return response, self._extract_action(response)
     
-    def _build_context(self) -> str:
-        """Build context string from recent history."""
-        if not self.history:
-            return "No previous actions taken."
-        
-        context_parts = []
-        for entry in self.history[-3:]:  # Last 3 steps
-            obs_snippet = entry['observation'][:100]
-            context_parts.append(f"Step {entry['step']}: {obs_snippet}...")
-        
-        return "\n".join(context_parts)
-    
-    def _create_prompt(self, observation: str, actions: List[str], context: str) -> str:
-        """Format prompt using the template."""
-        return ALFWORLD_OPENMANUS_TEMPLATE.format(
+    def _create_initial_prompt(self, observation: str, actions: List[str]) -> str:
+        """Create initial prompt using the template for first turn."""
+        return ALFWORLD_OPENMANUS_INITIAL_TEMPLATE.format(
             task_description=self.current_task or "Complete the task",
-            step_count=max(0, self.step_counter - 1),
-            history_length=min(3, len(self.history)),
-            action_history=context,
-            current_step=self.step_counter,
             current_observation=observation,
             admissible_actions=", ".join(actions) if actions else "none available"
         )
     
-    def _query_llm(self, prompt: str) -> str:
-        """Query the LLM API."""
+    def _create_followup_message(self, observation: str, actions: List[str]) -> str:
+        """Create followup message for subsequent turns."""
+        return f"Observation: {observation}\n\nAvailable actions: [{', '.join(actions) if actions else 'none available'}]\n\nPlease respond with your memory recall, reflection, thinking, and action as instructed."
+    
+    def _query_llm_chat(self) -> str:
+        """Query the LLM API using chat history."""
         try:
-            headers = {
-                "api-key": self.api_key,
-                "Content-Type": "application/json"
-            }
-            
-            # Azure OpenAI format
-            url = f"{self.api_endpoint}/openai/deployments/gpt-4o/chat/completions?api-version=2024-05-13"
+            # Set headers based on API type
+            if self.api_type == 'azure':
+                headers = {
+                    "api-key": self.api_key,
+                    "Content-Type": "application/json"
+                }
+                url = f"{self.api_base}/openai/deployments/gpt-4o/chat/completions?api-version=2024-05-13"
+            else:  # OpenAI API
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+                url = f"{self.api_base}/v1/chat/completions"
             
             payload = {
-                "messages": [
-                    {"role": "system", "content": "You are an expert AI agent solving household tasks."},
-                    {"role": "user", "content": prompt}
-                ],
+                "model": "gpt-4o" if self.api_type == 'openai' else None,  # OpenAI needs model in payload
+                "messages": self.chat_history,
                 "max_tokens": 1000,
                 "temperature": 0.7
             }
+            
+            # Remove None values from payload
+            payload = {k: v for k, v in payload.items() if v is not None}
             
             response = requests.post(url, headers=headers, json=payload, timeout=30)
             
@@ -202,31 +215,12 @@ class LLMAgent:
                 return content
             else:
                 logger.error(f"API error {response.status_code}: {response.text[:200]}")
-                return self._heuristic_action([])
+                raise RuntimeError(f"API request failed with status {response.status_code}: {response.text[:200]}")
                 
         except Exception as e:
             logger.error(f"API exception: {e}")
-            return self._heuristic_action([])
+            raise RuntimeError(f"API request failed: {e}")
     
-    def _heuristic_action(self, available_actions: List[str]) -> str:
-        """Simple heuristic for action selection when API unavailable."""
-        # Basic exploration strategy
-        action_sequence = ["look", "inventory", "go to kitchen", "go to cabinet 1", 
-                          "open cabinet 1", "take mug 1", "go to sinkbasin 1",
-                          "clean mug 1", "go to coffeemachine 1", "put mug 1"]
-        
-        idx = (self.step_counter - 1) % len(action_sequence)
-        action = action_sequence[idx]
-        
-        # Check if action is valid
-        if available_actions and action not in str(available_actions):
-            # Try to find a similar valid action
-            for act in available_actions:
-                if any(keyword in act.lower() for keyword in ['go', 'take', 'put', 'open']):
-                    action = act
-                    break
-        
-        return f"<think>\nExploring environment systematically.\n</think>\n\n<action>\n{action}\n</action>"
     
     def _extract_action(self, response: str) -> str:
         """Extract action from structured response."""
@@ -239,10 +233,15 @@ class LLMAgent:
             if 'action_choice:' in action_text:
                 parts = action_text.split('action_choice:')
                 if len(parts) > 1:
-                    return parts[1].split('\n')[0].strip()
+                    action = parts[1].split('\n')[0].strip()
+                    # Remove quotes if present
+                    action = action.strip("'\"")
+                    return action
             
-            # Return first line if no special format
-            return action_text.split('\n')[0].strip()
+            # Return first line if no special format, removing quotes
+            action = action_text.split('\n')[0].strip()
+            action = action.strip("'\"")
+            return action
         
         # Smarter fallback: try to extract meaningful action from response
         response_lower = response.lower()

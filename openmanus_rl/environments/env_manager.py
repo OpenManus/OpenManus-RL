@@ -6,7 +6,7 @@ from functools import partial
 import os
 from openmanus_rl.environments.prompts import *
 from openmanus_rl.environments.base import EnvironmentManagerBase, to_numpy
-from openmanus_rl.memory import SimpleMemory
+from openmanus_rl.memory import SimpleMemory, SummarizedMemory
 
 def parse_gamefile(infos):
     gamefile = []
@@ -28,7 +28,11 @@ def set_gamefile(infos, gamefile):
 
 class AlfWorldEnvironmentManager(EnvironmentManagerBase):
     def __init__(self, envs, projection_f, config):
-        self.memory = SimpleMemory()
+        # Choose memory type based on config
+        if hasattr(config.env, 'use_summary') and config.env.use_summary:
+            self.memory = SummarizedMemory()
+        else:
+            self.memory = SimpleMemory()
         super().__init__(envs, projection_f, config)
     
     def reset(self):
@@ -79,19 +83,35 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         """
         postprocess_text_obs = []
         if not init and self.config.env.history_length > 0:
-            memory_contexts, valid_lens = self.memory.fetch(
+            # Check if using summary mode
+            use_summary = hasattr(self.config.env, 'use_summary') and self.config.env.use_summary
+            
+            if use_summary:
+                memory_contexts, valid_lens = self.memory.fetch(
                     self.config.env.history_length,
                     obs_key="text_obs",
-                    action_key="action")
+                    action_key="action",
+                    use_summary=True,
+                    summary_api_key=getattr(self.config.env, 'summary_api_key', None),
+                    summary_endpoint=getattr(self.config.env, 'summary_endpoint', None)
+                )
+            else:
+                memory_contexts, valid_lens = self.memory.fetch(
+                    self.config.env.history_length,
+                    obs_key="text_obs",
+                    action_key="action"
+                )
             
         for i in range(len(text_obs)):
             # exclude 'help' in admissible_actions[i]
             reformatted_admissible_actions = "\n ".join(f"'{s}'" for s in admissible_actions[i] if s != 'help')
 
             if init or self.config.env.history_length <= 0:
+                # Include task_description to satisfy ALFWORLD_TEMPLATE_NO_HIS placeholders.
                 obs = ALFWORLD_TEMPLATE_NO_HIS.format(
+                    task_description=self.tasks[i],
                     current_observation=text_obs[i],
-                    admissible_actions=reformatted_admissible_actions
+                    admissible_actions=reformatted_admissible_actions,
                 )
             else:
                 obs = ALFWORLD_TEMPLATE.format(
@@ -140,7 +160,11 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
 
 class WebshopEnvironmentManager(EnvironmentManagerBase):
     def __init__(self, envs, projection_f, config):
-        self.memory = SimpleMemory()
+        # Choose memory type based on config
+        if hasattr(config.env, 'use_summary') and config.env.use_summary:
+            self.memory = SummarizedMemory()
+        else:
+            self.memory = SimpleMemory()
         super().__init__(envs, projection_f, config)
     
     def reset(self) -> Dict[str, Any]:
@@ -223,7 +247,19 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
         """
         postprocess_text_obs = []
         if not init and self.config.env.history_length > 0:
-            memory_contexts, valid_lens = self.memory.fetch(
+            # Check if using summary mode
+            use_summary = hasattr(self.config.env, 'use_summary') and self.config.env.use_summary
+            if use_summary:
+                memory_contexts, valid_lens = self.memory.fetch(
+                    self.config.env.history_length,
+                    obs_key="text_obs",
+                    action_key="action",
+                    use_summary=True,
+                    summary_api_key=getattr(self.config.env, 'summary_api_key', None),
+                    summary_endpoint=getattr(self.config.env, 'summary_endpoint', None),
+                )
+            else:
+                memory_contexts, valid_lens = self.memory.fetch(
                     self.config.env.history_length,
                     obs_key="text_obs",
                     action_key="action")

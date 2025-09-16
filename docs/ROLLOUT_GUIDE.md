@@ -28,17 +28,17 @@ This guide shows how to run rollouts for the three environments using a single u
 Data path default: `data/gaia/val.json`
 
 - Dry‑run (no model calls):
-  - `python scripts/rollout/unified_rollout.py --env gaia --batch_size 2 --total_envs 4 --dry_run`
+  - `python scripts/rollout/openmanus_rollout.py --env gaia --batch_size 2 --total_envs 4 --dry_run`
 
 - OpenAI small run (minimal tools):
-  - `python scripts/rollout/unified_rollout.py \
-    --env gaia --model gpt-4o-mini \
+  - `python scripts/rollout/openmanus_rollout.py \
+    --env gaia --model gpt-4o \
     --gaia_tools python_code_generator \
     --batch_size 1 --total_envs 2 --max_steps 30 --concurrency 2 \
     --dump_path logs/gaia/trajectory_$(date +%Y%m%d_%H%M%S).jsonl --chat_root .`
 
 - Local vLLM small run:
-  - `python scripts/rollout/unified_rollout.py \
+  - `python scripts/rollout/openmanus_rollout.py \
     --env gaia --model qwen2.5-7b-alfworld --base_url http://127.0.0.1:8000/v1 \
     --gaia_tools python_code_generator \
     --batch_size 1 --total_envs 2 --max_steps 30 --concurrency 2 \
@@ -52,13 +52,13 @@ Make sure AlfWorld is installed and game data downloaded (`alfworld-download -f`
   - `python scripts/rollout/unified_rollout.py --env alfworld --unique_envs --batch_size 2 --total_envs 4 --dry_run`
 
 - OpenAI small run:
-  - `python scripts/rollout/unified_rollout.py \
-    --env alfworld --model gpt-4o-mini \
-    --batch_size 1 --total_envs 2 --max_steps 20 --concurrency 2 \
+  - `python scripts/rollout/openmanus_rollout.py \
+    --env alfworld --model gpt-4o \
+    --batch_size 1 --total_envs 2 --max_steps 30 --concurrency 2 \
     --dump_path logs/alfworld/trajectory_$(date +%Y%m%d_%H%M%S).jsonl --chat_root .`
 
 - Local vLLM small run:
-  - `python scripts/rollout/unified_rollout.py \
+  - `python scripts/rollout/openmanus_rollout.py \
     --env alfworld --model qwen2.5-7b-alfworld --base_url http://127.0.0.1:8000/v1 \
     --batch_size 1 --total_envs 2 --max_steps 20 --concurrency 2 \
     --dump_path logs/alfworld/trajectory_$(date +%Y%m%d_%H%M%S).jsonl --chat_root .`
@@ -68,16 +68,16 @@ Make sure AlfWorld is installed and game data downloaded (`alfworld-download -f`
 To run WebShop, follow data/index setup in DOCKER_SETUP.md, then use:
 
 - Dry‑run:
-  - `python scripts/rollout/unified_rollout.py --env webshop --batch_size 2 --total_envs 4 --dry_run`
+  - `python scripts/rollout/openmanus_rollout.py --env webshop --batch_size 2 --total_envs 4 --dry_run`
 
 - OpenAI:
-  - `python scripts/rollout/unified_rollout.py \
+  - `python scripts/rollout/openmanus_rollout.py \
     --env webshop --model gpt-4o \
     --batch_size 2 --total_envs 4 --max_steps 30 --concurrency 2 \
     --dump_path logs/webshop/trajectory_$(date +%Y%m%d_%H%M%S).jsonl --chat_root .`
 
 - Local vLLM:
-  - `python scripts/rollout/unified_rollout.py \
+  - `python scripts/rollout/openmanus_rollout.py \
     --env webshop --model qwen2.5-7b-alfworld --base_url http://127.0.0.1:8000/v1 \
     --batch_size 2 --total_envs 4 --max_steps 30 --concurrency 2 \
     --dump_path logs/webshop/trajectory_$(date +%Y%m%d_%H%M%S).jsonl --chat_root .`

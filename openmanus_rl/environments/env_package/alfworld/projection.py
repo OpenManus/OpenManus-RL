@@ -34,9 +34,11 @@ def alfworld_projection(actions: List[str], action_pools: List[List[str]]):
         except:
             actions[i] = actions[i][-30:]
 
-        # check <think>...</think>
-        think_start_idx = original_str.find("<think>")
-        think_end_idx = original_str.find("</think>")
+        # # check <think>...</think>
+        # think_start_idx = original_str.find("<think>")
+        # think_end_idx = original_str.find("</think>")
+        think_start_idx = original_str.find("<plan>")
+        think_end_idx = original_str.find("</plan>")
         if think_start_idx == -1 or think_end_idx == -1:
             valids[i] = 0
 

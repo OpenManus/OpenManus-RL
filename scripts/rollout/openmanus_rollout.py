@@ -29,10 +29,10 @@ except Exception:
     pass
 
 
-class UnifiedAgent:
-    """Unified agent that can work with all environments"""
+class OpenManusAgent:
+    """OpenManus agent that can work with all environments"""
     
-    def __init__(self, model_name: str = "gpt-4o", temperature: float = 0.4, 
+    def __init__(self, model_name: str = "gpt-4o", temperature: float = 0.7, 
                  base_url: str | None = None, env_type: str = "alfworld"):
         self.model_name = model_name
         self.temperature = temperature
@@ -174,8 +174,9 @@ class EnvironmentFactory:
                    env_num: int = 1, seed: int = 1, history_length: int = 2,
                    max_steps: int = 30, **kwargs):
         """Build GAIA/Tool Use environment"""
-        from openmanus_rl.environments.env_package.tool_use import tool_use_projection
-        from openmanus_rl.environments.env_package.tool_use import build_tool_use_envs
+
+        from openmanus_rl.environments.env_package.tool_use.projection import tool_use_projection
+        from openmanus_rl.environments.env_package.tool_use.envs import build_tool_use_envs
         from openmanus_rl.environments.env_package.tool_use.manager import ToolUseEnvironmentManager
         
         envs = build_tool_use_envs(
@@ -477,14 +478,14 @@ def main():
     parser.add_argument("--test_times", type=int, default=1,
                        help="Number of test runs per batch")
     parser.add_argument("--max_steps", type=int, default=None,
-                       help="Maximum steps per episode (default: 50 for alfworld, 30 for gaia/webshop)")
+                       help="Maximum steps per episode (default: 30)")
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--history_length", type=int, default=2)
+    parser.add_argument("--history_length", type=int, default=3)
     
     # Model parameters
-    parser.add_argument("--model", default="gpt-4o-mini",
+    parser.add_argument("--model", default="gpt-4o",
                        help="Model name (OpenAI: gpt-4o, gpt-4o-mini; Together: Qwen/Qwen2.5-7B-Instruct-Turbo, etc.)")
-    parser.add_argument("--temperature", type=float, default=0.4)
+    parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--base_url", default=None,
                        help="OpenAI-compatible base URL (e.g., vLLM http://127.0.0.1:8000/v1)")
     
@@ -497,8 +498,14 @@ def main():
     # Output parameters
     parser.add_argument("--dump_path", default=None,
                        help="If set, write JSONL trajectory to this file")
-    parser.add_argument("--chat_root", default=None,
-                       help="If set, save per-episode chat histories under this root")
+    parser.add_argument(
+        "--chat_root",
+        default=os.getcwd(),
+        help=(
+            "Root directory to save per-episode chat histories. "
+            "Defaults to the current working directory."
+        ),
+    )
     
     # Environment-specific parameters
     parser.add_argument("--alf_env_type", default="alfworld/AlfredTWEnv",
@@ -525,12 +532,20 @@ def main():
     parser.add_argument("--debug", action="store_true",
                        help="Enable debug logging")
     
+    # Summary-related options  
+    parser.add_argument("--use_summary", action="store_true",
+                       help="Enable memory summarization instead of sliding window")
+    parser.add_argument("--summary_api_key", default=None,
+                       help="API key for summary LLM (defaults to environment variables)")
+    parser.add_argument("--summary_endpoint", default=None, 
+                       help="API endpoint for summary LLM (defaults to environment variables)")
+    
     args = parser.parse_args()
     
     # Set default max_steps based on environment
     if args.max_steps is None:
         args.max_steps = {
-            "alfworld": 50,
+            "alfworld": 30,
             "gaia": 30,
             "webshop": 30
         }[args.env]
@@ -622,9 +637,6 @@ def main():
         sys.exit(0)
     
     # Initialize agent (defer until after potential dry-run exit to avoid requiring API keys)
-    # Use best_of_n temperature if best_of_n > 1, otherwise use regular temperature
-    agent_temperature = args.best_of_n_temp if args.best_of_n > 1 else args.temperature
-    
     agent = UnifiedAgent(
         model_name=args.model,
         temperature=agent_temperature,
@@ -652,6 +664,10 @@ def main():
                 "env_num": current_batch_size,
                 "seed": args.seed + batch_idx,
                 "history_length": args.history_length,
+                # Summary configuration
+                "use_summary": args.use_summary,
+                "summary_api_key": args.summary_api_key or os.getenv("OAI_KEY") or os.getenv("OPENAI_API_KEY"),
+                "summary_endpoint": args.summary_endpoint or os.getenv("OAI_ENDPOINT") or os.getenv("OPENAI_ENDPOINT"),
             }
             
             if args.env == "gaia":
@@ -684,61 +700,167 @@ def main():
                     logging.info(f"\n========== Start Batch {batch_idx + 1} Test {test_idx} ==========")
                     start_time = time.time()
                     
-                    # Best-of-N sampling: run multiple attempts and take the best
-                    if args.best_of_n > 1:
-                        # Track cumulative success across all attempts
-                        cumulative_success = np.zeros(current_batch_size, dtype=bool)
-                        all_task_success_cnt = defaultdict(int)
-                        all_task_total_cnt = defaultdict(int)
-                        total_elapsed_time = 0
+                    obs, infos = env_manager.reset()
+                    env_dones = [False] * current_batch_size
+                    
+                    # Per-env chat buffers
+                    chats = [[] for _ in range(current_batch_size)]
+                    saved_flags = [False] * current_batch_size
+                    last_infos = infos
+                    
+                    # Statistics for single round
+                    overall_success_this_round = np.zeros(current_batch_size, dtype=bool)
+                    task_success_cnt = defaultdict(int)
+                    task_total_cnt = defaultdict(int)
+                    
+                    for step_idx in range(args.max_steps):
+                        logging.info(f"Batch {batch_idx + 1} Step {step_idx}; Dones ({np.array(env_dones).sum()}/{current_batch_size}); SR {overall_success_this_round.mean():.3f}")
                         
-                        for attempt_idx in range(args.best_of_n):
-                            attempt_result = run_single_attempt(
-                                env_manager, agent, args, batch_idx, test_idx, attempt_idx,
-                                global_env_counter, run_ts, chat_base_dir, dump_fp, current_batch_size
-                            )
-                            
-                            # Update cumulative success (any successful attempt counts)
-                            cumulative_success |= attempt_result["success"]
-                            total_elapsed_time += attempt_result["elapsed_time"]
-                            
-                            # Update task counts
-                            # On first attempt, initialize task counts
-                            if attempt_idx == 0:
-                                for task, count in attempt_result["task_total_cnt"].items():
-                                    all_task_total_cnt[task] = count
-                            
-                            # Update success counts if this attempt succeeded where previous didn't
-                            for task, count in attempt_result["task_success_cnt"].items():
-                                # Only update if this task succeeded and hasn't succeeded before
-                                if count > 0 and all_task_success_cnt.get(task, 0) == 0:
-                                    all_task_success_cnt[task] = count
-                            
-                            # Log progress
-                            current_success_rate = cumulative_success.mean()
-                            logging.info(f"  Cumulative success after {attempt_idx + 1} attempts: {current_success_rate:.4f}")
-                            
-                            # Early stopping if all environments succeeded
-                            if current_success_rate == 1.0:
-                                logging.info(f"  All environments succeeded, stopping early at attempt {attempt_idx + 1}")
-                                break
+                        # Assemble actions
+                        prompts = []
+                        idx_map = []
+                        for i in range(current_batch_size):
+                            if not env_dones[i]:
+                                prompts.append(obs["text"][i])
+                                idx_map.append(i)
                         
-                        # Use cumulative results
-                        overall_success_this_round = cumulative_success
-                        task_success_cnt = all_task_success_cnt
-                        task_total_cnt = all_task_total_cnt
+                        if not prompts:
+                            break
                         
-                    else:
-                        # Regular single attempt
-                        attempt_result = run_single_attempt(
-                            env_manager, agent, args, batch_idx, test_idx, 0,
-                            global_env_counter, run_ts, chat_base_dir, dump_fp, current_batch_size
+                        batch_actions = agent.get_actions_batch(
+                            prompts, 
+                            concurrency=args.concurrency, 
+                            retries=args.retries
                         )
                         
-                        overall_success_this_round = attempt_result["success"]
-                        task_success_cnt = attempt_result["task_success_cnt"]
-                        task_total_cnt = attempt_result["task_total_cnt"]
-                        total_elapsed_time = attempt_result["elapsed_time"]
+                        actions = ["None"] * current_batch_size
+                        for k, i in enumerate(idx_map):
+                            actions[i] = batch_actions[k]
+                        
+                        # Environment stepping
+                        prev_prompts = obs["text"]
+                        raw_actions = actions.copy()
+                        obs, rewards, dones, infos = env_manager.step(actions.copy())
+                        last_infos = infos
+                        
+                        # Process results
+                        for i in range(current_batch_size):
+                            if env_dones[i]:
+                                continue
+                            
+                            # Append chat history
+                            if prev_prompts and i < len(prev_prompts):
+                                chats[i].append({"role": "user", "content": prev_prompts[i]})
+                            chats[i].append({"role": "assistant", "content": raw_actions[i]})
+                            
+                            # Dump trajectory
+                            if args.dump_path and (i in idx_map):
+                                try:
+                                    row = {
+                                        "batch_idx": batch_idx,
+                                        "test_idx": test_idx,
+                                        "step": step_idx,
+                                        "env_id": global_env_counter + i,
+                                        "prompt": prev_prompts[i],
+                                        "action": raw_actions[i],
+                                        "reward": float(rewards[i]) if i < len(rewards) else None,
+                                        "done": bool(dones[i]) if i < len(dones) else None,
+                                        "won": bool(infos[i].get("won", False)),
+                                        "is_action_valid": bool(infos[i].get("is_action_valid", False)),
+                                    }
+                                    
+                                    # Add environment-specific fields
+                                    if args.env == "gaia":
+                                        row["pid"] = infos[i].get("pid", "unknown")
+                                    elif args.env == "alfworld":
+                                        row["gamefile"] = infos[i].get("extra.gamefile", "")
+                                    elif args.env == "webshop":
+                                        row["task_score"] = float(infos[i].get("task_score", 0))
+                                    
+                                    dump_fp.write(json.dumps(row, ensure_ascii=False) + "\n")
+                                except Exception as e:
+                                    logging.debug(f"Dump error: {e}")
+                            
+                            # Check if done
+                            if dones[i]:
+                                env_dones[i] = True
+                                won = bool(infos[i].get("won", False))
+                                overall_success_this_round[i] = won
+                                
+                                # Track task success
+                                if args.env == "gaia":
+                                    task_id = infos[i].get("pid", f"task_{i}")
+                                elif args.env == "alfworld":
+                                    gamefile = infos[i].get("extra.gamefile", "")
+                                    # Extract task type from gamefile
+                                    task_types = ["pick_and_place", "pick_two_obj_and_place", 
+                                                 "look_at_obj_in_light", "pick_heat_then_place_in_recep",
+                                                 "pick_cool_then_place_in_recep", "pick_clean_then_place_in_recep"]
+                                    task_id = "other"
+                                    for t in task_types:
+                                        if t in gamefile:
+                                            task_id = t
+                                            break
+                                else:  # webshop
+                                    task_id = f"task_{i}"
+                                
+                                task_total_cnt[task_id] = 1
+                                if won:
+                                    task_success_cnt[task_id] = 1
+                                
+                                # Save chat history
+                                if chat_base_dir and not saved_flags[i]:
+                                    try:
+                                        task_hash = hashlib.sha1(str(task_id).encode()).hexdigest()[:8]
+                                        unique_id = f"b{batch_idx:03d}_t{test_idx:02d}_e{i:02d}-{task_hash}"
+                                        out_path = os.path.join(chat_base_dir, f"chat_{unique_id}.json")
+                                        
+                                        meta = {
+                                            "batch_idx": batch_idx,
+                                            "env_id": global_env_counter + i,
+                                            "test_idx": test_idx,
+                                            "model": args.model,
+                                            "steps": step_idx + 1,
+                                            "won": won,
+                                            "timestamp": run_ts,
+                                            "environment": args.env,
+                                        }
+                                        
+                                        with open(out_path, "w", encoding="utf-8") as f:
+                                            json.dump({"messages": chats[i], "metadata": meta}, f, ensure_ascii=False, indent=2)
+                                        saved_flags[i] = True
+                                    except Exception as e:
+                                        logging.debug(f"Failed to save chat: {e}")
+                        
+                        if all(env_dones):
+                            logging.info("All environments finished early!")
+                            break
+                    
+                    # Save any unfinished chats
+                    if chat_base_dir:
+                        for i in range(current_batch_size):
+                            if not saved_flags[i]:
+                                try:
+                                    task_hash = hashlib.sha1(f"unfinished_{i}".encode()).hexdigest()[:8]
+                                    unique_id = f"b{batch_idx:03d}_t{test_idx:02d}_e{i:02d}-{task_hash}"
+                                    out_path = os.path.join(chat_base_dir, f"chat_{unique_id}.json")
+                                    
+                                    meta = {
+                                        "batch_idx": batch_idx,
+                                        "env_id": global_env_counter + i,
+                                        "test_idx": test_idx,
+                                        "model": args.model,
+                                        "steps": len(chats[i]) // 2,
+                                        "won": False,
+                                        "timestamp": run_ts,
+                                        "environment": args.env,
+                                    }
+                                    
+                                    with open(out_path, "w", encoding="utf-8") as f:
+                                        json.dump({"messages": chats[i], "metadata": meta}, f, ensure_ascii=False, indent=2)
+                                    saved_flags[i] = True
+                                except Exception as e:
+                                    logging.debug(f"Failed to save unfinished chat: {e}")
                     
                     # Round statistics
                     round_success_rate = overall_success_this_round.mean()
@@ -811,6 +933,12 @@ def main():
     
     if args.best_of_n > 1:
         logging.info(f"Best-of-N sampling: {args.best_of_n} attempts per task with temperature {args.best_of_n_temp}")
+    
+    # Echo final artifact locations for convenience
+    if args.dump_path:
+        logging.info(f"Trajectory file: {args.dump_path}")
+    if chat_base_dir:
+        logging.info(f"Chats directory: {chat_base_dir}")
     
     if all_overall_success_rates:
         success_label = f"Overall success (best-of-{args.best_of_n})" if args.best_of_n > 1 else "Overall success"
