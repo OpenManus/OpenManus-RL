@@ -5,12 +5,25 @@
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 BASE_DIR="experiments/unified_debug_${TIMESTAMP}"
 
-# Check if API keys are set
-if [ -z "$OPENAI_API_KEY" ]; then
-    echo "Warning: OPENAI_API_KEY not set. Make sure to set it before running."
-fi
+# Model server endpoints
+QWEN3_8B_URL="${QWEN3_8B_URL:-http://129.212.187.116:8001}"
+QWEN72B_URL="${QWEN72B_URL:-http://129.212.188.142:8001}"
 
-# Test 1: AlfWorld with debugger (small scale for testing)
+# Export empty API key for local vLLM servers
+export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
+
+# Configuration
+ROLLOUT_MODEL="${ROLLOUT_MODEL:-qwen3-8b}"
+ROLLOUT_URL="${ROLLOUT_URL:-${QWEN3_8B_URL}/v1}"
+DEBUGGER_MODEL="${DEBUGGER_MODEL:-qwen2.5-72b-instruct}"
+DEBUGGER_URL="${DEBUGGER_URL:-${QWEN72B_URL}/v1}"
+
+echo "=== Configuration ==="
+echo "Rollout: model=${ROLLOUT_MODEL}, url=${ROLLOUT_URL}"
+echo "Debugger: model=${DEBUGGER_MODEL}, url=${DEBUGGER_URL}"
+echo ""
+
+# Test 1: AlfWorld with debugger
 echo "=== Test 1: AlfWorld with Debugger ==="
 RUN_DIR="${BASE_DIR}/alfworld"
 echo "Run directory: ${RUN_DIR}"
@@ -20,21 +33,21 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --test_times 1 \
     --max_steps 30 \
     --history_length 40 \
-    --model gpt-4o-mini \
+    --model "${ROLLOUT_MODEL}" \
+    --base_url "${ROLLOUT_URL}" \
     --temperature 0.0 \
     --enable_debugger \
     --max_try 5 \
-    --debugger_model gpt-4.1 \
-    --debugger_type naive \
+    --debugger_model "${DEBUGGER_MODEL}" \
+    --debugger_base_url "${DEBUGGER_URL}" \
+    --debugger_type advanced \
     --debugger_temperature 0.0 \
-    --experiment_dir ${RUN_DIR} \
+    --experiment_dir "${RUN_DIR}" \
     --save_all_attempts \
     --save_per_task_trajectories \
     --unique_envs \
     --concurrency 10 \
-    --llm_concurrency 20 
-
-
+    --llm_concurrency 20
 # # Test 2: GAIA with debugger
 # echo "Testing GAIA with debugger..."
 # python scripts/rollout/openmanus_rollout_debugger.py \

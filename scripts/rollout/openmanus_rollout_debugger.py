@@ -162,19 +162,30 @@ class UnifiedAgent:
 class LLMDebugger:
     """Enhanced LLM-based debugger with comprehensive error type awareness"""
     
-    def __init__(self, model_name="gpt-4o", temperature: float = 0.3, base_url: str | None = None):
+    def __init__(self, model_name: str = "gpt-4o", temperature: float = 0.3,
+                 base_url: str | None = None, api_key: str | None = None):
+        """Initialize the LLM-based debugger client.
+
+        Args:
+            model_name: Debugger model name.
+            temperature: Sampling temperature for the debugger model.
+            base_url: Optional OpenAI-compatible base URL (e.g., vLLM endpoint).
+            api_key: Optional API key for the debugger client. If None, falls back to
+                OPENAI_API_KEY environment variable. For local vLLM without auth, this may be empty.
+        """
         self.model_name = model_name
         self.temperature = temperature
-        
-        # Initialize OpenAI client
+
+        key = api_key if api_key is not None else os.environ.get('OPENAI_API_KEY', '')
+        # Initialize OpenAI-compatible client (works for OpenAI or vLLM endpoints)
         if base_url:
             self.client = OpenAI(
-                api_key=os.getenv('OPENAI_API_KEY', 'EMPTY'),
+                api_key=key,
                 base_url=base_url,
             )
         else:
             self.client = OpenAI(
-                api_key=os.environ.get('OPENAI_API_KEY', ''),
+                api_key=key,
             )
         
         # Enhanced error type definitions aligned with AgentDebugger
@@ -619,17 +630,20 @@ class AdvancedDebugger(LLMDebugger):
         model_name: str = "gpt-4o",
         temperature: float = 0.3,
         base_url: str | None = None,
+        api_key: Optional[str] = None,
         analysis_model: Optional[str] = None,
         capture_debug_data: bool = False,
     ) -> None:
-        super().__init__(model_name=model_name, temperature=temperature, base_url=base_url)
+        super().__init__(model_name=model_name, temperature=temperature, base_url=base_url, api_key=api_key)
 
         if not ADVANCED_DEBUGGER_AVAILABLE:
             raise ImportError("Advanced debugger API is not available in the current environment")
 
-        self.api_key = os.environ.get("OPENAI_API_KEY", "")
-        if not self.api_key:
-            raise ValueError("OPENAI_API_KEY must be set to use the advanced debugger")
+        # Prefer provided API key, fall back to environment.
+        # Allow empty key when using local OpenAI-compatible endpoints (e.g., vLLM) via base_url.
+        self.api_key = api_key if api_key is not None else os.environ.get("OPENAI_API_KEY", "")
+        if not self.api_key and base_url is None:
+            raise ValueError("OPENAI_API_KEY must be set for AdvancedDebugger when no --debugger_base_url is provided")
 
         self.analysis_model = analysis_model or model_name
         self.capture_debug_data = capture_debug_data
@@ -637,6 +651,7 @@ class AdvancedDebugger(LLMDebugger):
             self.api_key,
             model=self.analysis_model,
             capture_debug_data=capture_debug_data,
+            base_url=base_url,
         )
 
     def analyze_trajectory(
@@ -1670,6 +1685,16 @@ def main():
                        help="Model to use for trajectory debugging")
     parser.add_argument("--debugger_temperature", type=float, default=0.3,
                        help="Temperature for debugger model")
+    parser.add_argument(
+        "--debugger_base_url",
+        default=None,
+        help="OpenAI-compatible base URL for the debugger (defaults to --base_url if not specified)",
+    )
+    parser.add_argument(
+        "--debugger_api_key",
+        default=None,
+        help="API key for the debugger client (defaults to OPENAI_API_KEY env var, use empty string for local vLLM)",
+    )
     parser.add_argument("--debug_output_dir", default=None,
                        help="Directory to save debug analysis results")
     parser.add_argument("--save_all_attempts", action="store_true",
@@ -1867,12 +1892,15 @@ def main():
     trajectory_manager = None
     if args.enable_debugger and args.strategy == "debugger":
         debugger_type_label = args.debugger_type
+        # Use debugger_base_url if provided; otherwise fall back to rollout --base_url
+        debugger_base_url = args.debugger_base_url or args.base_url
         if args.debugger_type == "advanced":
             try:
                 debugger = AdvancedDebugger(
                     model_name=args.debugger_model,
                     temperature=args.debugger_temperature,
-                    base_url=args.base_url,
+                    base_url=debugger_base_url,
+                    api_key=args.debugger_api_key,
                     analysis_model=args.debugger_model,
                     capture_debug_data=args.debugger_capture_api_debug,
                 )
@@ -1883,14 +1911,21 @@ def main():
             debugger = LLMDebugger(
                 model_name=args.debugger_model,
                 temperature=args.debugger_temperature,
-                base_url=args.base_url
+                base_url=debugger_base_url,
+                api_key=args.debugger_api_key,
             )
             debugger_type_label = "naive"
         trajectory_manager = TrajectoryManager()
         logging.info(
-            "Debugger enabled (%s) with model %s, max retries: %s",
+            "Debugger enabled (%s)\n"
+            "  Rollout: model=%s, base_url=%s\n"
+            "  Debugger: model=%s, base_url=%s\n"
+            "  Max retries: %s",
             debugger_type_label,
+            args.model,
+            args.base_url or "(default OpenAI)",
             args.debugger_model,
+            debugger_base_url or "(default OpenAI)",
             get_max_retries(),
         )
         
