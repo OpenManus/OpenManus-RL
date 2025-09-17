@@ -160,7 +160,7 @@ class UnifiedAgent:
 
 
 class LLMDebugger:
-    """LLM-based debugger that analyzes failed trajectories and provides feedback"""
+    """Enhanced LLM-based debugger with comprehensive error type awareness"""
     
     def __init__(self, model_name="gpt-4o", temperature: float = 0.3, base_url: str | None = None):
         self.model_name = model_name
@@ -176,6 +176,186 @@ class LLMDebugger:
             self.client = OpenAI(
                 api_key=os.environ.get('OPENAI_API_KEY', ''),
             )
+        
+        # Enhanced error type definitions aligned with AgentDebugger
+        self.error_definitions = self._load_error_definitions()
+        self.module_error_types = {
+            'memory': ['over_simplification', 'memory_retrieval_failure', 'hallucination'],
+            'reflection': ['progress_misjudge', 'outcome_misinterpretation', 'causal_misattribution', 'hallucination'],
+            'planning': ['constraint_ignorance', 'impossible_action', 'inefficient_plan'],
+            'action': ['misalignment', 'invalid_action', 'format_error', 'parameter_error'],
+            'system': ['step_limit', 'tool_execution_error', 'llm_limit', 'environment_error'],
+            'others': ['others']
+        }
+    
+    def _load_error_definitions(self) -> Dict[str, Dict[str, Dict[str, str]]]:
+        """Load comprehensive error type definitions from AgentDebugger"""
+        return {
+            'memory': {
+                'over_simplification': {
+                    'definition': 'Agent oversimplifies complex information from previous N steps, ignoring details and key factors, leading to decisions based on partial or oversimplified summaries',
+                    'example': 'Agent simplifies multiple product selection criteria to just "item found", ignoring price, features, and inventory factors'
+                },
+                'memory_retrieval_failure': {
+                    'definition': 'Relevant information exists in agent memory but fails to be retrieved when needed',
+                    'example': 'Agent explored kitchen and observed "knife on countertop" but later fails to recall knife location when needed'
+                },
+                'hallucination': {
+                    'definition': 'Agent "recalls" events that never happened, object states never observed, or actions never executed',
+                    'example': 'Agent claims "I remember seeing a knife in the first drawer" when "open drawer 1" was never successfully executed'
+                }
+            },
+            'reflection': {
+                'progress_misjudge': {
+                    'definition': 'Agent incorrectly evaluates progress toward completing the overall task goal',
+                    'example': 'Agent enters kitchen without finding cup yet but reflects "progress is smooth, task nearly complete"'
+                },
+                'outcome_misinterpretation': {
+                    'definition': 'Agent correctly executes an action but incorrectly interprets the direct result or environment feedback',
+                    'example': 'After Put(Apple, Microwave) fails with "Nothing happens", agent reflects "Successfully placed apple in microwave"'
+                },
+                'causal_misattribution': {
+                    'definition': 'Agent correctly identifies a failure phenomenon but attributes it to the wrong cause',
+                    'example': 'Take(Key) fails because key is in locked safe, but agent attributes to "mechanical arm malfunction"'
+                },
+                'hallucination': {
+                    'definition': 'Agent believes it performed actions that never actually occurred',
+                    'example': 'Agent interprets plan generated in step 1 as operations already completed'
+                }
+            },
+            'planning': {
+                'constraint_ignorance': {
+                    'definition': 'Planning ignores task constraints like resource limits (time, budget, space)',
+                    'example': 'Budget is $40 but selects $55 product, not considering time/interaction limits'
+                },
+                'impossible_action': {
+                    'definition': 'Agent plans to execute an action that is fundamentally impossible under current conditions',
+                    'example': 'Plans Slice(Desk) with knife, or Put(Mug, Sink) when inventory is empty'
+                },
+                'inefficient_plan': {
+                    'definition': 'Agent creates plan that can theoretically complete task but is extremely inefficient',
+                    'example': 'Takes circuitous route through multiple rooms instead of direct path to destination'
+                }
+            },
+            'action': {
+                'misalignment': {
+                    'definition': 'Generated specific action completely contradicts the intention stated in current plan',
+                    'example': 'Plans to "slice the apple" but executes GoTo(Bedroom 1) instead'
+                },
+                'invalid_action': {
+                    'definition': 'Uses action that does not exist in the available action list',
+                    'example': 'Attempts to use undefined action not in environment action space'
+                },
+                'format_error': {
+                    'definition': 'Generated action has invalid format causing parse failure',
+                    'example': 'click"product" instead of correct format click["product"]'
+                },
+                'parameter_error': {
+                    'definition': 'Action parameters are unreasonable or incorrectly chosen',
+                    'example': 'search[query repeated 100 times] or using invalid object names'
+                }
+            },
+            'system': {
+                'step_limit': {
+                    'definition': 'Agent executes reasonably but fails due to reaching system maximum step limit',
+                    'example': 'First item found and placed, searching for second item when 30-step limit reached'
+                },
+                'tool_execution_error': {
+                    'definition': 'External tool or API called by agent returns error or exhibits unpredictable behavior',
+                    'example': 'Object recognition tool misidentifies apple as tomato, causing subsequent failures'
+                },
+                'llm_limit': {
+                    'definition': 'Agent response limitations cause failure',
+                    'example': 'API call timeout, max token exceeded, rate limiting issues'
+                },
+                'environment_error': {
+                    'definition': 'Simulation environment itself has bugs or unexpected behavior',
+                    'example': 'Agent executes valid Open(Drawer) but environment crashes or object disappears'
+                }
+            },
+            'others': {
+                'others': {
+                    'definition': 'All remaining problems not previously defined or discussed',
+                    'example': 'Issues not covered by any of the above error categories'
+                }
+            }
+        }
+    
+    def _build_error_reference(self) -> str:
+        """Build comprehensive error reference for prompt"""
+        reference = "COMPLETE ERROR TYPE REFERENCE WITH DEFINITIONS:\n\n"
+        
+        module_order = ['memory', 'reflection', 'planning', 'action', 'system', 'others']
+        
+        for module in module_order:
+            reference += f"━━━ {module.upper()} MODULE ERRORS ━━━\n"
+            module_defs = self.error_definitions.get(module, {})
+            
+            for error_type, details in module_defs.items():
+                reference += f"• {error_type}: {details['definition']}\n"
+                if details.get('example'):
+                    reference += f"  Example: {details['example']}\n"
+            
+            reference += "\n"
+        
+        return reference
+    
+    def _validate_and_enhance_analysis(self, analysis: Dict, trajectory: List[Dict]) -> Dict:
+        """Validate and enhance analysis results"""
+        # Ensure required fields exist
+        analysis.setdefault("failure_step", len(trajectory) - 1)
+        analysis.setdefault("critical_module", "others")
+        analysis.setdefault("failure_type", "others")
+        analysis.setdefault("reason", "Unknown error")
+        analysis.setdefault("suggestion", "Try a different approach")
+        analysis.setdefault("critical_step", 0)
+        analysis.setdefault("evidence", "No evidence provided")
+        analysis.setdefault("confidence", 0.5)
+        analysis.setdefault("root_cause", analysis.get("reason", "Unknown error"))
+        
+        # Validate module and error type consistency
+        critical_module = analysis.get("critical_module", "others")
+        failure_type = analysis.get("failure_type", "others")
+        
+        if critical_module in self.module_error_types:
+            if failure_type not in self.module_error_types[critical_module]:
+                # Try to find correct module for this error type
+                for module, types in self.module_error_types.items():
+                    if failure_type in types:
+                        logging.warning(f"Correcting module from {critical_module} to {module} for error type {failure_type}")
+                        analysis["critical_module"] = module
+                        break
+                else:
+                    # If error type not found anywhere, default to 'others'
+                    logging.warning(f"Unknown error type {failure_type}, defaulting to 'others'")
+                    analysis["critical_module"] = "others"
+                    analysis["failure_type"] = "others"
+        
+        # Ensure failure_step is within bounds
+        max_step = len(trajectory) - 1
+        if analysis["failure_step"] > max_step:
+            analysis["failure_step"] = max_step
+        if analysis["failure_step"] < 0:
+            analysis["failure_step"] = 0
+            
+        # Ensure critical_step is before failure_step
+        if analysis["critical_step"] >= analysis["failure_step"]:
+            analysis["critical_step"] = max(0, analysis["failure_step"] - 1)
+        
+        # Add backwards compatibility for old format
+        formatted_failure_type = f"{analysis['critical_module']}::{analysis['failure_type']}"
+        analysis["raw_critical_error"] = {
+            "critical_step": analysis["failure_step"] + 1,  # Convert to 1-based for consistency with advanced debugger
+            "critical_module": analysis["critical_module"],
+            "error_type": analysis["failure_type"],
+            "root_cause": analysis["root_cause"],
+            "evidence": analysis["evidence"],
+            "correction_guidance": analysis["suggestion"],
+            "confidence": analysis["confidence"],
+            "cascading_effects": []
+        }
+        
+        return analysis
     
     def analyze_trajectory(
         self,
@@ -185,165 +365,236 @@ class LLMDebugger:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict:
         """
-        Analyze a failed trajectory and identify the failure point and reason
+        Enhanced trajectory analysis with comprehensive error type awareness
         
         Args:
             trajectory: List of trajectory steps
             env_type: Type of environment (alfworld, gaia, webshop)
+            chat_history: Optional chat history for better context
+            metadata: Optional metadata about the task
         
         Returns:
-            Analysis dict containing failure info and suggestions
+            Analysis dict with detailed error classification and guidance
         """
         
         # Format trajectory for LLM analysis
         trajectory_text = self._format_trajectory(trajectory)
         
-        # Create environment-specific analysis prompt
-        env_context = {
-            "alfworld": """The agent is trying to complete household tasks in a text-based environment. Common tasks include:
+        # Get task description from metadata if available
+        task_description = "Unknown task"
+        if metadata:
+            task_description = metadata.get("task", metadata.get("initial_observation", "Unknown task"))
+        
+        # Create environment-specific context
+        env_contexts = {
+            "alfworld": """The agent is completing household tasks in a text-based simulation. Common tasks include:
 - pick_and_place: Pick up an object and place it somewhere
-- pick_two_obj_and_place: Pick up two objects and place them
+- pick_two_obj_and_place: Pick up two objects and place them  
 - look_at_obj_in_light: Examine an object under a light source
 - pick_heat_then_place_in_recep: Heat an object and place it in a receptacle
 - pick_cool_then_place_in_recep: Cool an object and place it in a receptacle
-- pick_clean_then_place_in_recep: Clean an object and place it in a receptacle""",
+- pick_clean_then_place_in_recep: Clean an object and place it in a receptacle
+
+Key mechanics: Agent navigates rooms, interacts with objects, and uses appliances to complete multi-step tasks.""",
             
-            "gaia": """The agent is solving complex reasoning tasks using various tools. Available tools include:
+            "gaia": """The agent is solving complex reasoning tasks using various tools including:
 - google_search: Search for information online
-- wikipedia_knowledge_searcher: Search Wikipedia for knowledge
+- wikipedia_knowledge_searcher: Search Wikipedia for knowledge  
 - python_code_generator: Generate and execute Python code
-- Other specialized tools for information gathering and processing""",
+- Other specialized tools for information gathering and processing
+
+Tasks require multi-step reasoning, information synthesis, and tool orchestration.""",
             
-            "webshop": """The agent is shopping for products on a web interface. The agent needs to:
-- Search for products matching specific requirements
-- Navigate through product listings
-- Select products that meet the given criteria
-- Complete the purchase process"""
-        }.get(env_type, "The agent is solving a task in an interactive environment.")
+            "webshop": """The agent is shopping for products on a web interface. The agent must:
+- Search for products matching specific requirements (price, features, ratings)
+- Navigate through product listings and categories
+- Select products that meet all given criteria
+- Complete the purchase process within budget constraints
+
+Success requires understanding product specifications and constraint satisfaction."""
+        }
         
-        prompt = f"""You are an expert debugger for an AI agent. Analyze the following failed trajectory and identify where and why the agent failed.
+        env_context = env_contexts.get(env_type, "The agent is solving a task in an interactive environment.")
+        
+        # Build comprehensive error reference
+        error_reference = self._build_error_reference()
+        
+        prompt = f"""You are an expert at identifying critical failure points in agent trajectories. Analyze this failed trajectory using comprehensive error type classification.
 
-ENVIRONMENT TYPE: {env_type}
+TASK: {task_description}
+ENVIRONMENT: {env_type}
+TASK RESULT: FAILED
 
-TASK CONTEXT:
+ENVIRONMENT CONTEXT:
 {env_context}
 
-TRAJECTORY:
+TRAJECTORY ANALYSIS:
 {trajectory_text}
 
-ANALYSIS REQUIRED:
-1. Identify the EXACT step where the agent made a critical error
-2. Determine the type of failure
-3. Explain WHY this was an error in the context of the task
-4. Suggest a specific correction for that step
+{error_reference}
 
-Please provide your analysis in the following JSON format:
+CRITICAL ERROR IDENTIFICATION:
+
+Your task is to identify the CRITICAL ERROR - the earliest and most important error that led to task failure.
+
+ANALYSIS GUIDELINES:
+1. Take a HOLISTIC, GLOBAL perspective - understand the task goal and how the agent's path diverged from success
+2. Find the EARLIEST point where the agent made a decision/error that set it on an irreversible path to failure  
+3. Early exploration steps (1-3) are often normal - don't mark as critical unless there's a clear fundamental error
+4. An error is critical if:
+   - It represents the ROOT CAUSE that made task success impossible
+   - It caused a cascade of subsequent errors
+   - The trajectory could have succeeded if THIS specific error had not occurred
+   - Correcting this specific error would fundamentally change the trajectory toward success
+
+5. Consider all error modules:
+   - **Memory**: Issues with information storage, retrieval, or recall
+   - **Reflection**: Problems evaluating progress, outcomes, or causal relationships  
+   - **Planning**: Flawed task decomposition, constraint violations, impossible actions
+   - **Action**: Misaligned actions, format errors, invalid parameters
+   - **System**: Step limits, tool errors, LLM failures, environment issues
+   - **Others**: Unusual failures not covered by standard categories
+
+KEY PRINCIPLE: "What was the FIRST decision or error that doomed this trajectory to failure?"
+
+REQUIRED OUTPUT FORMAT (JSON):
 {{
-    "failure_step": <int: the step number where the critical error occurred>,
-    "failure_type": "<string: one of 'wrong_action', 'invalid_syntax', 'wrong_selection', 'missed_requirement', 'wrong_sequence', 'exploration_failure', 'reasoning_error'>",
-    "reason": "<string: detailed explanation of why this was an error>",
-    "suggestion": "<string: specific action or approach the agent should take instead>",
-    "critical_step": <int: the last step that was definitely correct before the error>
+    "failure_step": <step_number>,
+    "critical_module": "<module_name: memory|reflection|planning|action|system|others>", 
+    "failure_type": "<specific_error_type_from_definitions>",
+    "reason": "Detailed explanation of why this specific error at this step caused task failure",
+    "suggestion": "Specific guidance on what the agent should have done differently",
+    "critical_step": <last_step_that_was_definitely_correct>,
+    "evidence": "Specific quote or observation from trajectory supporting this identification",
+    "confidence": <0.0-1.0>,
+    "root_cause": "Concise description of the fundamental problem"
 }}
 
-IMPORTANT: Be precise about the failure step. Look for actions that:
-- Use incorrect syntax or invalid commands
-- Select wrong items or options
-- Miss key requirements from the task
-- Show logical errors or misunderstanding
-- Fail to explore properly
+IMPORTANT: 
+- Error types MUST match the definitions provided above
+- Focus on the error that, if corrected, would have the highest impact on task success
+- The critical_module and failure_type must be consistent with the error taxonomy
 
-Output only the JSON, no additional text."""
+Identify the TRUE ROOT CAUSE that made the task unrecoverable."""
 
         try:
             response = self.client.chat.completions.create(
                 model=self.model_name,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": "You are an expert at identifying critical failure points in agent trajectories using comprehensive error type classification."},
+                    {"role": "user", "content": prompt}
+                ],
                 temperature=self.temperature,
                 response_format={"type": "json_object"}
             )
             
             analysis = json.loads(response.choices[0].message.content)
+            
+            # Validate and enhance the analysis
+            analysis = self._validate_and_enhance_analysis(analysis, trajectory)
+            
             return analysis
             
         except Exception as e:
             logging.error(f"Failed to analyze trajectory: {e}")
-            # Return a default analysis on error
+            # Return enhanced default analysis
             return {
                 "failure_step": len(trajectory) - 1,
-                "failure_type": "unknown",
-                "reason": "Failed to analyze trajectory",
-                "suggestion": "Try a different approach",
-                "critical_step": 0
+                "critical_module": "others",
+                "failure_type": "others", 
+                "reason": "Failed to analyze trajectory due to technical error",
+                "suggestion": "Try a different approach or review the task requirements",
+                "critical_step": 0,
+                "evidence": "Analysis failed due to technical error",
+                "confidence": 0.1,
+                "root_cause": "Technical analysis failure"
             }
     
     def generate_feedback(self, observation: str, analysis: Dict, previous_action: str, env_type: str) -> str:
         """
-        Generate feedback to inject into the agent's next action
+        Generate enhanced feedback based on critical error analysis
         
         Args:
             observation: Current observation from the environment
-            analysis: Analysis dict from analyze_trajectory
+            analysis: Enhanced analysis dict from analyze_trajectory
             previous_action: The action that led to failure
             env_type: Type of environment
         
         Returns:
-            Feedback string to prepend to the agent's next prompt
+            Detailed feedback string to inject into observation
         """
         
-        critical = analysis.get('raw_critical_error') or {}
-        critical_lines = []
-        if critical:
-            critical_lines.append(f"Critical Module: {critical.get('critical_module', 'unknown')}")
-            critical_lines.append(f"Critical Step (1-based): {critical.get('critical_step', 'unknown')}")
-            critical_lines.append(f"Root Cause: {critical.get('root_cause', 'N/A')}")
-            guidance = critical.get('correction_guidance')
-            if guidance:
-                critical_lines.append(f"Correction Guidance: {guidance}")
-            evidence = critical.get('evidence')
-            if evidence:
-                critical_lines.append(f"Evidence: {evidence}")
-
-        critical_text = "\n".join(critical_lines) if critical_lines else "No additional critical error details available."
-
-        feedback_prompt = f"""Based on a previous failed attempt, generate helpful feedback for the agent.
+        # Extract comprehensive error information
+        critical = analysis.get('raw_critical_error', {})
+        critical_module = critical.get('critical_module', analysis.get('critical_module', 'unknown'))
+        error_type = critical.get('error_type', analysis.get('failure_type', 'unknown'))
+        root_cause = critical.get('root_cause', analysis.get('root_cause', analysis.get('reason', 'Unknown error')))
+        correction_guidance = critical.get('correction_guidance', analysis.get('suggestion', 'Try a different approach'))
+        evidence = critical.get('evidence', analysis.get('evidence', ''))
+        confidence = critical.get('confidence', analysis.get('confidence', 0.5))
+        
+        # Build context-aware feedback prompt
+        feedback_prompt = f"""You are an expert agent coach. Based on a detailed failure analysis, generate specific, actionable feedback for an agent that made a critical error.
 
 ENVIRONMENT: {env_type}
+CURRENT OBSERVATION: {observation}
+PREVIOUS FAILED ACTION: {previous_action}
 
-CURRENT OBSERVATION:
-{observation}
+DETAILED FAILURE ANALYSIS:
+- Critical Module: {critical_module}
+- Error Type: {error_type}  
+- Root Cause: {root_cause}
+- Evidence: {evidence}
+- Correction Guidance: {correction_guidance}
+- Confidence: {confidence:.2f}
 
-PREVIOUS FAILED ACTION:
-{previous_action}
+FEEDBACK REQUIREMENTS:
+Generate a clear, actionable feedback message that:
+1. SPECIFICALLY addresses the {critical_module} module error of type '{error_type}'
+2. Explains WHY the previous approach failed (based on root cause)
+3. Provides CONCRETE guidance on what to do differently
+4. References specific evidence from the trajectory when relevant
+5. Is concise but comprehensive (3-4 sentences max)
 
-FAILURE ANALYSIS:
-- Type: {analysis['failure_type']}
-- Reason: {analysis['reason']}
-- Suggestion: {analysis['suggestion']}
+Focus on helping the agent understand both the specific mistake and the corrective action needed.
 
-CRITICAL ERROR DETAILS:
-{critical_text}
-
-Generate a concise, actionable feedback message (2-3 sentences max) that:
-1. Warns the agent about the previous mistake
-2. Suggests the correct approach
-3. Is formatted as a hint or reminder
-
-Output only the feedback message, nothing else."""
+Output only the feedback message, no additional formatting."""
 
         try:
             response = self.client.chat.completions.create(
                 model=self.model_name,
-                messages=[{"role": "user", "content": feedback_prompt}],
-                temperature=self.temperature
+                messages=[
+                    {"role": "system", "content": "You are an expert agent coach providing specific, actionable feedback based on detailed error analysis."},
+                    {"role": "user", "content": feedback_prompt}
+                ],
+                temperature=self.temperature * 0.8  # Slightly lower temperature for more focused feedback
             )
             
             feedback = response.choices[0].message.content.strip()
-            return f"\n[DEBUGGER FEEDBACK: {feedback}]\n"
+            
+            # Format comprehensive feedback for injection
+            formatted_feedback = f"""
+[DEBUGGER FEEDBACK - Critical Error Detected]
+Error Type: {critical_module}::{error_type} (Confidence: {confidence:.2f})
+Root Cause: {root_cause}
+
+{feedback}
+
+Specific Guidance: {correction_guidance}
+"""
+            
+            return formatted_feedback
             
         except Exception as e:
-            logging.error(f"Failed to generate feedback: {e}")
-            return f"\n[DEBUGGER FEEDBACK: Previous attempt failed. {analysis.get('suggestion', 'Try a different approach.')}]\n"
+            logging.error(f"Failed to generate enhanced feedback: {e}")
+            # Fallback to basic feedback with available information
+            fallback_feedback = f"""
+[DEBUGGER FEEDBACK - Previous Attempt Failed]
+Error: {critical_module}::{error_type}
+Issue: {root_cause}
+Recommendation: {correction_guidance}
+"""
+            return fallback_feedback
     
     def _format_trajectory(self, trajectory: List[Dict]) -> str:
         """Format trajectory for LLM analysis"""
@@ -913,31 +1164,49 @@ def prepare_alfworld_game_files(env_type: str, total_envs: int, seed: int) -> Op
 
 def generate_debugger_feedback_text(analysis: Dict[str, Any]) -> str:
     """
-    Generate formatted debugger feedback text based on analysis results.
+    Generate enhanced debugger feedback text based on comprehensive analysis results.
     
     Args:
-        analysis: Analysis dict containing raw_critical_error or fallback fields
+        analysis: Enhanced analysis dict with detailed error classification
         
     Returns:
-        Formatted feedback string to inject into observation
+        Formatted feedback string to inject into observation  
     """
-    # Prioritize raw critical error data
+    # Extract comprehensive error information
     raw_critical = analysis.get('raw_critical_error', {})
+    
     if raw_critical:
         critical_module = raw_critical.get('critical_module', 'unknown')
         error_type = raw_critical.get('error_type', 'unknown')
         root_cause = raw_critical.get('root_cause', 'An error occurred in your previous attempt.')
         correction_guidance = raw_critical.get('correction_guidance', 'Try a different approach.')
+        evidence = raw_critical.get('evidence', '')
+        confidence = raw_critical.get('confidence', 0.5)
         failure_type = f"{critical_module}::{error_type}"
     else:
-        # Fallback to old format
-        failure_type = analysis.get('failure_type', 'unknown')
-        root_cause = analysis.get('reason', 'An error occurred in your previous attempt.')
+        # Fallback to enhanced analysis format
+        critical_module = analysis.get('critical_module', 'unknown')
+        error_type = analysis.get('failure_type', 'unknown')
+        root_cause = analysis.get('root_cause', analysis.get('reason', 'An error occurred in your previous attempt.'))
         correction_guidance = analysis.get('suggestion', 'Try a different approach.')
+        evidence = analysis.get('evidence', '')
+        confidence = analysis.get('confidence', 0.5)
+        failure_type = f"{critical_module}::{error_type}"
     
-    feedback = f"[DEBUGGER FEEDBACK] This is a replay and retry of this step. You previously made the {failure_type} mistake because {root_cause}. Our suggestion for this try is that {correction_guidance}"
+    # Build comprehensive feedback with error type awareness
+    feedback_parts = [
+        f"[DEBUGGER FEEDBACK - Critical Error Analysis]",
+        f"Previous Attempt Failed: {failure_type} (Confidence: {confidence:.2f})",
+        f"Root Cause: {root_cause}",
+        f"Corrective Action: {correction_guidance}"
+    ]
     
-    return feedback
+    if evidence and evidence.strip():
+        feedback_parts.append(f"Supporting Evidence: {evidence}")
+    
+    feedback_parts.append("This is a replay attempt - apply the corrective guidance to avoid the same mistake.")
+    
+    return "\n".join(feedback_parts)
 
 
 def run_environment_with_retry(

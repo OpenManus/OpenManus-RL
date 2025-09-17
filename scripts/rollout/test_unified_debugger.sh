@@ -25,7 +25,7 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --enable_debugger \
     --max_try 5 \
     --debugger_model gpt-4.1 \
-    --debugger_type advanced \
+    --debugger_type naive \
     --debugger_temperature 0.0 \
     --experiment_dir ${RUN_DIR} \
     --save_all_attempts \
