@@ -37,10 +37,13 @@ class CriticalErrorAnalyzer:
     
     def __init__(self, api_config: Dict[str, Any], capture_debug_data: bool = False):
         self.config = api_config
+        # Build headers; include Authorization only if api_key present
         self.headers = {
-            "Authorization": f"Bearer {api_config['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
+        api_key = (api_config.get('api_key') or '').strip()
+        if api_key:
+            self.headers["Authorization"] = f"Bearer {api_key}"
 
         # Load error definitions
         self.error_loader = ErrorDefinitionsLoader()

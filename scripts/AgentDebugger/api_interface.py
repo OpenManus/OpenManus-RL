@@ -33,21 +33,46 @@ class AgentErrorDetectorAPI:
     3. Get correction guidance for trajectory reload
     """
 
-    def __init__(self, api_key: str, model: str = "gpt-4.1-2025-04-14", capture_debug_data: bool = False):
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gpt-4.1-2025-04-14",
+        capture_debug_data: bool = False,
+        base_url: Optional[str] = None,
+    ):
         """
-        Initialize the error detector
+        Initialize the error detector.
 
         Args:
-            api_key: OpenAI API key
+            api_key: OpenAI API key (can be empty for local vLLM without auth)
             model: Model to use for analysis
+            capture_debug_data: Whether to capture debug payloads
+            base_url: Optional OpenAI-compatible base URL. If provided, it should be the
+                API base like "http://host:port/v1". The detector will post to the
+                chat completions path under it. If not provided, defaults to OpenAI.
         """
+
+        # Normalize base URL to the full chat completions endpoint
+        if base_url:
+            url = base_url.rstrip('/')
+            # Ensure it points to /v1/chat/completions
+            if url.endswith('/chat/completions'):
+                normalized = url
+            elif url.endswith('/v1'):
+                normalized = f"{url}/chat/completions"
+            else:
+                # Assume caller passed bare host:port without /v1; append /v1/chat/completions
+                normalized = f"{url}/v1/chat/completions"
+        else:
+            normalized = "https://api.openai.com/v1/chat/completions"
+
         self.api_config = {
-            "base_url": "https://api.openai.com/v1/chat/completions",
+            "base_url": normalized,
             "api_key": api_key,
             "model": model,
             "temperature": 0.0,
             "max_retries": 3,
-            "timeout": 60
+            "timeout": 60,
         }
 
         self.capture_debug_data = capture_debug_data
@@ -140,7 +165,12 @@ class AgentErrorDetectorAPI:
 
 
 # Synchronous wrapper functions for easier integration
-def analyze_trajectory_sync(trajectory_json: Dict, api_key: str, model: str = "gpt-4.1-2025-04-14") -> Dict:
+def analyze_trajectory_sync(
+    trajectory_json: Dict,
+    api_key: str,
+    model: str = "gpt-4.1-2025-04-14",
+    base_url: Optional[str] = None,
+) -> Dict:
     """
     Synchronous wrapper for complete analysis
 
@@ -157,7 +187,7 @@ def analyze_trajectory_sync(trajectory_json: Dict, api_key: str, model: str = "g
         critical = results['critical_error']
         print(f"Critical error at step {critical['critical_step']}: {critical['error_type']}")
     """
-    detector = AgentErrorDetectorAPI(api_key, model)
+    detector = AgentErrorDetectorAPI(api_key, model, base_url=base_url)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
@@ -166,7 +196,12 @@ def analyze_trajectory_sync(trajectory_json: Dict, api_key: str, model: str = "g
         loop.close()
 
 
-def detect_errors_sync(trajectory_json: Dict, api_key: str, model: str = "gpt-4.1-2025-04-14") -> Dict:
+def detect_errors_sync(
+    trajectory_json: Dict,
+    api_key: str,
+    model: str = "gpt-4.1-2025-04-14",
+    base_url: Optional[str] = None,
+) -> Dict:
     """
     Synchronous wrapper for Phase 1 only
 
@@ -178,7 +213,7 @@ def detect_errors_sync(trajectory_json: Dict, api_key: str, model: str = "gpt-4.
     Returns:
         Step-by-step error analysis
     """
-    detector = AgentErrorDetectorAPI(api_key, model)
+    detector = AgentErrorDetectorAPI(api_key, model, base_url=base_url)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
@@ -187,7 +222,13 @@ def detect_errors_sync(trajectory_json: Dict, api_key: str, model: str = "gpt-4.
         loop.close()
 
 
-def find_critical_error_sync(phase1_results: Dict, trajectory_json: Dict, api_key: str, model: str = "gpt-4.1-2025-04-14") -> Dict:
+def find_critical_error_sync(
+    phase1_results: Dict,
+    trajectory_json: Dict,
+    api_key: str,
+    model: str = "gpt-4.1-2025-04-14",
+    base_url: Optional[str] = None,
+) -> Dict:
     """
     Synchronous wrapper for Phase 2 only
 
@@ -200,7 +241,7 @@ def find_critical_error_sync(phase1_results: Dict, trajectory_json: Dict, api_ke
     Returns:
         Critical error identification
     """
-    detector = AgentErrorDetectorAPI(api_key, model)
+    detector = AgentErrorDetectorAPI(api_key, model, base_url=base_url)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
