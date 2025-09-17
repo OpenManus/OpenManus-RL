@@ -13,9 +13,10 @@ QWEN72B_URL="${QWEN72B_URL:-http://129.212.188.142:8001}"
 export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
 
 # Configuration
-ROLLOUT_MODEL="${ROLLOUT_MODEL:-qwen3-8b}"
+#ROLLOUT_MODEL="${ROLLOUT_MODEL:-qwen3-8b}"
 ROLLOUT_URL="${ROLLOUT_URL:-${QWEN3_8B_URL}/v1}"
 # DEBUGGER_MODEL="${DEBUGGER_MODEL:-qwen2.5-72b-instruct}"
+ROLLOUT_MODEL="${ROLLOUT_MODEL:-gpt-4o-mini}"
 DEBUGGER_MODEL="${DEBUGGER_MODEL:-gpt-4.1}"
 # DEBUGGER_URL="${DEBUGGER_URL:-${QWEN72B_URL}/v1}"
 
@@ -35,19 +36,19 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --max_steps 30 \
     --history_length 40 \
     --model "${ROLLOUT_MODEL}" \
-    --base_url "${ROLLOUT_URL}" \
     --temperature 0.0 \
     --enable_debugger \
     --max_try 5 \
     --debugger_model "${DEBUGGER_MODEL}" \
-    --debugger_type naive \
+    --debugger_type continue \
     --debugger_temperature 0.0 \
     --experiment_dir "${RUN_DIR}" \
     --save_all_attempts \
     --save_per_task_trajectories \
     --unique_envs \
     --concurrency 10 \
-    --llm_concurrency 10
+    --llm_concurrency 20
+# --base_url "${ROLLOUT_URL}" \
 #    --debugger_base_url "${DEBUGGER_URL}" \
 # # Test 2: GAIA with debugger
 # echo "Testing GAIA with debugger..."

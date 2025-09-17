@@ -35,6 +35,7 @@ class EnvironmentManagerBase:
         self.replay_mode = {}  # {env_id: bool} - whether in replay mode
         self.replay_actions = {}  # {env_id: List[str]} - actions to replay
         self.current_replay_step = {}  # {env_id: int} - current step in replay
+        self.persistent_guidance = {}  # {env_id: {'start_step': int, 'text': str}}
 
     def reset(self) -> Dict[str, Any]:
         """
@@ -94,8 +95,15 @@ class EnvironmentManagerBase:
         """
         pass
     
-    def setup_replay(self, env_id: int, actions_to_replay: List[str], 
-                     debugger_feedback_step: int, debugger_feedback_text: str):
+    def setup_replay(
+        self,
+        env_id: int,
+        actions_to_replay: List[str],
+        debugger_feedback_step: int,
+        debugger_feedback_text: str,
+        persistent_guidance_text: str | None = None,
+        persistent_guidance_start: int | None = None,
+    ):
         """
         Setup replay mode for a specific environment.
         
@@ -116,11 +124,40 @@ class EnvironmentManagerBase:
             'feedback': debugger_feedback_text
         }
         
+        # Configure persistent guidance (used by continue-mode debugger)
+        if persistent_guidance_text:
+            start_step = persistent_guidance_start if persistent_guidance_start is not None else debugger_feedback_step
+            self.set_persistent_guidance(env_id, persistent_guidance_text, start_step)
+        else:
+            self.clear_persistent_guidance(env_id)
+
         logging.info(f"    setup_replay complete: debugger_feedback keys = {list(self.debugger_feedback.keys())}")
         
     def is_in_replay_mode(self, env_id: int) -> bool:
         """Check if environment is in replay mode."""
         return self.replay_mode.get(env_id, False)
+
+    def set_persistent_guidance(self, env_id: int, guidance_text: str, start_step: int = 0):
+        """Register guidance that should persist on all observations from start_step onwards."""
+        self.persistent_guidance[env_id] = {
+            'start_step': max(0, int(start_step)),
+            'text': guidance_text,
+        }
+
+    def get_persistent_guidance(self, env_id: int, current_step: int) -> str:
+        """Return persistent guidance text if current_step is past the configured start."""
+        guidance = self.persistent_guidance.get(env_id)
+        if not guidance:
+            return ""
+
+        if current_step >= guidance.get('start_step', 0):
+            return guidance.get('text', "")
+
+        return ""
+
+    def clear_persistent_guidance(self, env_id: int):
+        """Remove persistent guidance for the specified environment."""
+        self.persistent_guidance.pop(env_id, None)
     
     def get_replay_action(self, env_id: int) -> str:
         """Get the current replay action and advance replay step."""

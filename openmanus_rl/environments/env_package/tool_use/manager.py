@@ -148,6 +148,7 @@ class ToolUseEnvironmentManager(EnvironmentManagerBase):
             debugger_feedback = ""
             current_step_index = self.env_step_counts.get(i, 0)
             debugger_feedback = self.get_debugger_feedback(i, current_step_index)
+            persistent_guidance = self.get_persistent_guidance(i, current_step_index)
             
             if init or self.config.env.history_length <= 0:
                 obs = TOOL_USE_TEMPLATE_NO_HIS.format(
@@ -178,6 +179,9 @@ class ToolUseEnvironmentManager(EnvironmentManagerBase):
             # Inject debugger feedback if available
             if debugger_feedback:
                 obs = obs + "\n\n" + debugger_feedback
+
+            if persistent_guidance:
+                obs = obs + "\n\n" + persistent_guidance
                 
             postprocess_text_obs.append(obs)
             

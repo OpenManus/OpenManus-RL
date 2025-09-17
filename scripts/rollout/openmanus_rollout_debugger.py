@@ -374,6 +374,8 @@ class LLMDebugger:
         env_type: str,
         chat_history: Optional[List[Dict]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        previous_instructions: Optional[List[str]] = None,
+        generate_follow_up: bool = False,
     ) -> Dict:
         """
         Enhanced trajectory analysis with comprehensive error type awareness
@@ -383,6 +385,8 @@ class LLMDebugger:
             env_type: Type of environment (alfworld, gaia, webshop)
             chat_history: Optional chat history for better context
             metadata: Optional metadata about the task
+            previous_instructions: List of previous follow-up instructions from earlier failures
+            generate_follow_up: Whether to generate follow-up instructions for future steps
         
         Returns:
             Analysis dict with detailed error classification and guidance
@@ -430,6 +434,59 @@ Success requires understanding product specifications and constraint satisfactio
         # Build comprehensive error reference
         error_reference = self._build_error_reference()
         
+        # Include previous instructions context if available
+        previous_instructions_context = ""
+        if previous_instructions:
+            previous_instructions_context = f"""
+PREVIOUS DEBUGGER INSTRUCTIONS FROM EARLIER FAILURES:
+{chr(10).join(f"- {instruction}" for instruction in previous_instructions)}
+
+These instructions were generated from analyzing previous failures. Consider how the current failure might relate to or differ from these earlier patterns.
+"""
+        
+        # Configure output format based on whether follow-up instruction is needed
+        if generate_follow_up:
+            follow_up_instruction = """
+FOLLOW-UP INSTRUCTION GENERATION:
+In addition to the regular analysis, generate a "follow_up_instruction" - a concise, actionable guidance that should be applied to ALL FUTURE STEPS to prevent similar errors. This instruction should:
+1. Be general enough to apply across multiple steps
+2. Address the root cause category (not just the specific instance)
+3. Build upon previous instructions to form cumulative guidance
+4. Be clear and actionable for the agent to follow
+5. Focus on preventing common error patterns that could occur in future attempts
+
+The follow_up_instruction should provide proactive guidance to avoid similar failure modes. Please be succint and concise.
+"""
+            # JSON format with follow_up_instruction field
+            json_format = """{
+    "failure_step": <step_number>,
+    "critical_module": "<module_name: memory|reflection|planning|action|system|others>", 
+    "failure_type": "<specific_error_type_from_definitions>",
+    "reason": "Detailed explanation of why this specific error at this step caused task failure",
+    "suggestion": "Specific guidance on what the agent should have done differently",
+    "critical_step": <last_step_that_was_definitely_correct>,
+    "evidence": "Specific quote or observation from trajectory supporting this identification",
+    "confidence": <0.0-1.0>,
+    "root_cause": "Concise description of the fundamental problem",
+    "follow_up_instruction": "General guidance for future steps to prevent similar errors"
+}"""
+            additional_requirement = "- Generate a follow_up_instruction that provides proactive guidance for preventing similar errors in future steps"
+        else:
+            follow_up_instruction = ""
+            # JSON format without follow_up_instruction field
+            json_format = """{
+    "failure_step": <step_number>,
+    "critical_module": "<module_name: memory|reflection|planning|action|system|others>", 
+    "failure_type": "<specific_error_type_from_definitions>",
+    "reason": "Detailed explanation of why this specific error at this step caused task failure",
+    "suggestion": "Specific guidance on what the agent should have done differently",
+    "critical_step": <last_step_that_was_definitely_correct>,
+    "evidence": "Specific quote or observation from trajectory supporting this identification",
+    "confidence": <0.0-1.0>,
+    "root_cause": "Concise description of the fundamental problem"
+}"""
+            additional_requirement = ""
+        
         prompt = f"""You are an expert at identifying critical failure points in agent trajectories. Analyze this failed trajectory using comprehensive error type classification.
 
 TASK: {task_description}
@@ -438,7 +495,7 @@ TASK RESULT: FAILED
 
 ENVIRONMENT CONTEXT:
 {env_context}
-
+{previous_instructions_context}
 TRAJECTORY ANALYSIS:
 {trajectory_text}
 
@@ -467,24 +524,15 @@ ANALYSIS GUIDELINES:
    - **Others**: Unusual failures not covered by standard categories
 
 KEY PRINCIPLE: "What was the FIRST decision or error that doomed this trajectory to failure?"
-
+{follow_up_instruction}
 REQUIRED OUTPUT FORMAT (JSON):
-{{
-    "failure_step": <step_number>,
-    "critical_module": "<module_name: memory|reflection|planning|action|system|others>", 
-    "failure_type": "<specific_error_type_from_definitions>",
-    "reason": "Detailed explanation of why this specific error at this step caused task failure",
-    "suggestion": "Specific guidance on what the agent should have done differently",
-    "critical_step": <last_step_that_was_definitely_correct>,
-    "evidence": "Specific quote or observation from trajectory supporting this identification",
-    "confidence": <0.0-1.0>,
-    "root_cause": "Concise description of the fundamental problem"
-}}
+{json_format}
 
 IMPORTANT: 
 - Error types MUST match the definitions provided above
 - Focus on the error that, if corrected, would have the highest impact on task success
 - The critical_module and failure_type must be consistent with the error taxonomy
+{additional_requirement}
 
 Identify the TRUE ROOT CAUSE that made the task unrecoverable."""
 
@@ -660,6 +708,8 @@ class AdvancedDebugger(LLMDebugger):
         env_type: str,
         chat_history: Optional[List[Dict]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        previous_instructions: Optional[List[str]] = None,
+        generate_follow_up: bool = False,
     ) -> Dict:
         if not chat_history:
             msg = "Advanced debugger requires chat history; none provided for analysis"
@@ -910,6 +960,52 @@ class AdvancedDebugger(LLMDebugger):
         )
         
         return converted_result
+
+
+class ContinuousInstructionManager:
+    """Manages cumulative follow-up instructions for continuous debugging"""
+    
+    def __init__(self):
+        self.instructions = {}  # env_id -> list of follow-up instructions
+        self.instruction_history = {}  # env_id -> list of (attempt_idx, instruction) tuples
+    
+    def reset(self, env_id: int):
+        """Reset instructions for an environment"""
+        self.instructions[env_id] = []
+        self.instruction_history[env_id] = []
+    
+    def add_instruction(self, env_id: int, instruction: str, attempt_idx: int):
+        """Add a new follow-up instruction"""
+        if env_id not in self.instructions:
+            self.instructions[env_id] = []
+        if env_id not in self.instruction_history:
+            self.instruction_history[env_id] = []
+            
+        # Avoid duplicating similar instructions
+        if instruction and instruction not in self.instructions[env_id]:
+            self.instructions[env_id].append(instruction)
+            self.instruction_history[env_id].append((attempt_idx, instruction))
+    
+    def get_instructions(self, env_id: int) -> List[str]:
+        """Get all accumulated instructions for an environment"""
+        return self.instructions.get(env_id, [])
+    
+    def get_instruction_history(self, env_id: int) -> List[Tuple[int, str]]:
+        """Get instruction history with attempt indices"""
+        return self.instruction_history.get(env_id, [])
+    
+    def format_instructions_for_observation(self, env_id: int) -> str:
+        """Format instructions for injection into observation"""
+        instructions = self.get_instructions(env_id)
+        if not instructions:
+            return ""
+        
+        formatted = "[CONTINUOUS DEBUGGER GUIDANCE]\n"
+        formatted += "Based on previous failures, remember to:\n"
+        for i, instruction in enumerate(instructions, 1):
+            formatted += f"{i}. {instruction}\n"
+        formatted += "Apply these guidelines throughout your problem-solving process.\n"
+        return formatted
 
 
 class TrajectoryManager:
@@ -1243,7 +1339,9 @@ def run_environment_with_retry(
     debug_output_dir: str = None,
     save_all_attempts: bool = False,
     task_dir: str = None,
-    shared_llm_executor=None
+    shared_llm_executor=None,
+    continuous_instruction_manager: Optional[ContinuousInstructionManager] = None,
+    debugger_type: str = "naive"
 ) -> Dict:
     """
     Run a single environment with retry logic using debugger feedback
@@ -1263,10 +1361,15 @@ def run_environment_with_retry(
     
     for retry_idx in range(max_retries):
         logging.info(f"  Env {env_id} - Attempt {retry_idx + 1}/{max_retries}")
+        env_manager.clear_persistent_guidance(env_id)
         
         # Reset trajectory manager for this attempt
         if trajectory_manager:
             trajectory_manager.reset(env_id)
+        
+        # Initialize continuous instruction manager if needed
+        if continuous_instruction_manager and retry_idx == 0:
+            continuous_instruction_manager.reset(env_id)
         
         # Initialize tracking variables
         env_done = False
@@ -1278,15 +1381,51 @@ def run_environment_with_retry(
         replay_to_step = -1
         debugger_feedback = ""
         analysis = None
+        follow_up_instruction = None
+        instruction_overlay = ""
+        guidance_list: List[str] = []
+        guidance_history: List[Tuple[int, str]] = []
         
         # If this is a retry, analyze the failed trajectory
         if retry_idx > 0 and debugger and last_trajectory and not won:
+            # Get previous instructions for continuous debugging
+            previous_instructions = []
+            generate_follow_up = False
+            if continuous_instruction_manager and debugger_type == "continue":
+                previous_instructions = continuous_instruction_manager.get_instructions(env_id)
+                generate_follow_up = True
+            
             analysis = debugger.analyze_trajectory(
                 last_trajectory,
                 env_type,
                 chat_history=last_chat_history,
                 metadata=last_metadata,
+                previous_instructions=previous_instructions,
+                generate_follow_up=generate_follow_up,
             )
+            
+            # Extract and store follow-up instruction for continuous debugging
+            if continuous_instruction_manager and debugger_type == "continue":
+                follow_up_instruction = analysis.get('follow_up_instruction')
+                if follow_up_instruction:
+                    continuous_instruction_manager.add_instruction(env_id, follow_up_instruction, retry_idx)
+                    logging.info(f"    Added follow-up instruction: {follow_up_instruction}")
+
+                guidance_list = continuous_instruction_manager.get_instructions(env_id)
+                instruction_overlay = continuous_instruction_manager.format_instructions_for_observation(env_id)
+                guidance_history = continuous_instruction_manager.get_instruction_history(env_id)
+
+                if guidance_list:
+                    logging.info(f"    Total accumulated instructions: {len(guidance_list)}")
+
+                # Persist continuous guidance details inside the latest analysis for downstream consumers
+                analysis['continuous_guidance'] = guidance_list
+                analysis['continuous_guidance_history'] = [
+                    {"attempt": attempt_idx, "instruction": guidance}
+                    for attempt_idx, guidance in guidance_history
+                ]
+                if instruction_overlay:
+                    analysis['continuous_guidance_overlay'] = instruction_overlay
             
             # Save debug analysis to task dir if specified
             if task_dir:
@@ -1310,6 +1449,16 @@ def run_environment_with_retry(
                     "trajectory": last_trajectory,
                     "env_type": env_type
                 }
+
+                if continuous_instruction_manager and debugger_type == "continue":
+                    debug_record["follow_up_instruction"] = follow_up_instruction
+                    debug_record["continuous_guidance"] = guidance_list
+                    debug_record["continuous_guidance_history"] = [
+                        {"attempt": attempt_idx, "instruction": guidance}
+                        for attempt_idx, guidance in guidance_history
+                    ]
+                    if instruction_overlay:
+                        debug_record["continuous_guidance_overlay"] = instruction_overlay
 
                 if getattr(debugger, "capture_debug_data", False):
                     debug_record["chat_history"] = last_chat_history
@@ -1357,12 +1506,27 @@ def run_environment_with_retry(
             logging.info(f"    Setting up replay: actions_to_replay={len(actions_to_replay)}, feedback_inject_step={feedback_inject_step_0based}")
             logging.info(f"    Feedback text: {feedback_text[:100]}...")
             logging.info(f"    Debug: env_manager type = {type(env_manager).__name__}")
-            env_manager.setup_replay(env_id, actions_to_replay, feedback_inject_step_0based, feedback_text)
+            persistent_guidance_text = instruction_overlay if instruction_overlay else None
+            if persistent_guidance_text:
+                logging.info(
+                    f"    Persistent guidance will be injected from step {feedback_inject_step_0based}: {persistent_guidance_text[:100]}..."
+                )
+            env_manager.setup_replay(
+                env_id,
+                actions_to_replay,
+                feedback_inject_step_0based,
+                feedback_text,
+                persistent_guidance_text=persistent_guidance_text,
+                persistent_guidance_start=feedback_inject_step_0based,
+            )
             
             # Verify setup
             if hasattr(env_manager, 'debugger_feedback') and env_id in env_manager.debugger_feedback:
                 logging.info(f"    Replay setup verified: feedback will be injected at step {env_manager.debugger_feedback[env_id]['step']}")
-        
+
+        if continuous_instruction_manager and debugger_type == "continue" and not instruction_overlay:
+            instruction_overlay = continuous_instruction_manager.format_instructions_for_observation(env_id)
+
         # Get initial observation
         obs_dict, info_dict = env_manager.reset_single(env_id)
         obs = obs_dict["text"][env_id]
@@ -1387,6 +1551,11 @@ def run_environment_with_retry(
                 # Get action from agent - replay mode is finished, get new action from LLM
                 # The observation already includes debugger feedback if this is the critical step
                 prompt = obs
+                
+                # For continuous debugging, inject accumulated instructions into every observation
+                if continuous_instruction_manager and debugger_type == "continue" and instruction_overlay:
+                    if instruction_overlay not in prompt:
+                        prompt = instruction_overlay + "\n\n" + prompt
                 
                 # Log if we expect debugger feedback in this observation
                 if debugger and analysis:
@@ -1513,6 +1682,24 @@ def run_environment_with_retry(
         if replay_to_step >= 0:
             attempt_metadata["replay_to_step"] = replay_to_step
         attempt_data["metadata"] = attempt_metadata
+
+        if continuous_instruction_manager and debugger_type == "continue":
+            effective_guidance = guidance_list or continuous_instruction_manager.get_instructions(env_id)
+            effective_history = guidance_history or continuous_instruction_manager.get_instruction_history(env_id)
+
+            attempt_data["continuous_guidance"] = effective_guidance
+            attempt_data["continuous_guidance_history"] = [
+                {"attempt": attempt_idx, "instruction": guidance}
+                for attempt_idx, guidance in effective_history
+            ]
+
+            overlay_snapshot = instruction_overlay or continuous_instruction_manager.format_instructions_for_observation(env_id)
+            if overlay_snapshot:
+                attempt_data["continuous_guidance_overlay"] = overlay_snapshot
+
+            if follow_up_instruction:
+                attempt_data["follow_up_instruction"] = follow_up_instruction
+
         all_attempt_trajectories.append(attempt_data)
         
         # Save individual attempt trajectory to task dir
@@ -1586,6 +1773,13 @@ def run_environment_with_retry(
                     for i, att in enumerate(all_attempt_trajectories)
                 ]
             }
+
+            if continuous_instruction_manager and debugger_type == "continue":
+                save_data["continuous_guidance"] = continuous_instruction_manager.get_instructions(env_id)
+                save_data["continuous_guidance_history"] = [
+                    {"attempt": attempt_idx, "instruction": guidance}
+                    for attempt_idx, guidance in continuous_instruction_manager.get_instruction_history(env_id)
+                ]
             
             with open(summary_file, "w", encoding="utf-8") as f:
                 json.dump(save_data, f, ensure_ascii=False, indent=2)
@@ -1593,7 +1787,9 @@ def run_environment_with_retry(
         except Exception as e:
             logging.error(f"Failed to save task summary: {e}")
     
-    return {
+    env_manager.clear_persistent_guidance(env_id)
+
+    result = {
         "env_id": env_id,
         "won": won,
         "first_attempt_success": first_attempt_success,
@@ -1604,6 +1800,15 @@ def run_environment_with_retry(
         "trajectory": last_trajectory,
         "all_attempts": all_attempt_trajectories if save_all_attempts else None
     }
+
+    if continuous_instruction_manager and debugger_type == "continue":
+        result["continuous_guidance"] = continuous_instruction_manager.get_instructions(env_id)
+        result["continuous_guidance_history"] = [
+            {"attempt": attempt_idx, "instruction": guidance}
+            for attempt_idx, guidance in continuous_instruction_manager.get_instruction_history(env_id)
+        ]
+
+    return result
 
 
 def main():
@@ -1675,8 +1880,8 @@ def main():
     # Debugger options
     parser.add_argument("--enable_debugger", action="store_true",
                        help="Enable LLM debugger for failed trajectories")
-    parser.add_argument("--debugger_type", choices=["naive", "advanced"], default="naive",
-                       help="Select debugger implementation: naive heuristic or advanced API")
+    parser.add_argument("--debugger_type", choices=["naive", "advanced", "continue"], default="naive",
+                       help="Select debugger implementation: naive heuristic, advanced API, or continue (cumulative guidance)")
     parser.add_argument("--max_debug_retry", type=int, default=None,
                        help="Deprecated: use --max_try instead. If set, overrides --max_try for debugger strategy.")
     parser.add_argument("--debugger_model", default="gpt-4o",
@@ -1888,10 +2093,11 @@ def main():
     # Initialize debugger and trajectory manager if enabled
     debugger = None
     trajectory_manager = None
+    continuous_instruction_manager = None
     if args.enable_debugger and args.strategy == "debugger":
         debugger_type_label = args.debugger_type
         # Use debugger_base_url if provided; otherwise fall back to rollout --base_url
-        debugger_base_url = args.debugger_base_url or args.base_url
+        debugger_base_url = args.debugger_base_url
         if args.debugger_type == "advanced":
             try:
                 debugger = AdvancedDebugger(
@@ -1912,8 +2118,15 @@ def main():
                 base_url=debugger_base_url,
                 api_key=args.debugger_api_key,
             )
-            debugger_type_label = "naive"
+            if args.debugger_type != "continue":
+                debugger_type_label = "naive"
+        
         trajectory_manager = TrajectoryManager()
+        
+        # Initialize continuous instruction manager for continue mode
+        if args.debugger_type == "continue":
+            continuous_instruction_manager = ContinuousInstructionManager()
+            debugger_type_label = "continue (cumulative guidance)"
         logging.info(
             "Debugger enabled (%s)\n"
             "  Rollout: model=%s, base_url=%s\n"
@@ -2057,6 +2270,8 @@ def main():
                                         save_all_attempts=args.save_all_attempts,
                                         task_dir=task_dir_local,
                                         shared_llm_executor=shared_llm_executor,
+                                        continuous_instruction_manager=continuous_instruction_manager,
+                                        debugger_type=args.debugger_type,
                                     )
                                 elif args.strategy == "bon":
                                     # Helper closure to attempt a single rollout (no debugger, one attempt)
@@ -2087,6 +2302,8 @@ def main():
                                             save_all_attempts=False,
                                             task_dir=attempt_task_dir,
                                             shared_llm_executor=shared_llm_executor,
+                                            continuous_instruction_manager=None,
+                                            debugger_type="naive",
                                         )
                                     res = run_best_of_n(
                                         N=args.bon_n,
@@ -2546,6 +2763,8 @@ def main():
                         save_all_attempts=args.save_all_attempts,
                         task_dir=task_dir,
                         shared_llm_executor=shared_llm_executor,
+                        continuous_instruction_manager=continuous_instruction_manager,
+                        debugger_type=args.debugger_type,
                     )
                 elif args.strategy == "bon":
                     def _single_attempt(attempt_idx: int):
@@ -2575,6 +2794,8 @@ def main():
                             save_all_attempts=False,
                             task_dir=attempt_task_dir,
                             shared_llm_executor=shared_llm_executor,
+                            continuous_instruction_manager=None,
+                            debugger_type="naive",
                         )
                     res = run_best_of_n(
                         N=args.bon_n,

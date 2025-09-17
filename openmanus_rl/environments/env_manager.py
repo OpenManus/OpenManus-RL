@@ -127,6 +127,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
             current_step_index = self.step_counts.get(i, 0)
 
             debugger_feedback = self.get_debugger_feedback(i, current_step_index)
+            persistent_guidance = self.get_persistent_guidance(i, current_step_index)
             if debugger_feedback:
                 import logging
                 logging.info(
@@ -161,6 +162,9 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
             # Inject debugger feedback if available
             if debugger_feedback:
                 obs = obs + "\n\n" + debugger_feedback
+
+            if persistent_guidance:
+                obs = obs + "\n\n" + persistent_guidance
 
             postprocess_text_obs.append(obs)
         return postprocess_text_obs
@@ -354,6 +358,9 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
             # Inject debugger feedback if available
             if debugger_feedback:
                 obs = obs + "\n\n" + debugger_feedback
+
+            if persistent_guidance:
+                obs = obs + "\n\n" + persistent_guidance
 
             postprocess_text_obs.append(obs)
 
