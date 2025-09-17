@@ -29,6 +29,12 @@ class EnvironmentManagerBase:
         self.envs = envs
         self.projection_f = projection_f
         self.config = config
+        
+        # Debugger-related attributes
+        self.debugger_feedback = {}  # {env_id: {'step': int, 'feedback': str}}
+        self.replay_mode = {}  # {env_id: bool} - whether in replay mode
+        self.replay_actions = {}  # {env_id: List[str]} - actions to replay
+        self.current_replay_step = {}  # {env_id: int} - current step in replay
 
     def reset(self) -> Dict[str, Any]:
         """
@@ -87,6 +93,89 @@ class EnvironmentManagerBase:
         - postprocess_text_obs (List[str]): A list of processed text observations.
         """
         pass
+    
+    def setup_replay(self, env_id: int, actions_to_replay: List[str], 
+                     debugger_feedback_step: int, debugger_feedback_text: str):
+        """
+        Setup replay mode for a specific environment.
+        
+        Parameters:
+        - env_id: The environment ID to setup replay for
+        - actions_to_replay: List of actions to replay up to the critical step
+        - debugger_feedback_step: The step where debugger feedback should be injected (0-based)
+        - debugger_feedback_text: The feedback text to inject
+        """
+        import logging
+        logging.info(f"    setup_replay called: env_id={env_id}, feedback_step={debugger_feedback_step}, actions={len(actions_to_replay)}")
+        
+        self.replay_mode[env_id] = True
+        self.replay_actions[env_id] = actions_to_replay
+        self.current_replay_step[env_id] = 0
+        self.debugger_feedback[env_id] = {
+            'step': debugger_feedback_step,
+            'feedback': debugger_feedback_text
+        }
+        
+        logging.info(f"    setup_replay complete: debugger_feedback keys = {list(self.debugger_feedback.keys())}")
+        
+    def is_in_replay_mode(self, env_id: int) -> bool:
+        """Check if environment is in replay mode."""
+        return self.replay_mode.get(env_id, False)
+    
+    def get_replay_action(self, env_id: int) -> str:
+        """Get the current replay action and advance replay step."""
+        if not self.is_in_replay_mode(env_id):
+            return None
+            
+        replay_step = self.current_replay_step.get(env_id, 0)
+        actions = self.replay_actions.get(env_id, [])
+        
+        if replay_step < len(actions):
+            action = actions[replay_step]
+            self.current_replay_step[env_id] = replay_step + 1
+            return action
+        else:
+            # No more replay actions – keep debugger feedback available for injection
+            return None
+    
+    def clear_replay(self, env_id: int):
+        """Clear replay mode for a specific environment."""
+        self.replay_mode.pop(env_id, None)
+        self.replay_actions.pop(env_id, None)
+        self.current_replay_step.pop(env_id, None)
+        self.debugger_feedback.pop(env_id, None)
+    
+    def get_debugger_feedback(self, env_id: int, current_step: int) -> str:
+        """
+        Get debugger feedback if it should be injected at the current step.
+        
+        Parameters:
+        - env_id: The environment ID
+        - current_step: The current step number
+        
+        Returns:
+        - feedback: The feedback string or empty string if no feedback for this step
+        """
+        import logging
+        logging.info(f"    get_debugger_feedback called: env_id={env_id}, current_step={current_step}")
+        
+        if env_id in self.debugger_feedback:
+            feedback_data = self.debugger_feedback[env_id]
+            expected_step = feedback_data['step']
+            logging.info(f"    debugger_feedback exists: expected_step={expected_step}, current_step={current_step}")
+            
+            if feedback_data['step'] == current_step:
+                logging.info(f"    ✓ Injecting debugger feedback at env_id={env_id}, step={current_step}")
+                feedback_text = feedback_data['feedback']
+                # Replay sequence complete – clear stored state so it doesn't leak into future attempts
+                self.clear_replay(env_id)
+                return feedback_text
+            else:
+                logging.info(f"    × Step mismatch: expected={expected_step}, current={current_step}")
+        else:
+            logging.info(f"    × No debugger_feedback for env_id={env_id}")
+            
+        return ""
 
     def close(self) -> None:
         """

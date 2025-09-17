@@ -23,6 +23,7 @@ class ToolUseEnvironmentManager(EnvironmentManagerBase):
         self.ground_truths = []
         self.step_counts = []
         self.task_completed = []
+        self.env_step_counts = defaultdict(int)  # For debugger feedback tracking
         
     def reset(self):
         """Reset environment and get new tasks"""
@@ -37,6 +38,10 @@ class ToolUseEnvironmentManager(EnvironmentManagerBase):
         self.step_counts = [0] * batch_size
         self.task_completed = [False] * batch_size
         
+        # Reset env_step_counts for debugger
+        for i in range(batch_size):
+            self.env_step_counts[i] = 0
+        
         # Initialize memory
         self.memory.reset(batch_size=batch_size)
         
@@ -50,6 +55,9 @@ class ToolUseEnvironmentManager(EnvironmentManagerBase):
         actions, valids = self.projection_f(text_actions)
         batch_size = len(text_actions)
         
+        # Check if this is the very first step (before incrementing step_counts)
+        is_first_step = all(self.env_step_counts[i] == 0 for i in range(batch_size))
+        
         # Process actions and execute tools
         observations = []
         rewards = np.zeros(batch_size) 
@@ -62,8 +70,6 @@ class ToolUseEnvironmentManager(EnvironmentManagerBase):
                 infos.append({'is_action_valid': True, 'won': True})
                 continue
                 
-            self.step_counts[i] += 1
-            
             # Process action
             obs, info = self._process_action(action, i)
             observations.append(obs)
@@ -81,15 +87,22 @@ class ToolUseEnvironmentManager(EnvironmentManagerBase):
             info['step_count'] = self.step_counts[i]
             infos.append(info)
         
+        # Increment step counts BEFORE building observations for correct debugger feedback timing
+        for i in range(batch_size):
+            if not self.task_completed[i]:
+                self.step_counts[i] += 1
+                self.env_step_counts[i] += 1  # Increment for debugger tracking
+        
         # After processing all envs, store this step's observations and actions into memory
-        try:
-            self.memory.store({'text_obs': observations, 'action': text_actions})
-        except Exception:
-            # Be permissive: if memory storage fails, continue without history
-            pass
+        if not is_first_step:  # Only store to memory if it's not the first step
+            try:
+                self.memory.store({'text_obs': observations, 'action': text_actions})
+            except Exception:
+                # Be permissive: if memory storage fails, continue without history
+                pass
 
-        # Build text observations
-        full_text_obs = self.build_text_obs(observations=observations)
+        # Build text observations AFTER incrementing step counts
+        full_text_obs = self.build_text_obs(observations=observations, init=is_first_step)
         
         next_observations = {'text': full_text_obs, 'image': None, 'anchor': observations.copy()}
         rewards = to_numpy(rewards)
@@ -131,6 +144,11 @@ class ToolUseEnvironmentManager(EnvironmentManagerBase):
         postprocess_text_obs = []
         
         for i in range(batch_size):
+            # Determine which step the agent is about to take for debugger feedback
+            debugger_feedback = ""
+            current_step_index = self.env_step_counts.get(i, 0)
+            debugger_feedback = self.get_debugger_feedback(i, current_step_index)
+            
             if init or self.config.env.history_length <= 0:
                 obs = TOOL_USE_TEMPLATE_NO_HIS.format(
                     task_description=self.current_tasks[i],
@@ -156,6 +174,10 @@ class ToolUseEnvironmentManager(EnvironmentManagerBase):
                     current_observation=current_obs,
                     available_tools=self.tool_metadata
                 )
+            
+            # Inject debugger feedback if available
+            if debugger_feedback:
+                obs = obs + "\n\n" + debugger_feedback
                 
             postprocess_text_obs.append(obs)
             

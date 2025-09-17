@@ -17,14 +17,14 @@ echo "Run directory: ${RUN_DIR}"
 python scripts/rollout/openmanus_rollout_debugger.py \
     --env alfworld \
     --batch_size 100 \
-    --total_envs 10 \
+    --total_envs 3 \
     --test_times 1 \
     --max_steps 5 \
     --model gpt-4o-mini \
     --temperature 0.0 \
     --enable_debugger \
-    --max_debug_retry 2 \
-    --debugger_model gpt-4o \
+    --max_try 2 \
+    --debugger_model gpt-4.1 \
     --debugger_type advanced \
     --debugger_temperature 0.0 \
     --experiment_dir ${RUN_DIR} \

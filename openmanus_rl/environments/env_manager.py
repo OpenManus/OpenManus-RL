@@ -34,6 +34,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         else:
             self.memory = SimpleMemory()
         super().__init__(envs, projection_f, config)
+        self.step_counts = defaultdict(int)  # Track step count for each environment
     
     def reset(self):
         text_obs, image_obs, infos = self.envs.reset()
@@ -43,6 +44,10 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         self.tasks = []
         self.pre_text_obs = text_obs
         self.extract_task(text_obs)
+        
+        # Reset step counts
+        for i in range(len(text_obs)):
+            self.step_counts[i] = 0
 
         full_text_obs = self.build_text_obs(text_obs, self.envs.get_admissible_commands, init=True)
         return {'text': full_text_obs, 'image': image_obs, 'anchor': text_obs}, infos
@@ -50,10 +55,22 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
     def step(self, text_actions: List[str]):
         actions, valids = self.projection_f(text_actions, self.envs.get_admissible_commands)
         text_obs, image_obs, rewards, dones, infos = self.envs.step(actions)
-        self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
+        
+        # Check if this is the very first step (before incrementing step_counts)
+        is_first_step = all(self.step_counts[i] == 0 for i in range(len(text_actions)))
+        
+        # Store previous observation and action BEFORE incrementing step count
+        if not is_first_step:  # Only store to memory if it's not the first step
+            self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
         self.pre_text_obs = text_obs
 
-        full_text_obs = self.build_text_obs(text_obs, self.envs.get_admissible_commands)
+        # Increment step counts BEFORE building observations for correct feedback injection timing
+        for i in range(len(text_actions)):
+            self.step_counts[i] += 1
+            
+        # Build text observations AFTER incrementing step_counts
+        full_text_obs = self.build_text_obs(text_obs, self.envs.get_admissible_commands, init=is_first_step)
+            
         if infos[0].get("extra.gamefile") is None:
             infos = set_gamefile(infos, self.gamefile)
 
@@ -106,6 +123,23 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
             # exclude 'help' in admissible_actions[i]
             reformatted_admissible_actions = "\n ".join(f"'{s}'" for s in admissible_actions[i] if s != 'help')
 
+            # Determine which trajectory step this observation corresponds to
+            current_step_index = self.step_counts.get(i, 0)
+
+            debugger_feedback = self.get_debugger_feedback(i, current_step_index)
+            if debugger_feedback:
+                import logging
+                logging.info(
+                    f"    AlfWorld: Injecting feedback at env {i}, step {current_step_index}: {debugger_feedback[:50]}..."
+                )
+            else:
+                if hasattr(self, 'debugger_feedback') and i in self.debugger_feedback:
+                    expected_step = self.debugger_feedback[i]['step']
+                    import logging
+                    logging.info(
+                        f"    AlfWorld: No feedback at env {i}, step {current_step_index}, expected at step {expected_step}"
+                    )
+
             if init or self.config.env.history_length <= 0:
                 # Include task_description to satisfy ALFWORLD_TEMPLATE_NO_HIS placeholders.
                 obs = ALFWORLD_TEMPLATE_NO_HIS.format(
@@ -123,6 +157,10 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
                     current_observation=text_obs[i],
                     admissible_actions=reformatted_admissible_actions
                 )
+            
+            # Inject debugger feedback if available
+            if debugger_feedback:
+                obs = obs + "\n\n" + debugger_feedback
 
             postprocess_text_obs.append(obs)
         return postprocess_text_obs
@@ -166,6 +204,7 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
         else:
             self.memory = SimpleMemory()
         super().__init__(envs, projection_f, config)
+        self.step_counts = defaultdict(int)  # Track step count for each environment
     
     def reset(self) -> Dict[str, Any]:
         obs, infos = self.envs.reset()
@@ -178,6 +217,11 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
                         }
         self.pre_text_obs = obs
         self.memory.reset(batch_size = len(infos))
+        
+        # Reset step counts
+        for i in range(len(obs)):
+            self.step_counts[i] = 0
+            
         return observations, infos
 
     def step(self, text_actions: List[str]):
@@ -185,22 +229,33 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
         next_obs, rewards, dones, infos = self.envs.step(actions)
 
         next_obs = self.format_obs(next_obs)
+        
+        # Check if this is the very first step (before incrementing step_counts)
+        is_first_step = all(self.step_counts[i] == 0 for i in range(len(text_actions)))
 
-        self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
+        # Store previous observation and action BEFORE incrementing step count
+        if not is_first_step:  # Only store to memory if it's not the first step
+            self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
         self.pre_text_obs = next_obs
 
+        # Increment step counts BEFORE building observations for correct feedback injection timing
+        for i in range(len(text_actions)):
+            self.step_counts[i] += 1
+        
+        # Build text observations AFTER incrementing step_counts
         next_observations = {
-            'text': self.build_text_obs(next_obs, infos),
+            'text': self.build_text_obs(next_obs, infos, init=is_first_step),
             'image': None,
             'anchor': next_obs.copy()
         }
+            
         # add action_valid to infos
         for i, info in enumerate(infos):
             info['is_action_valid'] = to_numpy(valids[i])
 
         rewards = to_numpy(rewards)
         dones = to_numpy(dones)
-
+        
         return next_observations, rewards, dones, infos
 
     def extract_task(self, text_obs: List[str]):
@@ -265,9 +320,12 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
                     action_key="action")
             
         for i in range(len(text_obs)):
-            
+
             available_actions = self.format_avail_actions(infos[i]['available_actions'])
             reformatted_available_actions = "\n".join(f"'{s}'," for s in available_actions)
+
+            current_step_index = self.step_counts.get(i, 0)
+            debugger_feedback = self.get_debugger_feedback(i, current_step_index)
 
             if init or self.config.env.history_length <= 0:
                 obs = WEBSHOP_TEMPLATE_NO_HIS.format(
@@ -292,6 +350,10 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
                         current_observation=text_obs[i],
                         available_actions=reformatted_available_actions
                     )
+            
+            # Inject debugger feedback if available
+            if debugger_feedback:
+                obs = obs + "\n\n" + debugger_feedback
 
             postprocess_text_obs.append(obs)
 

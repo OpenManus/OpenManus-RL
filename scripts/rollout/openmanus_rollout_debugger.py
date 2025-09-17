@@ -911,6 +911,35 @@ def prepare_alfworld_game_files(env_type: str, total_envs: int, seed: int) -> Op
         return None
 
 
+def generate_debugger_feedback_text(analysis: Dict[str, Any]) -> str:
+    """
+    Generate formatted debugger feedback text based on analysis results.
+    
+    Args:
+        analysis: Analysis dict containing raw_critical_error or fallback fields
+        
+    Returns:
+        Formatted feedback string to inject into observation
+    """
+    # Prioritize raw critical error data
+    raw_critical = analysis.get('raw_critical_error', {})
+    if raw_critical:
+        critical_module = raw_critical.get('critical_module', 'unknown')
+        error_type = raw_critical.get('error_type', 'unknown')
+        root_cause = raw_critical.get('root_cause', 'An error occurred in your previous attempt.')
+        correction_guidance = raw_critical.get('correction_guidance', 'Try a different approach.')
+        failure_type = f"{critical_module}::{error_type}"
+    else:
+        # Fallback to old format
+        failure_type = analysis.get('failure_type', 'unknown')
+        root_cause = analysis.get('reason', 'An error occurred in your previous attempt.')
+        correction_guidance = analysis.get('suggestion', 'Try a different approach.')
+    
+    feedback = f"[DEBUGGER FEEDBACK] This is a replay and retry of this step. You previously made the {failure_type} mistake because {root_cause}. Our suggestion for this try is that {correction_guidance}"
+    
+    return feedback
+
+
 def run_environment_with_retry(
     env_id: int,
     env_manager,
@@ -981,9 +1010,19 @@ def run_environment_with_retry(
                     task_dir,
                     f"debug_analysis_retry_{retry_idx}.json"
                 )
+                
+                # Extract raw critical error information 
+                raw_critical = analysis.get('raw_critical_error', {})
                 debug_record = {
                     "retry": retry_idx,
-                    "analysis": analysis,
+                    "critical_step": raw_critical.get('critical_step', analysis.get('critical_step', -1)),
+                    "critical_module": raw_critical.get('critical_module', 'unknown'),
+                    "error_type": raw_critical.get('error_type', analysis.get('failure_type', 'unknown')),
+                    "root_cause": raw_critical.get('root_cause', analysis.get('reason', 'Unknown error')),
+                    "evidence": raw_critical.get('evidence', ''),
+                    "correction_guidance": raw_critical.get('correction_guidance', analysis.get('suggestion', 'Try a different approach')),
+                    "confidence": raw_critical.get('confidence', 0.0),
+                    "cascading_effects": raw_critical.get('cascading_effects', []),
                     "trajectory": last_trajectory,
                     "env_type": env_type
                 }
@@ -991,26 +1030,56 @@ def run_environment_with_retry(
                 if getattr(debugger, "capture_debug_data", False):
                     debug_record["chat_history"] = last_chat_history
                     debug_record["attempt_metadata"] = last_metadata
+                    debug_record["full_analysis"] = analysis
 
                 with open(debug_file, "w") as f:
                     json.dump(debug_record, f, indent=2)
             
-            logging.info(f"    Debugger analysis - Failure at step {analysis['failure_step']}: {analysis['failure_type']}")
-            logging.info(f"    Suggestion: {analysis['suggestion']}")
+            # Extract critical step from raw error or analysis
+            raw_critical = analysis.get('raw_critical_error', {})
+            critical_step_1based = raw_critical.get('critical_step') or analysis.get('critical_step', 1)
             
-            # Handle case where failure happens at step 0 (first action)
-            critical_step = analysis.get('critical_step', -1)
+            logging.info(f"    Debugger analysis - Critical step: {critical_step_1based}, Error: {raw_critical.get('error_type', analysis.get('failure_type', 'unknown'))}")
+            logging.info(f"    Root cause: {raw_critical.get('root_cause', analysis.get('reason', 'Unknown'))}")
+            logging.info(f"    Correction guidance: {raw_critical.get('correction_guidance', analysis.get('suggestion', 'Try different approach'))}")
             
-            # Ensure critical_step doesn't exceed trajectory bounds
-            if critical_step >= len(last_trajectory):
-                logging.warning(f"    Critical step {critical_step} exceeds trajectory length {len(last_trajectory)}, adjusting to {len(last_trajectory) - 1}")
-                critical_step = len(last_trajectory) - 1
+
+            critical_step_1based = int(critical_step_1based)
+            # AlfWorld environment shows "step 1" in first observation, so offset is 1
+            feedback_inject_step_0based = critical_step_1based  # Inject feedback at error step
+            replay_to_step_0based = feedback_inject_step_0based -1  # Replay up to step before error
+
             
-            replay_to_step = critical_step
-            if replay_to_step == -1:
-                logging.info(f"    First step failure detected, will inject feedback at initial prompt")
+            # Handle bounds checking
+            if feedback_inject_step_0based < 0:
+                logging.info(f"    First step failure detected (critical_step={critical_step_1based}), will inject feedback at step 0")
+                feedback_inject_step_0based = 0
+                replay_to_step_0based = -1
+            elif feedback_inject_step_0based >= len(last_trajectory):
+                logging.warning(f"    Feedback inject step {feedback_inject_step_0based} exceeds trajectory length {len(last_trajectory)}, adjusting")
+                feedback_inject_step_0based = len(last_trajectory) - 1
+                replay_to_step_0based = feedback_inject_step_0based - 1
+            
+            logging.info(f"    Will inject feedback at trajectory step {feedback_inject_step_0based} (critical_step={critical_step_1based})")
+            
+            # Setup actions to replay (up to the step before the error)
+            actions_to_replay = []
+            if replay_to_step_0based >= 0:
+                actions_to_replay = [step['action'] for step in last_trajectory[:replay_to_step_0based + 1]]
+                logging.info(f"    Will replay {len(actions_to_replay)} actions before injecting feedback")
+            
+            # Setup replay mode in the environment manager
+            feedback_text = generate_debugger_feedback_text(analysis)
+            logging.info(f"    Setting up replay: actions_to_replay={len(actions_to_replay)}, feedback_inject_step={feedback_inject_step_0based}")
+            logging.info(f"    Feedback text: {feedback_text[:100]}...")
+            logging.info(f"    Debug: env_manager type = {type(env_manager).__name__}")
+            env_manager.setup_replay(env_id, actions_to_replay, feedback_inject_step_0based, feedback_text)
+            
+            # Verify setup
+            if hasattr(env_manager, 'debugger_feedback') and env_id in env_manager.debugger_feedback:
+                logging.info(f"    Replay setup verified: feedback will be injected at step {env_manager.debugger_feedback[env_id]['step']}")
             else:
-                logging.info(f"    Will replay up to step {replay_to_step} and inject feedback at step {replay_to_step + 1}")
+                logging.warning(f"    Replay setup failed: no debugger_feedback found for env_id {env_id}")
         
         # Get initial observation
         obs_dict, info_dict = env_manager.reset_single(env_id)
@@ -1026,52 +1095,23 @@ def run_environment_with_retry(
         for step_idx in range(max_steps):
             if env_done:
                 break
-            
-            # Check if we're replaying previous trajectory
-            if replay_to_step >= 0 and step_idx <= replay_to_step and last_trajectory:
-                # Replay action from previous trajectory
-                # Ensure we don't go beyond the trajectory length
-                if step_idx < len(last_trajectory):
-                    action = last_trajectory[step_idx]['action']
-                    logging.debug(f"    Replaying step {step_idx}: {action}")
-                else:
-                    # This shouldn't happen if replay_to_step is set correctly
-                    logging.warning(f"    Replay step {step_idx} beyond trajectory length {len(last_trajectory)}, using 'None'")
-                    action = "None"
+                
+            # Check if we should use a replay action first
+            replay_action = env_manager.get_replay_action(env_id)
+            if replay_action is not None:
+                action = replay_action
+                logging.debug(f"    Using replay action for step {step_idx}: {action}")
             else:
-                # Get new action from agent
+                # Get action from agent - replay mode is finished, get new action from LLM
+                # The observation already includes debugger feedback if this is the critical step
                 prompt = obs
                 
-                # Add debugger feedback at the critical point
-                should_inject_feedback = False
+                # Log if we expect debugger feedback in this observation
                 if debugger and analysis:
-                    if replay_to_step == -1 and step_idx == 0:
-                        # First step failure - inject feedback at initial prompt
-                        should_inject_feedback = True
-                        logging.info(f"    Injecting debugger feedback at step {step_idx} (first step failure)")
-                    elif replay_to_step >= 0 and step_idx == replay_to_step + 1:
-                        # Normal case - inject feedback after critical step
-                        should_inject_feedback = True
-                        logging.info(f"    Injecting debugger feedback at step {step_idx}")
-                
-                if should_inject_feedback:
-                    # Generate feedback for this specific step
-                    prev_action = ""
-                    if last_trajectory:
-                        # Get the previous action that failed at this step
-                        if replay_to_step == -1 and step_idx == 0:
-                            # First step failure - use the first action from last_trajectory
-                            prev_action = last_trajectory[0]['action'] if len(last_trajectory) > 0 else ""
-                        elif step_idx < len(last_trajectory):
-                            # Normal case - use the action at this step from last_trajectory
-                            prev_action = last_trajectory[step_idx]['action']
-                        else:
-                            # Step beyond trajectory length - shouldn't happen but handle gracefully
-                            logging.warning(f"Step {step_idx} beyond trajectory length {len(last_trajectory)}")
-                            prev_action = ""
-                    
-                    debugger_feedback = debugger.generate_feedback(obs, analysis, prev_action, env_type)
-                    prompt = debugger_feedback + obs
+                    pending_feedback = getattr(env_manager, "debugger_feedback", {})
+                    feedback_meta = pending_feedback.get(env_id)
+                    if feedback_meta and feedback_meta.get('step') == step_idx:
+                        logging.info(f"    Step {step_idx}: Debugger feedback should be in observation")
                 
                 # Use shared LLM executor if available for better concurrency
                 if shared_llm_executor is not None:
@@ -1098,9 +1138,9 @@ def run_environment_with_retry(
             
             cumulative_reward += reward
             
-            # Store trajectory step
+            # Store trajectory step (step_idx is 0-based)
             trajectory_step = {
-                "step": step_idx,
+                "step": step_idx,  # Keep 0-based indexing for consistency
                 "observation": obs,
                 "action": raw_action,
                 "reward": float(reward),
@@ -1213,6 +1253,12 @@ def run_environment_with_retry(
             break  # Success! No need to retry
         else:
             logging.info(f"  Env {env_id} - FAILED on attempt {retry_idx + 1}, will retry with debugging" if debugger and retry_idx < max_retries - 1 else f"  Env {env_id} - FAILED on attempt {retry_idx + 1}")
+        
+        # Clear replay mode after each attempt, but only if the attempt is complete
+        # Don't clear if we're still in the middle of a replay sequence
+        if debugger and analysis and env_done:
+            env_manager.clear_replay(env_id)
+            logging.info(f"    Cleared replay mode for env_id {env_id} after completed attempt")
         
         # If debugger is not enabled, don't retry
         if not debugger:
