@@ -1362,8 +1362,6 @@ def run_environment_with_retry(
             # Verify setup
             if hasattr(env_manager, 'debugger_feedback') and env_id in env_manager.debugger_feedback:
                 logging.info(f"    Replay setup verified: feedback will be injected at step {env_manager.debugger_feedback[env_id]['step']}")
-            else:
-                logging.warning(f"    Replay setup failed: no debugger_feedback found for env_id {env_id}")
         
         # Get initial observation
         obs_dict, info_dict = env_manager.reset_single(env_id)

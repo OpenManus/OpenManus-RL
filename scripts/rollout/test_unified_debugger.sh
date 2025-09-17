@@ -15,8 +15,9 @@ export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
 # Configuration
 ROLLOUT_MODEL="${ROLLOUT_MODEL:-qwen3-8b}"
 ROLLOUT_URL="${ROLLOUT_URL:-${QWEN3_8B_URL}/v1}"
-DEBUGGER_MODEL="${DEBUGGER_MODEL:-qwen2.5-72b-instruct}"
-DEBUGGER_URL="${DEBUGGER_URL:-${QWEN72B_URL}/v1}"
+# DEBUGGER_MODEL="${DEBUGGER_MODEL:-qwen2.5-72b-instruct}"
+DEBUGGER_MODEL="${DEBUGGER_MODEL:-gpt-4.1}"
+# DEBUGGER_URL="${DEBUGGER_URL:-${QWEN72B_URL}/v1}"
 
 echo "=== Configuration ==="
 echo "Rollout: model=${ROLLOUT_MODEL}, url=${ROLLOUT_URL}"
@@ -39,15 +40,15 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --enable_debugger \
     --max_try 5 \
     --debugger_model "${DEBUGGER_MODEL}" \
-    --debugger_base_url "${DEBUGGER_URL}" \
-    --debugger_type advanced \
+    --debugger_type naive \
     --debugger_temperature 0.0 \
     --experiment_dir "${RUN_DIR}" \
     --save_all_attempts \
     --save_per_task_trajectories \
     --unique_envs \
     --concurrency 10 \
-    --llm_concurrency 20
+    --llm_concurrency 10
+#    --debugger_base_url "${DEBUGGER_URL}" \
 # # Test 2: GAIA with debugger
 # echo "Testing GAIA with debugger..."
 # python scripts/rollout/openmanus_rollout_debugger.py \
