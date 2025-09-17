@@ -1411,6 +1411,8 @@ def main():
     # Other options
     parser.add_argument("--unique_envs", action="store_true",
                        help="Ensure unique tasks/games across all environments")
+    parser.add_argument("--start_index", type=int, default=0,
+                       help="Starting offset into the task/game list for initial assignment across envs")
     parser.add_argument("--dry_run", action="store_true",
                        help="Only print batch allocation without running")
     parser.add_argument("--debug", action="store_true",
@@ -1519,14 +1521,36 @@ def main():
             rounds = max(1, len(gaia_tasks) // pool_size)
             args.test_times = rounds
         
-        # Shuffle tasks for random sampling variety
+        # Shuffle tasks for random sampling variety, then apply start offset rotation
         rng = random.Random(args.seed)
         rng.shuffle(gaia_tasks)
+        if args.start_index:
+            offset = args.start_index % len(gaia_tasks)
+            gaia_tasks = gaia_tasks[offset:] + gaia_tasks[:offset]
+            logging.info(f"Applied GAIA start_index offset: {args.start_index} (effective {offset})")
         
     elif args.env == "alfworld" and args.unique_envs:
-        alfworld_game_files = prepare_alfworld_game_files(args.env, args.total_envs, args.seed)
+        # Need enough unique files for all envs across all rounds
+        total_needed = max(1, int(args.total_envs)) * max(1, int(args.test_times))
+        alfworld_game_files = prepare_alfworld_game_files(args.env, total_needed, args.seed)
         if alfworld_game_files:
+            # Apply start offset rotation for initial assignment if requested
+            if args.start_index and len(alfworld_game_files) > 0:
+                offset = args.start_index % len(alfworld_game_files)
+                alfworld_game_files = alfworld_game_files[offset:] + alfworld_game_files[:offset]
+                logging.info(f"Applied AlfWorld start_index offset: {args.start_index} (effective {offset})")
             logging.info(f"Prepared {len(alfworld_game_files)} unique game files")
+            # If not enough files for requested rounds, reduce rounds to avoid repetition
+            pool_size_est = max(1, int(args.total_envs))
+            max_rounds_by_files = len(alfworld_game_files) // pool_size_est
+            if max_rounds_by_files <= 0:
+                logging.error("Not enough AlfWorld game files to allocate one per env. Aborting.")
+                sys.exit(1)
+            if args.test_times > max_rounds_by_files:
+                logging.warning(
+                    f"Reducing test_times from {args.test_times} to {max_rounds_by_files} to avoid task repetition"
+                )
+                args.test_times = max_rounds_by_files
     
     # Dry run mode
     if args.dry_run:
@@ -2159,27 +2183,38 @@ def main():
                     per_env_tasks[k % pool_size].append(task)
             elif args.env == "alfworld":
                 common_kwargs["alf_env_type"] = args.alf_env_type
+                # For AlfWorld with unique_envs, we allocate per-round files on the fly
+                # so we skip building a persistent env_pool below.
                 per_env_files: List[Optional[str]] = [None] * pool_size
-                if args.unique_envs and alfworld_game_files:
-                    take = min(len(alfworld_game_files), pool_size)
-                    for i in range(take):
-                        per_env_files[i] = alfworld_game_files[i]
             elif args.env == "webshop":
                 common_kwargs["use_train_set"] = args.webshop_train
 
             env_pool = []
-            for i in range(pool_size):
-                kwargs_i = dict(common_kwargs)
-                if args.env == "gaia":
-                    kwargs_i["tasks_data"] = per_env_tasks[i] if gaia_tasks is not None else []
-                if args.env == "alfworld" and (args.unique_envs and alfworld_game_files):
-                    kwargs_i["game_files"] = [per_env_files[i]] if per_env_files[i] else None
-                mgr = EnvironmentFactory.build_env(args.env, with_debugger=True, **kwargs_i)
-                env_pool.append(mgr)
+            # For GAIA/WEBSHOP (and AlfWorld without unique_envs), prebuild persistent envs
+            if not (args.env == "alfworld" and args.unique_envs):
+                for i in range(pool_size):
+                    kwargs_i = dict(common_kwargs)
+                    if args.env == "gaia":
+                        kwargs_i["tasks_data"] = per_env_tasks[i] if gaia_tasks is not None else []
+                    if args.env == "alfworld":
+                        # Non-unique mode: use default sampling within env
+                        pass
+                    mgr = EnvironmentFactory.build_env(args.env, with_debugger=True, **kwargs_i)
+                    env_pool.append(mgr)
 
             def _run_one_round(env_idx: int, round_idx: int):
-                # Reset to get task id and ensure fresh episode
-                init_obs, init_infos = env_pool[env_idx].reset()
+                # For AlfWorld unique mode, build a fresh single‑env with a distinct gamefile per round
+                if args.env == "alfworld" and args.unique_envs and alfworld_game_files:
+                    file_idx = round_idx * pool_size + env_idx
+                    gamefile = alfworld_game_files[file_idx]
+                    kwargs_i = dict(common_kwargs)
+                    kwargs_i["game_files"] = [gamefile]
+                    local_mgr = EnvironmentFactory.build_env("alfworld", with_debugger=True, **kwargs_i)
+                    init_obs, init_infos = local_mgr.reset()
+                else:
+                    # Reset to get task id and ensure fresh episode
+                    local_mgr = env_pool[env_idx]
+                    init_obs, init_infos = local_mgr.reset()
                 info0 = init_infos[0] if isinstance(init_infos, list) else init_infos
                 task_id = get_task_id(args.env, env_idx, info0, round_idx)
 
@@ -2191,7 +2226,7 @@ def main():
                 if args.strategy == "debugger":
                     res = run_environment_with_retry(
                         env_id=0,
-                        env_manager=env_pool[env_idx],
+                        env_manager=local_mgr,
                         agent=agent,
                         max_steps=args.max_steps,
                         env_type=args.env,
@@ -2220,7 +2255,7 @@ def main():
                         
                         return run_environment_with_retry(
                             env_id=0,
-                            env_manager=env_pool[env_idx],
+                            env_manager=local_mgr,
                             agent=agent,
                             max_steps=args.max_steps,
                             env_type=args.env,
@@ -2271,11 +2306,11 @@ def main():
                     for attempt_idx in range(1, args.max_try + 1):
                         logging.info(f"[{mode.upper()}] Starting trajectory attempt {attempt_idx}/{args.max_try}")
                         sr = run_tree_search(
-                            env_manager=env_pool[env_idx],
-                            agent=agent,
-                            max_steps=args.max_steps,
-                            env_type=args.env,
-                            params=sp,
+                        env_manager=local_mgr,
+                        agent=agent,
+                        max_steps=args.max_steps,
+                        env_type=args.env,
+                        params=sp,
                             mode=mode,
                             task_dir=task_dir if args.save_per_task_trajectories else None,
                             attempt_id=attempt_idx if args.save_per_task_trajectories else None,
@@ -2312,6 +2347,13 @@ def main():
                             logging.debug(f"Failed to write updated summary: {e}")
                 res["task_id"] = task_id
                 res["env_id"] = env_idx
+                
+                # Close per‑round manager for AlfWorld unique mode to free resources
+                if args.env == "alfworld" and args.unique_envs and alfworld_game_files:
+                    try:
+                        local_mgr.envs.close()
+                    except Exception:
+                        pass
                 return res
 
             for r in range(rounds):
@@ -2331,39 +2373,85 @@ def main():
                 all_first_attempt_success_rates.append(first_attempt.mean())
                 all_debugger_success_rates.append(overall.mean())
 
-            # Close pool
-            for mgr in env_pool:
-                try:
-                    mgr.envs.close()
-                except Exception:
-                    pass
+            # Close pool (if any)
+            if env_pool:
+                for mgr in env_pool:
+                    try:
+                        mgr.envs.close()
+                    except Exception:
+                        pass
 
             global_env_counter = pool_size
 
         else:
             # Without debugger: build a single multi-env manager once and reuse
-            env_kwargs = {
-                "env_num": pool_size,
-                "seed": args.seed,
-                "history_length": args.history_length,
-            }
-            if args.env == "gaia":
-                # Distribute trimmed tasks across envs as a flat list
-                env_kwargs["tasks_data"] = gaia_tasks
-                env_kwargs["available_tools"] = args.gaia_tools
-                env_kwargs["max_steps"] = args.max_steps
-            elif args.env == "alfworld":
-                env_kwargs["alf_env_type"] = args.alf_env_type
-                if args.unique_envs and alfworld_game_files:
-                    env_kwargs["game_files"] = alfworld_game_files[:pool_size]
-            elif args.env == "webshop":
-                env_kwargs["use_train_set"] = args.webshop_train
+            # In no‑debugger path, for AlfWorld unique mode we rebuild per‑round with new files to avoid repetition
+            if args.env == "alfworld" and args.unique_envs and alfworld_game_files:
+                for test_idx in range(rounds):
+                    round_slice_start = test_idx * pool_size
+                    round_slice_end = round_slice_start + pool_size
+                    files_this_round = alfworld_game_files[round_slice_start:round_slice_end]
+                    env_kwargs = {
+                        "env_num": pool_size,
+                        "seed": args.seed,
+                        "history_length": args.history_length,
+                        "alf_env_type": args.alf_env_type,
+                        "game_files": files_this_round,
+                    }
+                    env_manager = EnvironmentFactory.build_env("alfworld", with_debugger=False, **env_kwargs)
+                    obs, infos = env_manager.reset()
+                    env_dones = [False] * pool_size
+                    overall_success_this_round = np.zeros(pool_size, dtype=bool)
+                    
+                    for step_idx in range(args.max_steps):
+                        prompts, idx_map = [], []
+                        for i in range(pool_size):
+                            if not env_dones[i]:
+                                prompts.append(obs["text"][i])
+                                idx_map.append(i)
+                        if not prompts:
+                            break
+                        batch_actions = agent.get_actions_batch(prompts, concurrency=args.concurrency, retries=args.retries)
+                        actions = ["None"] * pool_size
+                        for k, i in enumerate(idx_map):
+                            actions[i] = batch_actions[k]
+                        obs, rewards, dones, infos = env_manager.step(actions.copy())
+                        for i in range(pool_size):
+                            if env_dones[i]:
+                                continue
+                            if dones[i]:
+                                env_dones[i] = True
+                                overall_success_this_round[i] = bool(infos[i].get("won", False))
+                        if all(env_dones):
+                            break
+                    all_overall_success_rates.append(overall_success_this_round.mean())
+                    try:
+                        env_manager.envs.close()
+                    except Exception:
+                        pass
+                global_env_counter = pool_size
+            else:
+                env_kwargs = {
+                    "env_num": pool_size,
+                    "seed": args.seed,
+                    "history_length": args.history_length,
+                }
+                if args.env == "gaia":
+                    env_kwargs["tasks_data"] = gaia_tasks
+                    env_kwargs["available_tools"] = args.gaia_tools
+                    env_kwargs["max_steps"] = args.max_steps
+                elif args.env == "alfworld":
+                    env_kwargs["alf_env_type"] = args.alf_env_type
+                    if args.unique_envs and alfworld_game_files:
+                        env_kwargs["game_files"] = alfworld_game_files[:pool_size]
+                elif args.env == "webshop":
+                    env_kwargs["use_train_set"] = args.webshop_train
 
-            env_manager = EnvironmentFactory.build_env(args.env, with_debugger=False, **env_kwargs)
+                env_manager = EnvironmentFactory.build_env(args.env, with_debugger=False, **env_kwargs)
 
-            # Repeat for a number of rounds; each round calls reset() and steps to done
-            for test_idx in range(rounds):
-                obs, infos = env_manager.reset()
+                # Repeat for a number of rounds; each round calls reset() and steps to done
+                for test_idx in range(rounds):
+                    obs, infos = env_manager.reset()
                 env_dones = [False] * pool_size
                 overall_success_this_round = np.zeros(pool_size, dtype=bool)
 

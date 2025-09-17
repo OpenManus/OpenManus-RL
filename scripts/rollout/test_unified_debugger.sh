@@ -16,10 +16,10 @@ RUN_DIR="${BASE_DIR}/alfworld"
 echo "Run directory: ${RUN_DIR}"
 python scripts/rollout/openmanus_rollout_debugger.py \
     --env alfworld \
-    --batch_size 100 \
     --total_envs 10 \
-    --test_times 5 \
+    --test_times 1 \
     --max_steps 30 \
+    --history_length 40 \
     --model gpt-4o-mini \
     --temperature 0.0 \
     --enable_debugger \
@@ -30,6 +30,7 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --experiment_dir ${RUN_DIR} \
     --save_all_attempts \
     --save_per_task_trajectories \
+    --unique_envs \
     --concurrency 10 \
     --llm_concurrency 20 
 
