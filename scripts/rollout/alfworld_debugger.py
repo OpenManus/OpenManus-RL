@@ -274,7 +274,7 @@ Output only the feedback message, nothing else."""
             )
             
             feedback = response.choices[0].message.content.strip()
-            return f"\n[DEBUGGER FEEDBACK: {feedback}]\n"
+            return f"\n[DEBUGGER FEEDBACK: {feedback}]\nPlease refer to the feedback and try again. You should wether start with the <memory> </memory> tags or <plan> </plan> tags based on wether you have already taken a step or not."
             
         except Exception as e:
             logging.error(f"Failed to generate feedback: {e}")
