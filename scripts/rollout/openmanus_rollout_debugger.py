@@ -23,6 +23,45 @@ import sys
 from openmanus_rl.environments.env_manager import *
 from scripts.rollout.baselines import run_best_of_n, run_tree_search, SearchParams
 from openai import OpenAI
+
+
+class TeeOutput:
+    """Class to duplicate stdout/stderr to both terminal and file."""
+    def __init__(self, file_path, stream):
+        self.file = open(file_path, 'a', encoding='utf-8')
+        self.stream = stream
+        self.original = getattr(sys, stream)
+        # Copy attributes from original stream
+        self.encoding = getattr(self.original, 'encoding', 'utf-8')
+
+    def write(self, data):
+        self.original.write(data)
+        self.file.write(data)
+        self.file.flush()
+
+    def flush(self):
+        self.original.flush()
+        self.file.flush()
+
+    def fileno(self):
+        """Return file descriptor of the original stream."""
+        return self.original.fileno()
+
+    def isatty(self):
+        """Return whether the original stream is a tty."""
+        return self.original.isatty()
+
+    def __getattr__(self, name):
+        """Delegate any other attributes to the original stream."""
+        return getattr(self.original, name)
+
+    def __enter__(self):
+        setattr(sys, self.stream, self)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        setattr(sys, self.stream, self.original)
+        self.file.close()
 from together import Together
 import threading
 import asyncio
@@ -2018,9 +2057,18 @@ def main():
     # Setup logging
     os.makedirs(f"logs/{args.env}", exist_ok=True)
     log_fp = os.path.join(
-        f"logs/{args.env}", 
+        f"logs/{args.env}",
         f"unified_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     )
+
+    # Redirect stdout and stderr to both terminal and log file
+    stdout_tee = TeeOutput(log_fp, 'stdout')
+    stderr_tee = TeeOutput(log_fp, 'stderr')
+    sys.stdout = stdout_tee
+    sys.stderr = stderr_tee
+
+    print(f"=== Log file: {log_fp} ===")
+
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.INFO,
         format="%(asctime)s - %(message)s",
@@ -3099,12 +3147,16 @@ def main():
                                 f"    {cat:<35s}: {rate:.4f} "
                                 f"({int(sum(values))}/{len(values)})"
                             )
-            else:
+            elif not (args.env == "alfworld" and args.unique_envs):
+                # This branch is for non-unique_envs mode (GAIA, WebShop, or AlfWorld without unique_envs)
                 for r in range(rounds):
                     logging.info(f"\n========== Round {r + 1}/{rounds} ==========")
                     env_results = []
                     with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
-                        futures = [ex.submit(_run_one_round, i, r) for i in range(pool_size)]
+                        # For AlfWorld unique_envs mode, use concurrency limited to actual env_pool size
+                        # Otherwise use pool_size
+                        actual_pool_size = len(env_pool) if env_pool else pool_size
+                        futures = [ex.submit(_run_one_round, i, r) for i in range(actual_pool_size)]
                         for fut in as_completed(futures):
                             env_results.append(fut.result())
 
