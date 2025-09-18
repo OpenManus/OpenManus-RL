@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
+import queue
 import numpy as np
 import random
 import hashlib
@@ -198,6 +199,19 @@ class LLMDebugger:
             'system': ['step_limit', 'tool_execution_error', 'llm_limit', 'environment_error'],
             'others': ['others']
         }
+
+    def _log_llm_call(self, log_path: Optional[str], prompt: str, response_text: str) -> None:
+        """Append a single LLM interaction record to a JSONL file."""
+        if not log_path:
+            return
+
+        try:
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            record = {"input": prompt, "output": response_text}
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except Exception as exc:
+            logging.debug(f"Failed to log LLM call to {log_path}: {exc}")
     
     def _load_error_definitions(self) -> Dict[str, Dict[str, Dict[str, str]]]:
         """Load comprehensive error type definitions from AgentDebugger"""
@@ -376,6 +390,7 @@ class LLMDebugger:
         metadata: Optional[Dict[str, Any]] = None,
         previous_instructions: Optional[List[str]] = None,
         generate_follow_up: bool = False,
+        log_path: Optional[str] = None,
     ) -> Dict:
         """
         Enhanced trajectory analysis with comprehensive error type awareness
@@ -547,7 +562,9 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable."""
                 response_format={"type": "json_object"}
             )
             
-            analysis = json.loads(response.choices[0].message.content)
+            response_text = response.choices[0].message.content
+            self._log_llm_call(log_path, prompt, response_text)
+            analysis = json.loads(response_text)
             
             # Validate and enhance the analysis
             analysis = self._validate_and_enhance_analysis(analysis, trajectory)
@@ -569,7 +586,14 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable."""
                 "root_cause": "Technical analysis failure"
             }
     
-    def generate_feedback(self, observation: str, analysis: Dict, previous_action: str, env_type: str) -> str:
+    def generate_feedback(
+        self,
+        observation: str,
+        analysis: Dict,
+        previous_action: str,
+        env_type: str,
+        log_path: Optional[str] = None,
+    ) -> str:
         """
         Generate enhanced feedback based on critical error analysis
         
@@ -629,7 +653,9 @@ Output only the feedback message, no additional formatting."""
                 temperature=self.temperature * 0.8  # Slightly lower temperature for more focused feedback
             )
             
-            feedback = response.choices[0].message.content.strip()
+            response_text = response.choices[0].message.content
+            self._log_llm_call(log_path, feedback_prompt, response_text)
+            feedback = response_text.strip()
             
             # Format comprehensive feedback for injection
             formatted_feedback = f"""
@@ -710,6 +736,7 @@ class AdvancedDebugger(LLMDebugger):
         metadata: Optional[Dict[str, Any]] = None,
         previous_instructions: Optional[List[str]] = None,
         generate_follow_up: bool = False,
+        log_path: Optional[str] = None,
     ) -> Dict:
         if not chat_history:
             msg = "Advanced debugger requires chat history; none provided for analysis"
@@ -1259,13 +1286,23 @@ def prepare_alfworld_game_files(env_type: str, total_envs: int, seed: int) -> Op
         tmp_env = BaseEnvCls(cfg, train_eval='train')
         tmp_env.collect_game_files()
         all_game_files = list(getattr(tmp_env, 'game_files', []))
-        
+
+        # Deduplicate while preserving order—some AlfWorld configs can yield
+        # repeated entries when multiple workers share the same task list.
+        seen = set()
+        unique_game_files = []
+        for path in all_game_files:
+            if path not in seen:
+                seen.add(path)
+                unique_game_files.append(path)
+        all_game_files = unique_game_files
+
         if len(all_game_files) < total_envs:
             logging.error(f"Not enough game files: need {total_envs}, have {len(all_game_files)}")
             return None
             
-        rng = random.Random(seed)
-        rng.shuffle(all_game_files)
+        # Preserve the natural order reported by the environment so downstream scheduling
+        # can rely on deterministic task ordering.
         return all_game_files[:total_envs]
         
     except Exception as e:
@@ -1358,7 +1395,21 @@ def run_environment_with_retry(
     all_attempt_trajectories = []
     final_reward = 0
     first_attempt_success = False  # Track if first attempt was successful
-    
+
+    analysis_log_path: Optional[str] = None
+    feedback_log_path: Optional[str] = None
+    if debugger and task_dir:
+        analysis_log_path = os.path.join(task_dir, "debugger_analysis_calls.jsonl")
+        feedback_log_path = os.path.join(task_dir, "debugger_feedback_calls.jsonl")
+        for log_path in (analysis_log_path, feedback_log_path):
+            try:
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                if not os.path.exists(log_path):
+                    with open(log_path, "a", encoding="utf-8"):
+                        pass
+            except Exception as exc:
+                logging.debug(f"Failed to initialize debugger log file {log_path}: {exc}")
+
     for retry_idx in range(max_retries):
         logging.info(f"  Env {env_id} - Attempt {retry_idx + 1}/{max_retries}")
         env_manager.clear_persistent_guidance(env_id)
@@ -1402,6 +1453,7 @@ def run_environment_with_retry(
                 metadata=last_metadata,
                 previous_instructions=previous_instructions,
                 generate_follow_up=generate_follow_up,
+                log_path=analysis_log_path,
             )
             
             # Extract and store follow-up instruction for continuous debugging
@@ -1502,7 +1554,36 @@ def run_environment_with_retry(
                 logging.info(f"    Will replay {len(actions_to_replay)} actions before injecting feedback")
             
             # Setup replay mode in the environment manager
-            feedback_text = generate_debugger_feedback_text(analysis)
+            feedback_text = ""
+            if debugger:
+                failure_step = None
+                failure_step_idx = feedback_inject_step_0based
+                if last_trajectory:
+                    if 0 <= failure_step_idx < len(last_trajectory):
+                        failure_step = last_trajectory[failure_step_idx]
+                    else:
+                        failure_step = last_trajectory[-1]
+                        failure_step_idx = len(last_trajectory) - 1
+                failure_observation = ""
+                failure_action = ""
+                if failure_step:
+                    failure_observation = failure_step.get("observation", "") or ""
+                    failure_action = failure_step.get("action", "") or ""
+                try:
+                    feedback_text = debugger.generate_feedback(
+                        failure_observation,
+                        analysis,
+                        failure_action,
+                        env_type,
+                        log_path=feedback_log_path,
+                    )
+                except Exception as exc:
+                    logging.warning(f"Failed to generate LLM feedback, falling back to template: {exc}")
+                    feedback_text = generate_debugger_feedback_text(analysis)
+                if not feedback_text:
+                    feedback_text = generate_debugger_feedback_text(analysis)
+            else:
+                feedback_text = generate_debugger_feedback_text(analysis)
             logging.info(f"    Setting up replay: actions_to_replay={len(actions_to_replay)}, feedback_inject_step={feedback_inject_step_0based}")
             logging.info(f"    Feedback text: {feedback_text[:100]}...")
             logging.info(f"    Debug: env_manager type = {type(env_manager).__name__}")
@@ -1909,7 +1990,9 @@ def main():
     parser.add_argument("--unique_envs", action="store_true",
                        help="Ensure unique tasks/games across all environments")
     parser.add_argument("--start_index", type=int, default=0,
-                       help="Starting offset into the task/game list for initial assignment across envs")
+                       help="Starting offset into the task/game list for initial assignment across envs (0-based legacy)")
+    parser.add_argument("--start_id", type=int, default=None,
+                       help="1-based start offset into the task/game list (e.g., 2 skips the first task)")
     parser.add_argument("--dry_run", action="store_true",
                        help="Only print batch allocation without running")
     parser.add_argument("--debug", action="store_true",
@@ -1996,7 +2079,28 @@ def main():
     def _sanitize(s: str) -> str:
         """Sanitize string for filename"""
         return ''.join(c if c.isalnum() or c in ('-', '_', '.') else '-' for c in str(s))[:200]
-    
+
+    def _compute_start_offset(seq_len: int) -> Optional[int]:
+        """Resolve the effective rotation offset for task sequences."""
+        if seq_len <= 0:
+            return None
+
+        if args.start_id is not None:
+            if args.start_id <= 0:
+                logging.warning(f"start_id={args.start_id} is invalid; using 1 instead")
+                return 0
+            # start_id is 1-based; convert to 0-based offset
+            offset = (args.start_id - 1) % seq_len
+            logging.info(f"Applied start_id offset: {args.start_id} (effective {offset})")
+            return offset
+
+        if args.start_index:
+            offset = args.start_index % seq_len
+            logging.info(f"Applied start_index offset: {args.start_index} (effective {offset})")
+            return offset
+
+        return None
+
     # Prepare environment-specific data
     gaia_tasks = None
     alfworld_game_files = None
@@ -2021,21 +2125,19 @@ def main():
         # Shuffle tasks for random sampling variety, then apply start offset rotation
         rng = random.Random(args.seed)
         rng.shuffle(gaia_tasks)
-        if args.start_index:
-            offset = args.start_index % len(gaia_tasks)
+        offset = _compute_start_offset(len(gaia_tasks))
+        if offset:
             gaia_tasks = gaia_tasks[offset:] + gaia_tasks[:offset]
-            logging.info(f"Applied GAIA start_index offset: {args.start_index} (effective {offset})")
-        
+
     elif args.env == "alfworld" and args.unique_envs:
         # Need enough unique files for all envs across all rounds
         total_needed = max(1, int(args.total_envs)) * max(1, int(args.test_times))
         alfworld_game_files = prepare_alfworld_game_files(args.env, total_needed, args.seed)
         if alfworld_game_files:
             # Apply start offset rotation for initial assignment if requested
-            if args.start_index and len(alfworld_game_files) > 0:
-                offset = args.start_index % len(alfworld_game_files)
+            offset = _compute_start_offset(len(alfworld_game_files))
+            if offset:
                 alfworld_game_files = alfworld_game_files[offset:] + alfworld_game_files[:offset]
-                logging.info(f"Applied AlfWorld start_index offset: {args.start_index} (effective {offset})")
             logging.info(f"Prepared {len(alfworld_game_files)} unique game files")
             # If not enough files for requested rounds, reduce rounds to avoid repetition
             pool_size_est = max(1, int(args.total_envs))
@@ -2704,7 +2806,6 @@ def main():
                 common_kwargs["alf_env_type"] = args.alf_env_type
                 # For AlfWorld with unique_envs, we allocate per-round files on the fly
                 # so we skip building a persistent env_pool below.
-                per_env_files: List[Optional[str]] = [None] * pool_size
             elif args.env == "webshop":
                 common_kwargs["use_train_set"] = args.webshop_train
 
@@ -2721,11 +2822,22 @@ def main():
                     mgr = EnvironmentFactory.build_env(args.env, with_debugger=True, **kwargs_i)
                     env_pool.append(mgr)
 
-            def _run_one_round(env_idx: int, round_idx: int):
-                # For AlfWorld unique mode, build a fresh single‑env with a distinct gamefile per round
+            def _run_one_round(env_idx: int, round_idx: int, override_gamefile: Optional[str] = None):
+                gamefile: Optional[str] = None
+
+                # For AlfWorld unique mode, build a fresh single-env with a distinct gamefile per run
                 if args.env == "alfworld" and args.unique_envs and alfworld_game_files:
-                    file_idx = round_idx * pool_size + env_idx
-                    gamefile = alfworld_game_files[file_idx]
+                    if override_gamefile is not None:
+                        gamefile = override_gamefile
+                    else:
+                        file_idx = round_idx * pool_size + env_idx
+                        if file_idx >= len(alfworld_game_files):
+                            logging.warning(
+                                f"Requested AlfWorld game file index {file_idx} but only {len(alfworld_game_files)} available"
+                            )
+                            return {}
+                        gamefile = alfworld_game_files[file_idx]
+
                     kwargs_i = dict(common_kwargs)
                     kwargs_i["game_files"] = [gamefile]
                     local_mgr = EnvironmentFactory.build_env("alfworld", with_debugger=True, **kwargs_i)
@@ -2870,8 +2982,11 @@ def main():
                             logging.debug(f"Failed to write updated summary: {e}")
                 res["task_id"] = task_id
                 res["env_id"] = env_idx
+                res["round_idx"] = round_idx
+                if gamefile is not None:
+                    res["game_file"] = gamefile
                 
-                # Close per‑round manager for AlfWorld unique mode to free resources
+                # Close per-round manager for AlfWorld unique mode to free resources
                 if args.env == "alfworld" and args.unique_envs and alfworld_game_files:
                     try:
                         local_mgr.envs.close()
@@ -2879,22 +2994,128 @@ def main():
                         pass
                 return res
 
-            for r in range(rounds):
-                logging.info(f"\n========== Round {r + 1}/{rounds} ==========")
-                env_results = []
-                with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
-                    futures = [ex.submit(_run_one_round, i, r) for i in range(pool_size)]
-                    for fut in as_completed(futures):
-                        env_results.append(fut.result())
+            if args.env == "alfworld" and args.unique_envs and alfworld_game_files:
+                logging.info("\n========== AlfWorld unique-env dynamic scheduling ==========")
 
-                # Update stats
-                overall = np.array([rr['won'] for rr in env_results])
-                first_attempt = np.array([rr['first_attempt_success'] for rr in env_results])
-                total_tasks += len(env_results)
-                total_first_attempt_successes += first_attempt.sum()
-                total_debugger_successes += overall.sum()
-                all_first_attempt_success_rates.append(first_attempt.mean())
-                all_debugger_success_rates.append(overall.mean())
+                def _infer_task_category(game_file: Optional[str]) -> str:
+                    if not game_file:
+                        return "other"
+                    known_types = [
+                        "pick_and_place",
+                        "pick_two_obj_and_place",
+                        "look_at_obj_in_light",
+                        "pick_heat_then_place_in_recep",
+                        "pick_cool_then_place_in_recep",
+                        "pick_clean_then_place_in_recep",
+                    ]
+                    for t in known_types:
+                        if t in game_file:
+                            return t
+                    return "other"
+
+                job_queue: "queue.Queue[Tuple[int, int, str, int]]" = queue.Queue()
+                for global_idx, game_file in enumerate(alfworld_game_files):
+                    round_idx = global_idx // pool_size
+                    logical_env_idx = global_idx % pool_size
+                    job_queue.put((round_idx, logical_env_idx, game_file, global_idx))
+
+                all_slot_results: List[Dict[str, Any]] = []
+
+                def _run_env_worker(env_idx: int) -> List[Dict[str, Any]]:
+                    slot_results: List[Dict[str, Any]] = []
+                    while True:
+                        try:
+                            round_idx, logical_env_idx, game_file, global_idx = job_queue.get_nowait()
+                        except queue.Empty:
+                            break
+                        try:
+                            res = _run_one_round(env_idx, round_idx, override_gamefile=game_file)
+                            if res:
+                                if "task_category" not in res:
+                                    res["task_category"] = _infer_task_category(res.get("game_file"))
+                                res["logical_env_idx"] = logical_env_idx
+                                res["job_index"] = global_idx
+                                slot_results.append(res)
+                        finally:
+                            job_queue.task_done()
+                    return slot_results
+
+                with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
+                    future_to_env = {
+                        ex.submit(_run_env_worker, env_idx): env_idx
+                        for env_idx in range(pool_size)
+                    }
+                    for fut in as_completed(future_to_env):
+                        slot_results = fut.result()
+                        all_slot_results.extend(slot_results)
+
+                job_queue.join()
+
+                if not all_slot_results:
+                    logging.warning("No AlfWorld results were produced. Check task preparation.")
+                else:
+                    # Aggregate by round for summary statistics
+                    per_round_results: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+                    for res in all_slot_results:
+                        round_idx = int(res.get("round_idx", 0))
+                        per_round_results[round_idx].append(res)
+
+                        total_tasks += 1
+                        if res.get("first_attempt_success"):
+                            total_first_attempt_successes += 1
+                        if res.get("won"):
+                            total_debugger_successes += 1
+
+                        task_cat = res.get("task_category", "other")
+                        all_task_success_history[task_cat].append(1.0 if res.get("won") else 0.0)
+
+                    for round_idx in sorted(per_round_results.keys()):
+                        entries = per_round_results[round_idx]
+                        if not entries:
+                            continue
+
+                        first_attempt_vals = [1.0 if e.get("first_attempt_success") else 0.0 for e in entries]
+                        success_vals = [1.0 if e.get("won") else 0.0 for e in entries]
+                        first_attempt_mean = float(np.mean(first_attempt_vals)) if first_attempt_vals else 0.0
+                        success_mean = float(np.mean(success_vals)) if success_vals else 0.0
+                        all_first_attempt_success_rates.append(first_attempt_mean)
+                        all_debugger_success_rates.append(success_mean)
+
+                        logging.info(
+                            f"Round {round_idx + 1}/{rounds}: First attempt success {first_attempt_mean:.4f}, "
+                            f"Debugger success {success_mean:.4f}"
+                        )
+
+                        # Log per-task categories for this round
+                        task_success_by_cat: Dict[str, List[float]] = defaultdict(list)
+                        for entry in entries:
+                            task_success_by_cat[entry.get("task_category", "other")].append(
+                                1.0 if entry.get("won") else 0.0
+                            )
+
+                        for cat, values in task_success_by_cat.items():
+                            rate = float(np.mean(values)) if values else 0.0
+                            logging.info(
+                                f"    {cat:<35s}: {rate:.4f} "
+                                f"({int(sum(values))}/{len(values)})"
+                            )
+            else:
+                for r in range(rounds):
+                    logging.info(f"\n========== Round {r + 1}/{rounds} ==========")
+                    env_results = []
+                    with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
+                        futures = [ex.submit(_run_one_round, i, r) for i in range(pool_size)]
+                        for fut in as_completed(futures):
+                            env_results.append(fut.result())
+
+                    # Update stats
+                    overall = np.array([rr['won'] for rr in env_results])
+                    first_attempt = np.array([rr['first_attempt_success'] for rr in env_results])
+                    total_tasks += len(env_results)
+                    total_first_attempt_successes += first_attempt.sum()
+                    total_debugger_successes += overall.sum()
+                    all_first_attempt_success_rates.append(first_attempt.mean())
+                    all_debugger_success_rates.append(overall.mean())
 
             # Close pool (if any)
             if env_pool:

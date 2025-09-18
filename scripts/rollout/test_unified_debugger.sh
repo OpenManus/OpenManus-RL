@@ -29,48 +29,96 @@ echo ""
 echo "=== Test 1: AlfWorld with Debugger ==="
 RUN_DIR="${BASE_DIR}/alfworld"
 echo "Run directory: ${RUN_DIR}"
+#test_time is the number of times to run the same task
+#total_envs is the number of tasks to run
+#start_id is the starting index of the task
+#max_steps is the maximum number of steps to run
+#history_length is the length of the history
+#model is the model to use
+#temperature is the temperature to use
+#enable_debugger is the flag to enable the debugger
+#max_try is the maximum number of retries
+#debugger_model is the model to use for the debugger
+#debugger_type is the type of the debugger
+#debugger_temperature is the temperature to use for the debugger
+#experiment_dir is the directory to save the results
+#save_all_attempts is the flag to save all attempts
+#save_per_task_trajectories is the flag to save the trajectories for each task
+#unique_envs is the flag to ensure that each task is run with a unique environment
+#debug is the flag to enable the debug mode
+#concurrency is the number of concurrent tasks to run
+#llm_concurrency is the number of concurrent LLM requests to run
+
+python scripts/rollout/openmanus_rollout_debugger.py \
+    --env alfworld \
+    --total_envs 100 \
+    --test_times 1 \
+    --start_id 1 \
+    --max_steps 3 \
+    --history_length 40 \
+    --model "${ROLLOUT_MODEL}" \
+    --temperature 0.0 \
+    --enable_debugger \
+    --max_try 3 \
+    --debugger_model "${DEBUGGER_MODEL}" \
+    --debugger_type continue \
+    --debugger_temperature 0.0 \
+    --experiment_dir "${RUN_DIR}" \
+    --save_all_attempts \
+    --save_per_task_trajectories \
+    --unique_envs \
+    --debug \
+    --concurrency 10 \
+    --llm_concurrency 20
+# # --base_url "${ROLLOUT_URL}" \
+# #    --debugger_base_url "${DEBUGGER_URL}" \
+
 # python scripts/rollout/openmanus_rollout_debugger.py \
 #     --env alfworld \
 #     --total_envs 10 \
 #     --test_times 1 \
-#     --max_steps 30 \
+#     --max_steps 5 \
 #     --history_length 40 \
 #     --model "${ROLLOUT_MODEL}" \
-#     --temperature 0.0 \
-#     --enable_debugger \
-#     --max_try 5 \
-#     --debugger_model "${DEBUGGER_MODEL}" \
-#     --debugger_type continue \
-#     --debugger_temperature 0.0 \
+#     --temperature 1.2 \
+#     --strategy tot \
+#     --max_try 3 \
+#     --beam_size 3 \
+#     --value_threshold 0.2 \
 #     --experiment_dir "${RUN_DIR}" \
 #     --save_all_attempts \
 #     --save_per_task_trajectories \
 #     --unique_envs \
 #     --concurrency 10 \
 #     --llm_concurrency 20
-# # --base_url "${ROLLOUT_URL}" \
-# #    --debugger_base_url "${DEBUGGER_URL}" \
-
-python scripts/rollout/openmanus_rollout_debugger.py \
-    --env alfworld \
-    --total_envs 10 \
-    --test_times 1 \
-    --max_steps 5 \
-    --history_length 40 \
-    --model "${ROLLOUT_MODEL}" \
-    --temperature 1.2 \
-    --strategy tot \
-    --max_try 3 \
-    --beam_size 3 \
-    --value_threshold 0.2 \
-    --experiment_dir "${RUN_DIR}" \
-    --save_all_attempts \
-    --save_per_task_trajectories \
-    --unique_envs \
-    --concurrency 10 \
-    --llm_concurrency 20
 # --base_url "${ROLLOUT_URL}" \
 #    --debugger_base_url "${DEBUGGER_URL}" \
+
+echo "\n=== Test 2: AlfWorld with DFSDT ==="
+RUN_DIR="${BASE_DIR}/alfworld_dfsdt"
+echo "Run directory: ${RUN_DIR}"
+
+# python scripts/rollout/openmanus_rollout_debugger.py \
+#     --env alfworld \
+#     --total_envs 8 \
+#     --test_times 1 \
+#     --max_steps 6 \
+#     --history_length 40 \
+#     --model "${ROLLOUT_MODEL}" \
+#     --temperature 1.0 \
+#     --strategy dfsdt \
+#     --max_try 3 \
+#     --beam_size 4 \
+#     --value_threshold 0.0 \
+#     --diversity_back_steps 2 \
+#     --diversity_back_steps_alt 4 \
+#     --propose_k 5 \
+#     --experiment_dir "${RUN_DIR}" \
+#     --save_all_attempts \
+#     --save_per_task_trajectories \
+#     --unique_envs \
+#     --concurrency 8 \
+#     --llm_concurrency 16
 
 
 
