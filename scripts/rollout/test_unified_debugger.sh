@@ -8,17 +8,20 @@ BASE_DIR="experiments/unified_debug_${TIMESTAMP}"
 # Model server endpoints
 QWEN3_8B_URL="${QWEN3_8B_URL:-http://129.212.187.116:8001}"
 QWEN72B_URL="${QWEN72B_URL:-http://129.212.188.142:8001}"
+QWEN3_32B_URL="${QWEN3_32B_URL:-http://134.199.197.179:8001}"
 
 # Export empty API key for local vLLM servers
 export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
 
 # Configuration
 #ROLLOUT_MODEL="${ROLLOUT_MODEL:-qwen3-8b}"
-ROLLOUT_URL="${ROLLOUT_URL:-${QWEN3_8B_URL}/v1}"
+# ROLLOUT_URL="${ROLLOUT_URL:-${QWEN3_8B_URL}/v1}"
 # DEBUGGER_MODEL="${DEBUGGER_MODEL:-qwen2.5-72b-instruct}"
+# ROLLOUT_MODEL="${ROLLOUT_MODEL:-qwen3-8b}"
+# DEBUGGER_MODEL="${DEBUGGER_MODEL:-qwen3-32b}"
+# DEBUGGER_URL="${DEBUGGER_URL:-${QWEN3_32B_URL}/v1}"
 ROLLOUT_MODEL="${ROLLOUT_MODEL:-gpt-4o-mini}"
 DEBUGGER_MODEL="${DEBUGGER_MODEL:-gpt-4.1}"
-# DEBUGGER_URL="${DEBUGGER_URL:-${QWEN72B_URL}/v1}"
 
 echo "=== Configuration ==="
 echo "Rollout: model=${ROLLOUT_MODEL}, url=${ROLLOUT_URL}"
@@ -54,7 +57,7 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --total_envs 100 \
     --test_times 1 \
     --start_id 1 \
-    --max_steps 3 \
+    --max_steps 5 \
     --history_length 40 \
     --model "${ROLLOUT_MODEL}" \
     --temperature 0.0 \
@@ -70,8 +73,8 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --debug \
     --concurrency 10 \
     --llm_concurrency 20
-# # --base_url "${ROLLOUT_URL}" \
-# #    --debugger_base_url "${DEBUGGER_URL}" \
+    # --base_url "${ROLLOUT_URL}" \
+    # --debugger_base_url "${DEBUGGER_URL}"
 
 # python scripts/rollout/openmanus_rollout_debugger.py \
 #     --env alfworld \
