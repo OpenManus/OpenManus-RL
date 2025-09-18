@@ -2799,7 +2799,7 @@ def main():
                         )
                     res = run_best_of_n(
                         N=args.bon_n,
-                        env_manager=env_pool[env_idx],
+                        env_manager=local_mgr,
                         agent=agent,
                         max_steps=args.max_steps,
                         env_type=args.env,
@@ -3026,21 +3026,33 @@ def main():
             dump_fp.close()
             logging.info(f"Trajectories saved to: {args.dump_path}")
     
+    strategy_label_lookup = {
+        "debugger": "Debugger",
+        "bon": "Best-of-N",
+        "tot": "Tree-of-Thought",
+        "dfsdt": "DFSDT",
+    }
+    strategy_descriptor = strategy_label_lookup.get(args.strategy, args.strategy)
+    if args.strategy == "debugger" and getattr(args, "debugger_type", None):
+        strategy_descriptor = f"{strategy_descriptor} ({args.debugger_type})"
+    if args.strategy == "bon" and getattr(args, "bon_n", None):
+        strategy_descriptor = f"{strategy_descriptor} (N={args.bon_n})"
+
     # Final summary
     logging.info("=============== Final Summary ===============")
     logging.info(f"Environment: {args.env}")
     logging.info(f"Total batches: {num_batches} | Parallel envs: {max(1, int(args.total_envs))} | Total tasks run: {total_tasks}")
     
-    # Report both first attempt and debugger-assisted success rates
+    # Report both first attempt and post-strategy success rates
     if args.enable_debugger and total_tasks > 0:
         first_attempt_success_rate = total_first_attempt_successes / total_tasks
-        debugger_success_rate = total_debugger_successes / total_tasks
-        improvement = debugger_success_rate - first_attempt_success_rate
+        strategy_success_rate = total_debugger_successes / total_tasks
+        improvement = strategy_success_rate - first_attempt_success_rate
         
         logging.info("\n========== Success Rate Analysis ==========")
         logging.info(f"First Attempt Success Rate: {first_attempt_success_rate:.4f} ({total_first_attempt_successes}/{total_tasks})")
-        logging.info(f"Success Rate with Debugger: {debugger_success_rate:.4f} ({total_debugger_successes}/{total_tasks})")
-        logging.info(f"Improvement from Debugger: +{improvement:.4f} ({improvement*100:.2f}%)")
+        logging.info(f"Success Rate after {strategy_descriptor}: {strategy_success_rate:.4f} ({total_debugger_successes}/{total_tasks})")
+        logging.info(f"Improvement over First Attempt: +{improvement:.4f} ({improvement*100:.2f}%)")
         
         if all_first_attempt_success_rates:
             logging.info(
@@ -3049,7 +3061,7 @@ def main():
             )
         if all_debugger_success_rates:
             logging.info(
-                f"With Debugger (avg ± std): "
+                f"After {strategy_descriptor} (avg ± std): "
                 f"{np.mean(all_debugger_success_rates):.4f} ± {np.std(all_debugger_success_rates):.4f}"
             )
     elif all_overall_success_rates:
@@ -3074,19 +3086,25 @@ def main():
                 "total_batches": num_batches,
                 "batch_size": args.batch_size,
                 "max_steps": args.max_steps,
-                "timestamp": run_ts
+                "timestamp": run_ts,
+                "strategy": args.strategy,
+                "strategy_descriptor": strategy_descriptor
             },
             "results": {
                 "first_attempt_success_rate": float(total_first_attempt_successes) / total_tasks if total_tasks > 0 else 0,
+                "strategy_success_rate": float(total_debugger_successes) / total_tasks if total_tasks > 0 else 0,
                 "debugger_success_rate": float(total_debugger_successes) / total_tasks if total_tasks > 0 else 0,
                 "improvement": (float(total_debugger_successes) - float(total_first_attempt_successes)) / total_tasks if total_tasks > 0 else 0,
                 "first_attempt_successes": int(total_first_attempt_successes),
+                "strategy_successes": int(total_debugger_successes),
                 "debugger_successes": int(total_debugger_successes),
                 "total_tasks": int(total_tasks)
             },
             "statistics": {
                 "first_attempt_mean": float(np.mean(all_first_attempt_success_rates)) if all_first_attempt_success_rates else 0,
                 "first_attempt_std": float(np.std(all_first_attempt_success_rates)) if all_first_attempt_success_rates else 0,
+                "strategy_mean": float(np.mean(all_debugger_success_rates)) if all_debugger_success_rates else 0,
+                "strategy_std": float(np.std(all_debugger_success_rates)) if all_debugger_success_rates else 0,
                 "debugger_mean": float(np.mean(all_debugger_success_rates)) if all_debugger_success_rates else 0,
                 "debugger_std": float(np.std(all_debugger_success_rates)) if all_debugger_success_rates else 0
             }

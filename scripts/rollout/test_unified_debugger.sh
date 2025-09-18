@@ -29,19 +29,40 @@ echo ""
 echo "=== Test 1: AlfWorld with Debugger ==="
 RUN_DIR="${BASE_DIR}/alfworld"
 echo "Run directory: ${RUN_DIR}"
+# python scripts/rollout/openmanus_rollout_debugger.py \
+#     --env alfworld \
+#     --total_envs 10 \
+#     --test_times 1 \
+#     --max_steps 30 \
+#     --history_length 40 \
+#     --model "${ROLLOUT_MODEL}" \
+#     --temperature 0.0 \
+#     --enable_debugger \
+#     --max_try 5 \
+#     --debugger_model "${DEBUGGER_MODEL}" \
+#     --debugger_type continue \
+#     --debugger_temperature 0.0 \
+#     --experiment_dir "${RUN_DIR}" \
+#     --save_all_attempts \
+#     --save_per_task_trajectories \
+#     --unique_envs \
+#     --concurrency 10 \
+#     --llm_concurrency 20
+# # --base_url "${ROLLOUT_URL}" \
+# #    --debugger_base_url "${DEBUGGER_URL}" \
+
 python scripts/rollout/openmanus_rollout_debugger.py \
     --env alfworld \
     --total_envs 10 \
     --test_times 1 \
-    --max_steps 30 \
+    --max_steps 5 \
     --history_length 40 \
     --model "${ROLLOUT_MODEL}" \
-    --temperature 0.0 \
-    --enable_debugger \
-    --max_try 5 \
-    --debugger_model "${DEBUGGER_MODEL}" \
-    --debugger_type continue \
-    --debugger_temperature 0.0 \
+    --temperature 1.2 \
+    --strategy tot \
+    --max_try 3 \
+    --beam_size 3 \
+    --value_threshold 0.2 \
     --experiment_dir "${RUN_DIR}" \
     --save_all_attempts \
     --save_per_task_trajectories \
@@ -50,6 +71,10 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --llm_concurrency 20
 # --base_url "${ROLLOUT_URL}" \
 #    --debugger_base_url "${DEBUGGER_URL}" \
+
+
+
+
 # # Test 2: GAIA with debugger
 # echo "Testing GAIA with debugger..."
 # python scripts/rollout/openmanus_rollout_debugger.py \

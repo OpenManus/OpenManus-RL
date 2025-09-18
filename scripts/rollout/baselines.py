@@ -35,9 +35,14 @@ def extract_actions_from_obs(obs_text: str, env_type: str) -> List[str]:
                 block = bracket_blocks[-1]
                 # Extract entries within single quotes '...'
                 actions = re.findall(r"'([^']+)'", block)
-                # For WebShop template we sometimes have commas at line ends; quotes parsing handles it
+                if not actions:
+                    # Some templates use double quotes instead
+                    actions = re.findall(r'"([^"]+)"', block)
+                if not actions:
+                    # Fall back to numbered enumerations such as 1. take apple
+                    actions = re.findall(r"\d+\.?\s*([^\n\r]+)", block)
                 # Filter trivial entries
-                actions = [a.strip() for a in actions if a.strip()]
+                actions = [a.strip() for a in actions if a and a.strip()]
                 return actions
         return []
     except Exception:
@@ -286,7 +291,29 @@ def run_tree_search(
 
     def next_candidates_for_state(obs_text: str, info: Dict, avoid: Optional[List[str]] = None) -> List[str]:
         # Prefer explicit list when available; otherwise ask model to propose
-        avail = extract_actions_from_obs(obs_text, env_type)
+        avail: List[str] = []
+        if isinstance(info, dict):
+            for key in (
+                "admissible_commands",
+                "admissible_actions",
+                "available_commands",
+                "available_actions",
+                "commands",
+            ):
+                maybe = info.get(key)
+                if not maybe:
+                    continue
+                if isinstance(maybe, dict):
+                    maybe = list(maybe.values())
+                if isinstance(maybe, (list, tuple)):
+                    avail = [str(a).strip() for a in maybe if str(a).strip()]
+                    if avail:
+                        break
+        if not avail:
+            avail = extract_actions_from_obs(obs_text, env_type)
+        if avail:
+            seen = set()
+            avail = [a for a in avail if not (a in seen or seen.add(a))]
         if not avail:
             avail = propose_candidates(agent, obs_text, env_type, params.propose_k, avoid)
         # Enforce diversity if requested
