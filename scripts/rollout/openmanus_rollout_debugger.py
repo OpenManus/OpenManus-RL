@@ -66,7 +66,8 @@ class FileDescriptorTee:
             os.dup2(self.original_fd, self.fd)
         except OSError:
             pass
-        self._reader_thread.join()
+        if self._reader_thread.is_alive():
+            self._reader_thread.join(timeout=1.0)
         try:
             os.close(self.original_fd)
         except OSError:
