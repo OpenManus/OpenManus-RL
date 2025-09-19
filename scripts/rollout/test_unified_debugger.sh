@@ -32,10 +32,38 @@ echo "Rollout: model=${ROLLOUT_MODEL}, url=${ROLLOUT_URL}"
 echo "Debugger: model=${DEBUGGER_MODEL}, url=${DEBUGGER_URL}"
 echo ""
 
-# Test 1: AlfWorld with debugger
-echo "=== Test 1: AlfWorld with Debugger ==="
-RUN_DIR="${BASE_DIR}/alfworld"
+# Test 1: WebShop with debugger
+echo "=== Test 1: WebShop with Debugger ==="
+RUN_DIR="${BASE_DIR}/webshop"
 echo "Run directory: ${RUN_DIR}"
+
+python scripts/rollout/openmanus_rollout_debugger.py \
+    --env webshop \
+    --total_envs 10 \
+    --test_times 1 \
+    --start_id 1 \
+    --max_steps 30 \
+    --history_length 40 \
+    --use_summary \
+    --model "${ROLLOUT_MODEL}" \
+    --temperature 0.0 \
+    --webshop_train \
+    --enable_debugger \
+    --max_try 5 \
+    --debugger_model "${DEBUGGER_MODEL}" \
+    --debugger_type continue \
+    --debugger_temperature 0.0 \
+    --experiment_dir "${RUN_DIR}" \
+    --save_all_attempts \
+    --save_per_task_trajectories \
+    --debug \
+    --concurrency 10 \
+    --llm_concurrency 20
+
+# Test 1 (Alternative): AlfWorld with debugger - COMMENTED OUT
+# echo "=== Test 1: AlfWorld with Debugger ==="
+# RUN_DIR="${BASE_DIR}/alfworld"
+# echo "Run directory: ${RUN_DIR}"
 #test_time is the number of times to run the same task
 #total_envs is the number of tasks to run
 #start_id is the starting index of the task
@@ -56,27 +84,27 @@ echo "Run directory: ${RUN_DIR}"
 #concurrency is the number of concurrent tasks to run
 #llm_concurrency is the number of concurrent LLM requests to run
 
-python scripts/rollout/openmanus_rollout_debugger.py \
-    --env alfworld \
-    --total_envs 10 \
-    --test_times 1 \
-    --start_id 1 \
-    --max_steps 1 \
-    --history_length 40 \
-    --model "${ROLLOUT_MODEL}" \
-    --temperature 0.0 \
-    --enable_debugger \
-    --max_try 2 \
-    --debugger_model "${DEBUGGER_MODEL}" \
-    --debugger_type continue \
-    --debugger_temperature 0.0 \
-    --experiment_dir "${RUN_DIR}" \
-    --save_all_attempts \
-    --save_per_task_trajectories \
-    --unique_envs \
-    --debug \
-    --concurrency 10 \
-    --llm_concurrency 20 \
+# python scripts/rollout/openmanus_rollout_debugger.py \
+#     --env alfworld \
+#     --total_envs 10 \
+#     --test_times 1 \
+#     --start_id 1 \
+#     --max_steps 1 \
+#     --history_length 40 \
+#     --model "${ROLLOUT_MODEL}" \
+#     --temperature 0.0 \
+#     --enable_debugger \
+#     --max_try 2 \
+#     --debugger_model "${DEBUGGER_MODEL}" \
+#     --debugger_type continue \
+#     --debugger_temperature 0.0 \
+#     --experiment_dir "${RUN_DIR}" \
+#     --save_all_attempts \
+#     --save_per_task_trajectories \
+#     --unique_envs \
+#     --debug \
+#     --concurrency 10 \
+#     --llm_concurrency 20
     # ${TOGETHER_ARG}
     # --base_url "${ROLLOUT_URL}" \
     # --debugger_base_url "${DEBUGGER_URL}"
