@@ -330,6 +330,7 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
 
             current_step_index = self.step_counts.get(i, 0)
             debugger_feedback = self.get_debugger_feedback(i, current_step_index)
+            persistent_guidance = self.get_persistent_guidance(i, current_step_index)
 
             if init or self.config.env.history_length <= 0:
                 obs = WEBSHOP_TEMPLATE_NO_HIS.format(
