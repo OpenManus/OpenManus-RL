@@ -36,6 +36,8 @@ verl.egg-info/
 test_memory.md
 
 trajectories/
+results_*/
+nohup_logs_*/
 
 AGENTS.md
 CLAUDE.md
