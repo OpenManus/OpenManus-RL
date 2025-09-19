@@ -58,15 +58,15 @@ echo "Run directory: ${RUN_DIR}"
 
 python scripts/rollout/openmanus_rollout_debugger.py \
     --env alfworld \
-    --total_envs 10 \
+    --total_envs 500 \
     --test_times 1 \
     --start_id 1 \
-    --max_steps 1 \
+    --max_steps 30 \
     --history_length 40 \
     --model "${ROLLOUT_MODEL}" \
     --temperature 0.0 \
     --enable_debugger \
-    --max_try 2 \
+    --max_try 5 \
     --debugger_model "${DEBUGGER_MODEL}" \
     --debugger_type continue \
     --debugger_temperature 0.0 \
@@ -75,8 +75,8 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --save_per_task_trajectories \
     --unique_envs \
     --debug \
-    --concurrency 10 \
-    --llm_concurrency 20 \
+    --concurrency 25 \
+    --llm_concurrency 50 \
     # ${TOGETHER_ARG}
     # --base_url "${ROLLOUT_URL}" \
     # --debugger_base_url "${DEBUGGER_URL}"
