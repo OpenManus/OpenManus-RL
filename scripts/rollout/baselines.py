@@ -14,6 +14,7 @@ import re
 import time
 import logging
 import copy
+import hashlib
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Tuple, Callable
 import os
@@ -302,8 +303,22 @@ def run_tree_search(
         "termination_reason": None,
     }
 
+    def _extract_state_signature(obs_text: str) -> str:
+        try:
+            match = re.search(
+                r"current observation is:\s*(.*?)(?:\n\s*Your admissible actions|$)",
+                obs_text,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            if match:
+                return match.group(1).strip()
+        except Exception:
+            pass
+        return obs_text.strip()[:1024]
+
     def state_key_from_obs(obs_text: str) -> str:
-        return str(abs(hash(obs_text)) % (10 ** 12))
+        signature = _extract_state_signature(obs_text)
+        return hashlib.md5(signature.encode("utf-8", "ignore")).hexdigest()
 
     def record_step(
         step_idx: int,
@@ -325,38 +340,17 @@ def run_tree_search(
         ranked_candidates = list(ranked_candidates)
         candidate_scores = [float(s) for s in candidate_scores]
 
-        original_index_lookup = {action: idx for idx, action in enumerate(candidate_pool)}
-        candidate_details: List[Dict[str, Any]] = []
-        for rank, action_name in enumerate(ranked_candidates):
-            candidate_details.append({
-                "action": action_name,
-                "score": candidate_scores[rank] if rank < len(candidate_scores) else None,
-                "rank": rank,
-                "original_index": original_index_lookup.get(action_name),
-            })
-
         entry: Dict[str, Any] = {
             "step": int(step_idx),
-            "observation_before": observation_before,
-            "observation_after": observation_after,
             "observation": observation_after,
             "action": action,
             "reward": float(reward),
             "done": bool(done),
             "won": bool(info.get("won", False)),
-            "state_key": state_key,
+            "candidate_pool": candidate_pool,
+            "ranked_candidates": ranked_candidates,
+            "candidate_scores": candidate_scores,
         }
-
-        if history_context:
-            entry["history_context"] = history_context
-        if candidate_pool:
-            entry["candidate_pool"] = candidate_pool
-        if ranked_candidates:
-            entry["ranked_candidates"] = ranked_candidates
-        if candidate_scores:
-            entry["candidate_scores"] = candidate_scores
-        if candidate_details:
-            entry["candidate_details"] = candidate_details
         if chosen_rank_index is not None:
             entry["chosen_rank_index"] = int(chosen_rank_index)
         if chosen_original_index is not None:
@@ -411,11 +405,10 @@ def run_tree_search(
 
         if selected:
             first_idx = selected[0]["idx"]
-            before_obs = None
-            if 0 <= first_idx < len(trajectory_steps):
-                before_obs = trajectory_steps[first_idx].get("observation_before")
-            if before_obs is None and first_idx == 0:
-                before_obs = initial_obs_text
+            before_obs = initial_obs_text if first_idx == 0 else None
+            if before_obs is None and 0 < first_idx <= len(trajectory_steps):
+                prev_entry = trajectory_steps[first_idx - 1]
+                before_obs = prev_entry.get("observation")
             before_obs_trimmed = _trim_history_observation(before_obs or "")
             if before_obs_trimmed:
                 lines.append(f"Observation before step {first_idx}:\n{before_obs_trimmed}")
@@ -563,6 +556,16 @@ def run_tree_search(
             cand_list = next_candidates_for_state(obs, info, tried_here)
 
         if not cand_list:
+            finalize_attempt(
+                termination="no_candidates",
+                won_flag=False,
+                reward_value=0.0,
+                path_actions=current_path.copy(),
+                info_snapshot=info,
+                trajectory_snapshot=snapshot_trajectory(step_idx),
+            )
+            if len(all_attempts) >= params.max_try:
+                break
             continue
 
         history_for_node = build_history_context(step_idx)
@@ -593,6 +596,16 @@ def run_tree_search(
                     "action": None,
                     "event": "prune_by_value",
                 })
+                finalize_attempt(
+                    termination="pruned_by_value",
+                    won_flag=False,
+                    reward_value=0.0,
+                    path_actions=current_path.copy(),
+                    info_snapshot=info,
+                    trajectory_snapshot=snapshot_trajectory(step_idx),
+                )
+                if len(all_attempts) >= params.max_try:
+                    break
                 continue
             if ordered_candidates:
                 chosen = ordered_candidates[0]
@@ -617,7 +630,7 @@ def run_tree_search(
                 won_flag=False,
                 reward_value=0.0,
                 path_actions=current_path.copy(),
-                info_snapshot=None,
+                info_snapshot=info,
                 trajectory_snapshot=snapshot_trajectory(step_idx),
             )
             if mode == "dfsdt":
@@ -630,6 +643,8 @@ def run_tree_search(
                 stack = [frame for frame in stack if frame[0] <= trim_depth]
             else:
                 stack = [frame for frame in stack if frame[0] <= depth]
+            if len(all_attempts) >= params.max_try:
+                break
             continue
 
         search_log["expansions"].append({
