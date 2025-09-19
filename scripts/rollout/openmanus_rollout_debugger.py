@@ -5,6 +5,7 @@ Provides a single interface for running rollouts across all three environments.
 """
 
 import os
+import atexit
 import time
 import json
 import logging
@@ -16,6 +17,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 import queue
+import threading
 import numpy as np
 import random
 import hashlib
@@ -25,44 +27,51 @@ from scripts.rollout.baselines import run_best_of_n, run_tree_search, SearchPara
 from openai import OpenAI
 
 
-class TeeOutput:
-    """Class to duplicate stdout/stderr to both terminal and file."""
-    def __init__(self, file_path, stream):
-        self.file = open(file_path, 'a', encoding='utf-8')
-        self.stream = stream
-        self.original = getattr(sys, stream)
-        # Copy attributes from original stream
-        self.encoding = getattr(self.original, 'encoding', 'utf-8')
+class FileDescriptorTee:
+    """Mirror a file descriptor to the original stream and a log file."""
 
-    def write(self, data):
-        self.original.write(data)
-        self.file.write(data)
-        self.file.flush()
+    _write_lock = threading.Lock()
 
-    def flush(self):
-        self.original.flush()
-        self.file.flush()
+    def __init__(self, fd: int, log_path: str):
+        self.fd = fd
+        self.log_path = log_path
+        self.original_fd = os.dup(fd)
+        self.pipe_r, self.pipe_w = os.pipe()
+        os.dup2(self.pipe_w, fd)
+        self.log_file = open(log_path, "ab", buffering=0)
+        self._closed = False
+        self._reader_thread = threading.Thread(target=self._drain, daemon=True)
+        self._reader_thread.start()
 
-    def fileno(self):
-        """Return file descriptor of the original stream."""
-        return self.original.fileno()
+    def _drain(self) -> None:
+        with os.fdopen(self.pipe_r, "rb", buffering=0) as reader:
+            while True:
+                chunk = reader.read(4096)
+                if not chunk:
+                    break
+                os.write(self.original_fd, chunk)
+                with self._write_lock:
+                    self.log_file.write(chunk)
+                    self.log_file.flush()
 
-    def isatty(self):
-        """Return whether the original stream is a tty."""
-        return self.original.isatty()
-
-    def __getattr__(self, name):
-        """Delegate any other attributes to the original stream."""
-        return getattr(self.original, name)
-
-    def __enter__(self):
-        setattr(sys, self.stream, self)
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        setattr(sys, self.stream, self.original)
-        self.file.close()
-import threading
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            os.close(self.pipe_w)
+        except OSError:
+            pass
+        try:
+            os.dup2(self.original_fd, self.fd)
+        except OSError:
+            pass
+        self._reader_thread.join()
+        try:
+            os.close(self.original_fd)
+        except OSError:
+            pass
+        self.log_file.close()
 import asyncio
 from concurrent.futures import ThreadPoolExecutor as AsyncThreadPoolExecutor
 from dataclasses import asdict, is_dataclass
@@ -1395,7 +1404,8 @@ def extract_trajectory_from_memory(
 
     Returns:
         List[Dict[str, Any]]: Trajectory aligned by step index with fields
-        step, observation (o_{i+1}), action (a_i), reward, done, won.
+        step, observation (o_{i+1}), agent_input (what agent actually saw including summarized history),
+        action (a_i), reward, done, won.
     """
     if not fallback_steps:
         return []
@@ -1426,6 +1436,7 @@ def extract_trajectory_from_memory(
         trajectory_step = {
             "step": step_idx,
             "observation": fallback_steps[step_idx]["observation"],
+            "agent_input": fallback_steps[step_idx].get("agent_input", fallback_steps[step_idx]["observation"]),  # What agent actually saw
             "action": fallback_steps[step_idx]["action"],  # Always use original LLM action
             "reward": fallback_steps[step_idx].get("reward", 0.0),
             "done": fallback_steps[step_idx].get("done", False),
@@ -1813,8 +1824,8 @@ def run_environment_with_retry(
             obs_dict, reward_dict, done_dict, info_dict = env_manager.step_single(env_id, action)
             
             obs = obs_dict["text"][env_id]
-            reward = reward_dict[env_id]
-            done = done_dict[env_id]
+            reward = float(reward_dict[env_id])  # Convert numpy type to Python float
+            done = bool(done_dict[env_id])  # Convert numpy bool to Python bool
             # info_dict is a list, get the element at env_id
             info = info_dict[env_id] if isinstance(info_dict, list) else info_dict
             
@@ -1827,7 +1838,8 @@ def run_environment_with_retry(
             # Store trajectory step (step_idx is 0-based)
             trajectory_step = {
                 "step": step_idx,  # Keep 0-based indexing for consistency
-                "observation": obs,
+                "observation": obs,  # Raw observation from environment
+                "agent_input": prompt,  # What the agent actually saw (includes summarized history)
                 "action": raw_action,
                 "reward": float(reward),
                 "done": bool(done),
@@ -1895,8 +1907,8 @@ def run_environment_with_retry(
         attempt_data = {
             "retry_idx": retry_idx,
             "trajectory": trajectory_steps.copy(),
-            "won": won,
-            "reward": cumulative_reward,
+            "won": bool(won),  # Ensure Python bool type
+            "reward": float(cumulative_reward),  # Ensure Python float type
             "steps": len(trajectory_steps)
         }
         
@@ -2240,19 +2252,28 @@ def main():
         f"unified_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     )
 
-    # Redirect stdout and stderr to both terminal and log file
-    stdout_tee = TeeOutput(log_fp, 'stdout')
-    stderr_tee = TeeOutput(log_fp, 'stderr')
-    sys.stdout = stdout_tee
-    sys.stderr = stderr_tee
+    # Redirect stdout and stderr at the file descriptor level so Ray worker logs
+    # (which bypass sys.stdout) are mirrored into the log file.
+    stdout_tee = FileDescriptorTee(sys.stdout.fileno(), log_fp)
+    stderr_tee = FileDescriptorTee(sys.stderr.fileno(), log_fp)
+    atexit.register(stdout_tee.close)
+    atexit.register(stderr_tee.close)
 
     print(f"=== Log file: {log_fp} ===")
 
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.INFO,
         format="%(asctime)s - %(message)s",
-        handlers=[logging.FileHandler(log_fp, encoding="utf-8"), logging.StreamHandler()],
+        handlers=[logging.StreamHandler()],
+        force=True,
     )
+
+    # Suppress verbose client logs so captured output matches prior stdout view.
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("filelock").setLevel(logging.WARNING)
+    logging.getLogger("ray").setLevel(logging.WARNING)
     
     logging.info(f"Starting unified rollout for {args.env}")
     logging.info(f"Model: {args.model}, Temperature: {args.temperature}")
@@ -3700,6 +3721,9 @@ def main():
     elif args.env == "gaia":
         successful_tasks = sum(1 for rates in all_task_success_history.values() if any(r > 0 for r in rates))
         logging.info(f"Successfully completed {successful_tasks} out of {len(all_task_success_history)} unique tasks")
+
+    stdout_tee.close()
+    stderr_tee.close()
 
 
 if __name__ == "__main__":
