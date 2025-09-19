@@ -37,17 +37,17 @@ Finally, choose ONE admissible action for the current step and choose it within 
 WEBSHOP_TEMPLATE = """
 You are an expert agent operating in the WebShop e-commerce environment.
 Your task is to: {task_description}
-Prior to this step, you have already taken {step_count} step(s). Below are the most recent {history_length} observations and the corresponding actions you took: {action_history}
+Prior to this step, you have already taken {step_count} step(s). Below is a compact summary of all steps: {action_history}
 You are now at step {current_step} and your current observation is: {current_observation}
 Your admissible actions of the current situation are: {available_actions}.
 
 Now it's your turn to take an action.
 
-You should first recall relevant past experience and reason from our conversation history, then MUST summarize within <memory> </memory> tags like this:
+You should first recall relevant past experience and reason from the history context, then MUST summarize within <memory> </memory> tags like this:
 
 <memory>
-Look at the past observations and actions from our conversation history.
-- Please retrieve the most relavent memory for this step including the relevant observation and action in a RAG style along with the step number.
+Look at the history context above.
+- Please retrieve the most relevant memory for this step including the relevant observation and action in a RAG style along with the step number.
 - These memory should be helpful milestones to solve this task.
 </memory>
 

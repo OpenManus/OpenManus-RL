@@ -58,16 +58,8 @@ class OpenManusAgent:
                 api_key=os.environ.get('OPENAI_API_KEY'),
             )
         
-        # Set environment-specific system prompts
-        self.system_prompts = {
-            "webshop": (
-                "You are an expert web shopping agent. Respond strictly as "
-                "<think>...</think><action>...</action>. The <action> must be a single "
-                "admissible action exactly from the provided list, or a search[query]."
-            ),
-            "gaia": None,  # GAIA uses prompt templates in the environment
-            "alfworld": None,  # AlfWorld uses prompt templates in the environment
-        }
+        # Defer to environment-provided prompts; no extra system prompt injection.
+        self.system_prompts: dict[str, Optional[str]] = {}
         
     def get_action_from_llm(self, obs: str) -> str:
         """Get action from LLM for a single observation"""
