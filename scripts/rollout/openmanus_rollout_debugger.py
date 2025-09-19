@@ -650,7 +650,7 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable."""
         log_path: Optional[str] = None,
     ) -> str:
         """
-        Generate enhanced feedback based on critical error analysis
+        Generate feedback from analysis without additional LLM calls
         
         Args:
             observation: Current observation from the environment
@@ -659,82 +659,12 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable."""
             env_type: Type of environment
         
         Returns:
-            Detailed feedback string to inject into observation
+            Detailed feedback string to inject into observation, composed directly
+            from analyze_trajectory output (single API call total)
         """
-        
-        # Extract comprehensive error information
-        critical = analysis.get('raw_critical_error', {})
-        critical_module = critical.get('critical_module', analysis.get('critical_module', 'unknown'))
-        error_type = critical.get('error_type', analysis.get('failure_type', 'unknown'))
-        root_cause = critical.get('root_cause', analysis.get('root_cause', analysis.get('reason', 'Unknown error')))
-        correction_guidance = critical.get('correction_guidance', analysis.get('suggestion', 'Try a different approach'))
-        evidence = critical.get('evidence', analysis.get('evidence', ''))
-        confidence = critical.get('confidence', analysis.get('confidence', 0.5))
-        
-        # Build context-aware feedback prompt
-        feedback_prompt = f"""You are an expert agent coach. Based on a detailed failure analysis, generate specific, actionable feedback for an agent that made a critical error.
-
-ENVIRONMENT: {env_type}
-CURRENT OBSERVATION: {observation}
-PREVIOUS FAILED ACTION: {previous_action}
-
-DETAILED FAILURE ANALYSIS:
-- Critical Module: {critical_module}
-- Error Type: {error_type}  
-- Root Cause: {root_cause}
-- Evidence: {evidence}
-- Correction Guidance: {correction_guidance}
-- Confidence: {confidence:.2f}
-
-FEEDBACK REQUIREMENTS:
-Generate a clear, actionable feedback message that:
-1. SPECIFICALLY addresses the {critical_module} module error of type '{error_type}'
-2. Explains WHY the previous approach failed (based on root cause)
-3. Provides CONCRETE guidance on what to do differently
-4. References specific evidence from the trajectory when relevant
-5. Is concise but comprehensive (3-4 sentences max)
-
-Focus on helping the agent understand both the specific mistake and the corrective action needed.
-
-Output only the feedback message, no additional formatting."""
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": "You are an expert agent coach providing specific, actionable feedback based on detailed error analysis."},
-                    {"role": "user", "content": feedback_prompt}
-                ],
-                temperature=self.temperature * 0.8  # Slightly lower temperature for more focused feedback
-            )
-            
-            response_text = response.choices[0].message.content
-            self._log_llm_call(log_path, feedback_prompt, response_text)
-            feedback = response_text.strip()
-            
-            # Format comprehensive feedback for injection
-            formatted_feedback = f"""
-[DEBUGGER FEEDBACK - Critical Error Detected]
-Error Type: {critical_module}::{error_type} (Confidence: {confidence:.2f})
-Root Cause: {root_cause}
-
-{feedback}
-
-Specific Guidance: {correction_guidance}
-"""
-            
-            return formatted_feedback
-            
-        except Exception as e:
-            logging.error(f"Failed to generate enhanced feedback: {e}")
-            # Fallback to basic feedback with available information
-            fallback_feedback = f"""
-[DEBUGGER FEEDBACK - Previous Attempt Failed]
-Error: {critical_module}::{error_type}
-Issue: {root_cause}
-Recommendation: {correction_guidance}
-"""
-            return fallback_feedback
+        # Compose feedback deterministically from analysis results
+        # No additional LLM calls; ignore log_path
+        return generate_debugger_feedback_text(analysis)
     
     def _format_trajectory(self, trajectory: List[Dict]) -> str:
         """Format trajectory for LLM analysis"""
@@ -1401,6 +1331,11 @@ def generate_debugger_feedback_text(analysis: Dict[str, Any]) -> str:
     if evidence and evidence.strip():
         feedback_parts.append(f"Supporting Evidence: {evidence}")
     
+    # Include proactive follow-up instruction if available
+    follow_up = analysis.get('follow_up_instruction')
+    if follow_up:
+        feedback_parts.append(f"Follow-up Instruction (apply to all future steps): {follow_up}")
+    
     feedback_parts.append("This is a replay attempt - apply the corrective guidance to avoid the same mistake.")
     
     return "\n".join(feedback_parts)
@@ -1446,18 +1381,15 @@ def run_environment_with_retry(
     first_attempt_success = False  # Track if first attempt was successful
 
     analysis_log_path: Optional[str] = None
-    feedback_log_path: Optional[str] = None
     if debugger and task_dir:
         analysis_log_path = os.path.join(task_dir, "debugger_analysis_calls.jsonl")
-        feedback_log_path = os.path.join(task_dir, "debugger_feedback_calls.jsonl")
-        for log_path in (analysis_log_path, feedback_log_path):
-            try:
-                os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                if not os.path.exists(log_path):
-                    with open(log_path, "a", encoding="utf-8"):
-                        pass
-            except Exception as exc:
-                logging.debug(f"Failed to initialize debugger log file {log_path}: {exc}")
+        try:
+            os.makedirs(os.path.dirname(analysis_log_path), exist_ok=True)
+            if not os.path.exists(analysis_log_path):
+                with open(analysis_log_path, "a", encoding="utf-8"):
+                    pass
+        except Exception as exc:
+            logging.debug(f"Failed to initialize debugger log file {analysis_log_path}: {exc}")
 
     for retry_idx in range(max_retries):
         logging.info(f"  Env {env_id} - Attempt {retry_idx + 1}/{max_retries}")
@@ -1624,7 +1556,6 @@ def run_environment_with_retry(
                         analysis,
                         failure_action,
                         env_type,
-                        log_path=feedback_log_path,
                     )
                 except Exception as exc:
                     logging.warning(f"Failed to generate LLM feedback, falling back to template: {exc}")

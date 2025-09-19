@@ -58,7 +58,7 @@ echo "Run directory: ${RUN_DIR}"
 
 python scripts/rollout/openmanus_rollout_debugger.py \
     --env alfworld \
-    --total_envs 500 \
+    --total_envs 10 \
     --test_times 1 \
     --start_id 1 \
     --max_steps 30 \
@@ -75,7 +75,7 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --save_per_task_trajectories \
     --unique_envs \
     --debug \
-    --concurrency 25 \
+    --concurrency 10 \
     --llm_concurrency 50 \
     # ${TOGETHER_ARG}
     # --base_url "${ROLLOUT_URL}" \
