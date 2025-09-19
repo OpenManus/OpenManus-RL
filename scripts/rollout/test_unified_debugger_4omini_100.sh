@@ -12,6 +12,10 @@ QWEN72B_URL="${QWEN72B_URL:-http://129.212.188.142:8001}"
 # Export empty API key for local vLLM servers
 export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
 
+# Optional: route calls via Together AI
+# Set TOGETHER_ARG="--together rollout" or "--together debugger" or "--together both"
+TOGETHER_ARG="${TOGETHER_ARG:-}"
+
 # Configuration
 #ROLLOUT_MODEL="${ROLLOUT_MODEL:-qwen3-8b}"
 ROLLOUT_URL="${ROLLOUT_URL:-${QWEN3_8B_URL}/v1}"
@@ -69,7 +73,8 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --unique_envs \
     --debug \
     --concurrency 10 \
-    --llm_concurrency 20
+    --llm_concurrency 20 \
+    ${TOGETHER_ARG}
 # # --base_url "${ROLLOUT_URL}" \
 # #    --debugger_base_url "${DEBUGGER_URL}" \
 

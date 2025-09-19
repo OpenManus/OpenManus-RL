@@ -62,7 +62,6 @@ class TeeOutput:
     def __exit__(self, exc_type, exc_val, exc_tb):
         setattr(sys, self.stream, self.original)
         self.file.close()
-from together import Together
 import threading
 import asyncio
 from concurrent.futures import ThreadPoolExecutor as AsyncThreadPoolExecutor
@@ -94,20 +93,19 @@ class UnifiedAgent:
     """Unified agent that can work with all environments"""
     
     def __init__(self, model_name: str = "gpt-4o", temperature: float = 0.4, 
-                 base_url: str | None = None, env_type: str = "alfworld"):
+                 base_url: str | None = None, env_type: str = "alfworld",
+                 use_together: bool = False):
         self.model_name = model_name
         self.temperature = temperature
         self.env_type = env_type
         
-        # Determine which client to use based on model name and base_url
-        # Use Together client only for models that explicitly look like Together models
-        # (e.g., meta-llama/Llama-2-7b-chat-hf, Qwen/Qwen2.5-7B-Instruct-Turbo)
-        together_providers = ['meta-llama/', 'Qwen/', 'mistralai/', 'NousResearch/', 'teknium/']
-        self.is_together = any(model_name.startswith(provider) for provider in together_providers) and base_url is None
-        
+        # Select client based on explicit Together flag
+        self.is_together = bool(use_together)
         if self.is_together:
-            self.client = Together(
-                api_key=os.environ.get('TOGETHER_API_KEY', ''),
+            # Use OpenAI-compatible client pointed at Together endpoint
+            self.client = OpenAI(
+                api_key=os.environ.get("TOGETHER_API_KEY", ""),
+                base_url="https://api.together.xyz/v1",
             )
         elif base_url:
             self.client = OpenAI(
@@ -203,7 +201,8 @@ class LLMDebugger:
     """Enhanced LLM-based debugger with comprehensive error type awareness"""
     
     def __init__(self, model_name: str = "gpt-4o", temperature: float = 0.3,
-                 base_url: str | None = None, api_key: str | None = None):
+                 base_url: str | None = None, api_key: str | None = None,
+                 use_together: bool = False):
         """Initialize the LLM-based debugger client.
 
         Args:
@@ -216,17 +215,23 @@ class LLMDebugger:
         self.model_name = model_name
         self.temperature = temperature
 
-        key = api_key if api_key is not None else os.environ.get('OPENAI_API_KEY', '')
-        # Initialize OpenAI-compatible client (works for OpenAI or vLLM endpoints)
-        if base_url:
+        # Initialize OpenAI-compatible client (OpenAI/vLLM/Together)
+        if use_together:
             self.client = OpenAI(
-                api_key=key,
-                base_url=base_url,
+                api_key=os.environ.get("TOGETHER_API_KEY", ""),
+                base_url="https://api.together.xyz/v1",
             )
         else:
-            self.client = OpenAI(
-                api_key=key,
-            )
+            key = api_key if api_key is not None else os.environ.get('OPENAI_API_KEY', '')
+            if base_url:
+                self.client = OpenAI(
+                    api_key=key,
+                    base_url=base_url,
+                )
+            else:
+                self.client = OpenAI(
+                    api_key=key,
+                )
         
         # Enhanced error type definitions aligned with AgentDebugger
         self.error_definitions = self._load_error_definitions()
@@ -1286,12 +1291,11 @@ def get_task_id(env_type: str, env_id: int, info: Dict, batch_idx: int = 0) -> s
         Unique task identifier string
     """
     if env_type == "alfworld":
-        # Try to extract from gamefile
+        # Prefer the trial directory name (unique) rather than the flat filename 'game.tw-pddl'.
         gamefile = info.get("extra.gamefile", "")
         if gamefile:
-            # Extract just the filename without path
-            task_name = os.path.basename(gamefile).replace(".json", "")
-            return f"alfworld_b{batch_idx:03d}_e{env_id:03d}_{task_name[:50]}"
+            trial_dir = os.path.basename(os.path.dirname(gamefile)) or "unknown"
+            return f"alfworld_b{batch_idx:03d}_e{env_id:03d}_{trial_dir}"
         else:
             return f"alfworld_b{batch_idx:03d}_e{env_id:03d}_unknown"
     elif env_type == "gaia":
@@ -2025,9 +2029,30 @@ def main():
     parser.add_argument("--debugger_capture_api_debug", action="store_true",
                         help="Include advanced debugger request/response payloads in outputs for troubleshooting")
     
+    # Together AI routing
+    parser.add_argument(
+        "--together",
+        choices=["rollout", "debugger", "both"],
+        default=None,
+        help=(
+            "Route model calls to Together AI using TOGETHER_API_KEY. "
+            "Choose which module to route: rollout, debugger, or both."
+        ),
+    )
+    
     # Other options
     parser.add_argument("--unique_envs", action="store_true",
                        help="Ensure unique tasks/games across all environments")
+    parser.add_argument(
+        "--alfworld_task_ids_file",
+        default=None,
+        help=(
+            "Optional path to a text file containing AlfWorld task identifiers (one per line).\n"
+            "Accepted formats per line: (1) absolute path to game.tw-pddl; (2) trial directory name\n"
+            "(e.g., 'trial_00003_T20190312_234237'). When provided with --unique_envs, tasks are\n"
+            "loaded strictly in this order."
+        ),
+    )
     parser.add_argument("--start_index", type=int, default=0,
                        help="Starting offset into the task/game list for initial assignment across envs (0-based legacy)")
     parser.add_argument("--start_id", type=int, default=None,
@@ -2078,6 +2103,14 @@ def main():
     logging.info(f"Starting unified rollout for {args.env}")
     logging.info(f"Model: {args.model}, Temperature: {args.temperature}")
     logging.info(f"Total envs: {args.total_envs}, Batch size: {args.batch_size}, Max steps: {args.max_steps}")
+    
+    # Resolve Together routing flags
+    use_together_rollout = args.together in ("rollout", "both")
+    use_together_debugger = args.together in ("debugger", "both")
+    if args.together:
+        logging.info(
+            f"Together routing enabled: rollout={use_together_rollout}, debugger={use_together_debugger}"
+        )
     
     # Calculate number of batches (deprecated: we keep a fixed env pool)
     num_batches = 1
@@ -2178,26 +2211,94 @@ def main():
             gaia_tasks = gaia_tasks[offset:] + gaia_tasks[:offset]
 
     elif args.env == "alfworld" and args.unique_envs:
-        # Need enough unique files for all envs across all rounds
-        total_needed = max(1, int(args.total_envs)) * max(1, int(args.test_times))
-        alfworld_game_files = prepare_alfworld_game_files(args.env, total_needed, args.seed)
-        if alfworld_game_files:
-            # Apply start offset rotation for initial assignment if requested
-            offset = _compute_start_offset(len(alfworld_game_files))
-            if offset:
-                alfworld_game_files = alfworld_game_files[offset:] + alfworld_game_files[:offset]
-            logging.info(f"Prepared {len(alfworld_game_files)} unique game files")
-            # If not enough files for requested rounds, reduce rounds to avoid repetition
+        # Helper to collect all available AlfWorld game files once
+        def _collect_all_alfworld_gamefiles() -> List[str]:
+            try:
+                from openmanus_rl.environments.env_package.alfworld.envs import load_config_file as _alf_load_cfg
+                from openmanus_rl.environments.env_package.alfworld.alfworld.agents.environment import get_environment as _alf_get_env
+                _alf_cfg_path = os.path.join(
+                    os.path.dirname(__file__),
+                    '../../openmanus_rl/environments/env_package/alfworld/configs/config_tw.yaml'
+                )
+                _cfg = _alf_load_cfg(_alf_cfg_path)
+                _BaseEnvCls = _alf_get_env(_cfg['env']['type'])
+                _tmp_env = _BaseEnvCls(_cfg, train_eval='train')
+                _tmp_env.collect_game_files()
+                return list(getattr(_tmp_env, 'game_files', []) or [])
+            except Exception as _e:
+                logging.error(f"Failed to collect AlfWorld game files: {_e}")
+                return []
+
+        # If a task-IDs file is provided, honor its order.
+        if args.alfworld_task_ids_file:
+            logging.info(f"Loading AlfWorld task IDs from {args.alfworld_task_ids_file}")
+            all_files = _collect_all_alfworld_gamefiles()
+            # Map trial dir name -> gamefile path (unique)
+            trial_to_path = {os.path.basename(os.path.dirname(p)): p for p in all_files}
+            # Read requested IDs/paths
+            req_ids: List[str] = []
+            try:
+                with open(args.alfworld_task_ids_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        s = line.strip()
+                        if s:
+                            req_ids.append(s)
+            except Exception as e:
+                logging.error(f"Failed to read task IDs file: {e}")
+                sys.exit(1)
+
+            resolved: List[str] = []
+            for s in req_ids:
+                if os.path.isfile(s):
+                    resolved.append(s)
+                else:
+                    # Treat as trial directory name
+                    p = trial_to_path.get(s)
+                    if p is not None:
+                        resolved.append(p)
+                    else:
+                        logging.warning(f"Unresolved AlfWorld task identifier: {s}")
+
+            if not resolved:
+                logging.error("No valid AlfWorld tasks resolved from the provided IDs. Aborting.")
+                sys.exit(1)
+
+            alfworld_game_files = resolved
+
+            # Fit rounds to available tasks for the fixed env pool size
             pool_size_est = max(1, int(args.total_envs))
             max_rounds_by_files = len(alfworld_game_files) // pool_size_est
             if max_rounds_by_files <= 0:
-                logging.error("Not enough AlfWorld game files to allocate one per env. Aborting.")
+                logging.error("Not enough AlfWorld game files from IDs to allocate one per env. Aborting.")
                 sys.exit(1)
             if args.test_times > max_rounds_by_files:
                 logging.warning(
-                    f"Reducing test_times from {args.test_times} to {max_rounds_by_files} to avoid task repetition"
+                    f"Reducing test_times from {args.test_times} to {max_rounds_by_files} to fit provided IDs"
                 )
                 args.test_times = max_rounds_by_files
+            logging.info(f"Prepared {len(alfworld_game_files)} game files from IDs (no rotation applied)")
+
+        else:
+            # Default path: collect, then slice deterministically with optional rotation
+            total_needed = max(1, int(args.total_envs)) * max(1, int(args.test_times))
+            alfworld_game_files = prepare_alfworld_game_files(args.env, total_needed, args.seed)
+            if alfworld_game_files:
+                # Apply start offset rotation for initial assignment if requested
+                offset = _compute_start_offset(len(alfworld_game_files))
+                if offset:
+                    alfworld_game_files = alfworld_game_files[offset:] + alfworld_game_files[:offset]
+                logging.info(f"Prepared {len(alfworld_game_files)} unique game files")
+                # If not enough files for requested rounds, reduce rounds to avoid repetition
+                pool_size_est = max(1, int(args.total_envs))
+                max_rounds_by_files = len(alfworld_game_files) // pool_size_est
+                if max_rounds_by_files <= 0:
+                    logging.error("Not enough AlfWorld game files to allocate one per env. Aborting.")
+                    sys.exit(1)
+                if args.test_times > max_rounds_by_files:
+                    logging.warning(
+                        f"Reducing test_times from {args.test_times} to {max_rounds_by_files} to avoid task repetition"
+                    )
+                    args.test_times = max_rounds_by_files
     
     # Dry run mode
     if args.dry_run:
@@ -2215,8 +2316,9 @@ def main():
                 logging.info(f"[Dry-Run] Batch {b+1:02d}: {batch_size} tasks; PIDs: {', '.join(pids[:3])}...")
             elif args.env == "alfworld" and alfworld_game_files:
                 batch_files = alfworld_game_files[start:end]
-                examples = [os.path.basename(f) for f in batch_files[:3]]
-                logging.info(f"[Dry-Run] Batch {b+1:02d}: {batch_size} files; Examples: {', '.join(examples)}")
+                # Show trial directory names for clarity instead of the repeated filename 'game.tw-pddl'
+                examples = [os.path.basename(os.path.dirname(f)) for f in batch_files[:3]]
+                logging.info(f"[Dry-Run] Batch {b+1:02d}: {batch_size} files; Trials: {', '.join(examples)}")
             else:
                 logging.info(f"[Dry-Run] Batch {b+1:02d}: {batch_size} environments")
         
@@ -2227,7 +2329,8 @@ def main():
         model_name=args.model,
         temperature=args.temperature,
         base_url=args.base_url,
-        env_type=args.env
+        env_type=args.env,
+        use_together=use_together_rollout,
     )
     
     # Create shared LLM executor pool for better concurrency across all tasks
@@ -2267,6 +2370,7 @@ def main():
                 temperature=args.debugger_temperature,
                 base_url=debugger_base_url,
                 api_key=args.debugger_api_key,
+                use_together=use_together_debugger,
             )
             if args.debugger_type != "continue":
                 debugger_type_label = "naive"
@@ -2870,6 +2974,64 @@ def main():
                     mgr = EnvironmentFactory.build_env(args.env, with_debugger=True, **kwargs_i)
                     env_pool.append(mgr)
 
+            # Prepare per-env task assignments and persist to disk
+            assignments_root: Optional[str] = None
+            if args.experiment_dir:
+                assignments_root = os.path.join(args.experiment_dir, "assignments")
+                os.makedirs(assignments_root, exist_ok=True)
+
+            per_env_assigned_ids: List[List[str]] = [[] for _ in range(pool_size)]
+            per_env_assigned_payloads: List[List[Any]] = [[] for _ in range(pool_size)]
+
+            if args.env == "alfworld" and args.unique_envs and alfworld_game_files:
+                total_jobs = min(len(alfworld_game_files), pool_size * rounds)
+                files = alfworld_game_files[:total_jobs]
+                for r in range(rounds):
+                    start_idx = r * pool_size
+                    end_idx = start_idx + pool_size
+                    slice_files = files[start_idx:end_idx]
+                    if not slice_files:
+                        break
+                    for i, gf in enumerate(slice_files):
+                        per_env_assigned_payloads[i].append(gf)
+                        per_env_assigned_ids[i].append(os.path.basename(gf))
+            elif args.env == "gaia" and gaia_tasks is not None:
+                # per_env_tasks already built; record IDs
+                for i in range(pool_size):
+                    tasks_i = per_env_tasks[i]
+                    per_env_assigned_payloads[i] = tasks_i
+                    per_env_assigned_ids[i] = [str(t.get("pid", f"task_{k}")) for k, t in enumerate(tasks_i)]
+            elif args.env == "webshop":
+                # WebShop does not expose task slicing; record placeholders
+                for i in range(pool_size):
+                    per_env_assigned_ids[i] = [f"round_{r+1}" for r in range(rounds)]
+                    per_env_assigned_payloads[i] = [None] * rounds
+
+            # Save task_ids.txt per env
+            if assignments_root is not None:
+                for i in range(pool_size):
+                    env_dir = os.path.join(assignments_root, f"env_{i+1:03d}")
+                    try:
+                        os.makedirs(env_dir, exist_ok=True)
+                        # Prefer human-readable unique IDs (trial directory names) for AlfWorld
+                        if args.env == "alfworld":
+                            per_env_assigned_ids[i] = [
+                                os.path.basename(os.path.dirname(p)) for p in per_env_assigned_payloads[i]
+                            ]
+                        # Write IDs
+                        fp_ids = os.path.join(env_dir, "task_ids.txt")
+                        with open(fp_ids, "w", encoding="utf-8") as f:
+                            for tid in per_env_assigned_ids[i]:
+                                f.write(str(tid) + "\n")
+                        # Also write full paths for reproducibility
+                        if per_env_assigned_payloads[i]:
+                            fp_paths = os.path.join(env_dir, "task_paths.txt")
+                            with open(fp_paths, "w", encoding="utf-8") as f:
+                                for p in per_env_assigned_payloads[i]:
+                                    f.write(str(p) + "\n")
+                    except Exception as exc:
+                        logging.warning(f"Failed to write assignments for env {i}: {exc}")
+
             def _run_one_round(env_idx: int, round_idx: int, override_gamefile: Optional[str] = None):
                 gamefile: Optional[str] = None
 
@@ -3043,7 +3205,7 @@ def main():
                 return res
 
             if args.env == "alfworld" and args.unique_envs and alfworld_game_files:
-                logging.info("\n========== AlfWorld unique-env dynamic scheduling ==========")
+                logging.info("\n========== AlfWorld unique-env per‑env assignment ==========")
 
                 def _infer_task_category(game_file: Optional[str]) -> str:
                     if not game_file:
@@ -3061,53 +3223,31 @@ def main():
                             return t
                     return "other"
 
-                job_queue: "queue.Queue[Tuple[int, int, str, int]]" = queue.Queue()
-                for global_idx, game_file in enumerate(alfworld_game_files):
-                    round_idx = global_idx // pool_size
-                    logical_env_idx = global_idx % pool_size
-                    job_queue.put((round_idx, logical_env_idx, game_file, global_idx))
-
-                all_slot_results: List[Dict[str, Any]] = []
-
                 def _run_env_worker(env_idx: int) -> List[Dict[str, Any]]:
+                    assigned_files = per_env_assigned_payloads[env_idx]
                     slot_results: List[Dict[str, Any]] = []
-                    while True:
-                        try:
-                            round_idx, logical_env_idx, game_file, global_idx = job_queue.get_nowait()
-                        except queue.Empty:
-                            break
-                        try:
-                            res = _run_one_round(env_idx, round_idx, override_gamefile=game_file)
-                            if res:
-                                if "task_category" not in res:
-                                    res["task_category"] = _infer_task_category(res.get("game_file"))
-                                res["logical_env_idx"] = logical_env_idx
-                                res["job_index"] = global_idx
-                                slot_results.append(res)
-                        finally:
-                            job_queue.task_done()
+                    for r, game_file in enumerate(assigned_files):
+                        res = _run_one_round(env_idx, r, override_gamefile=game_file)
+                        if res:
+                            if "task_category" not in res:
+                                res["task_category"] = _infer_task_category(res.get("game_file"))
+                            res["logical_env_idx"] = env_idx
+                            res["job_index"] = r
+                            slot_results.append(res)
                     return slot_results
 
+                all_slot_results: List[Dict[str, Any]] = []
                 with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
-                    future_to_env = {
-                        ex.submit(_run_env_worker, env_idx): env_idx
-                        for env_idx in range(pool_size)
-                    }
-                    for fut in as_completed(future_to_env):
+                    futures = [ex.submit(_run_env_worker, i) for i in range(pool_size)]
+                    for fut in as_completed(futures):
                         slot_results = fut.result()
                         all_slot_results.extend(slot_results)
-
-                job_queue.join()
 
                 if not all_slot_results:
                     logging.warning("No AlfWorld results were produced. Check task preparation.")
                 else:
-                    # Aggregate by round for summary statistics
-                    per_round_results: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+                    # Aggregate statistics
                     for res in all_slot_results:
-                        round_idx = int(res.get("round_idx", 0))
-                        per_round_results[round_idx].append(res)
-
                         total_tasks += 1
                         if res.get("first_attempt_success"):
                             total_first_attempt_successes += 1
@@ -3117,57 +3257,47 @@ def main():
                         task_cat = res.get("task_category", "other")
                         all_task_success_history[task_cat].append(1.0 if res.get("won") else 0.0)
 
-                    for round_idx in sorted(per_round_results.keys()):
-                        entries = per_round_results[round_idx]
-                        if not entries:
-                            continue
+                    overall_rate = float(np.mean([1.0 if r.get("won") else 0.0 for r in all_slot_results])) if all_slot_results else 0.0
+                    first_attempt_rate = float(np.mean([1.0 if r.get("first_attempt_success") else 0.0 for r in all_slot_results])) if all_slot_results else 0.0
+                    all_first_attempt_success_rates.append(first_attempt_rate)
+                    all_debugger_success_rates.append(overall_rate)
 
-                        first_attempt_vals = [1.0 if e.get("first_attempt_success") else 0.0 for e in entries]
-                        success_vals = [1.0 if e.get("won") else 0.0 for e in entries]
-                        first_attempt_mean = float(np.mean(first_attempt_vals)) if first_attempt_vals else 0.0
-                        success_mean = float(np.mean(success_vals)) if success_vals else 0.0
-                        all_first_attempt_success_rates.append(first_attempt_mean)
-                        all_debugger_success_rates.append(success_mean)
+                    logging.info(
+                        f"Overall: First attempt success {first_attempt_rate:.4f}, Debugger success {overall_rate:.4f}"
+                    )
+            else:
+                # GAIA/WEBSHOP or AlfWorld without unique_envs
+                logging.info("\n========== Per‑env assignment scheduling ==========")
 
-                        logging.info(
-                            f"Round {round_idx + 1}/{rounds}: First attempt success {first_attempt_mean:.4f}, "
-                            f"Debugger success {success_mean:.4f}"
-                        )
+                def _run_env_worker(env_idx: int) -> List[Dict[str, Any]]:
+                    assigned_rounds = len(per_env_assigned_payloads[env_idx]) or rounds
+                    actual_pool_size = len(env_pool) if env_pool else pool_size
+                    if env_pool and env_idx >= actual_pool_size:
+                        return []
+                    slot_results: List[Dict[str, Any]] = []
+                    for r in range(assigned_rounds):
+                        res = _run_one_round(env_idx, r)
+                        if res:
+                            slot_results.append(res)
+                    return slot_results
 
-                        # Log per-task categories for this round
-                        task_success_by_cat: Dict[str, List[float]] = defaultdict(list)
-                        for entry in entries:
-                            task_success_by_cat[entry.get("task_category", "other")].append(
-                                1.0 if entry.get("won") else 0.0
-                            )
+                all_slot_results: List[Dict[str, Any]] = []
+                with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
+                    actual_pool_size = len(env_pool) if env_pool else pool_size
+                    futures = [ex.submit(_run_env_worker, i) for i in range(actual_pool_size)]
+                    for fut in as_completed(futures):
+                        slot_results = fut.result()
+                        all_slot_results.extend(slot_results)
 
-                        for cat, values in task_success_by_cat.items():
-                            rate = float(np.mean(values)) if values else 0.0
-                            logging.info(
-                                f"    {cat:<35s}: {rate:.4f} "
-                                f"({int(sum(values))}/{len(values)})"
-                            )
-            elif not (args.env == "alfworld" and args.unique_envs):
-                # This branch is for non-unique_envs mode (GAIA, WebShop, or AlfWorld without unique_envs)
-                for r in range(rounds):
-                    logging.info(f"\n========== Round {r + 1}/{rounds} ==========")
-                    env_results = []
-                    with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
-                        # For AlfWorld unique_envs mode, use concurrency limited to actual env_pool size
-                        # Otherwise use pool_size
-                        actual_pool_size = len(env_pool) if env_pool else pool_size
-                        futures = [ex.submit(_run_one_round, i, r) for i in range(actual_pool_size)]
-                        for fut in as_completed(futures):
-                            env_results.append(fut.result())
-
-                    # Update stats
-                    overall = np.array([rr['won'] for rr in env_results])
-                    first_attempt = np.array([rr['first_attempt_success'] for rr in env_results])
-                    total_tasks += len(env_results)
-                    total_first_attempt_successes += first_attempt.sum()
-                    total_debugger_successes += overall.sum()
-                    all_first_attempt_success_rates.append(first_attempt.mean())
-                    all_debugger_success_rates.append(overall.mean())
+                # Update stats
+                if all_slot_results:
+                    overall = np.array([1 if rr.get('won') else 0 for rr in all_slot_results], dtype=float)
+                    first_attempt = np.array([1 if rr.get('first_attempt_success') else 0 for rr in all_slot_results], dtype=float)
+                    total_tasks += len(all_slot_results)
+                    total_first_attempt_successes += int(first_attempt.sum())
+                    total_debugger_successes += int(overall.sum())
+                    all_first_attempt_success_rates.append(float(first_attempt.mean() if len(first_attempt) else 0.0))
+                    all_debugger_success_rates.append(float(overall.mean() if len(overall) else 0.0))
 
             # Close pool (if any)
             if env_pool:

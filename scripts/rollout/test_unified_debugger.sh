@@ -13,6 +13,10 @@ QWEN3_32B_URL="${QWEN3_32B_URL:-http://134.199.197.179:8001}"
 # Export empty API key for local vLLM servers
 export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
 
+# Optional: route calls via Together AI
+# Set TOGETHER_ARG="--together rollout" or "--together debugger" or "--together both"
+TOGETHER_ARG="${TOGETHER_ARG:-}"
+
 # Configuration
 #ROLLOUT_MODEL="${ROLLOUT_MODEL:-qwen3-8b}"
 # ROLLOUT_URL="${ROLLOUT_URL:-${QWEN3_8B_URL}/v1}"
@@ -54,15 +58,15 @@ echo "Run directory: ${RUN_DIR}"
 
 python scripts/rollout/openmanus_rollout_debugger.py \
     --env alfworld \
-    --total_envs 100 \
+    --total_envs 10 \
     --test_times 1 \
     --start_id 1 \
-    --max_steps 5 \
+    --max_steps 1 \
     --history_length 40 \
     --model "${ROLLOUT_MODEL}" \
     --temperature 0.0 \
     --enable_debugger \
-    --max_try 3 \
+    --max_try 2 \
     --debugger_model "${DEBUGGER_MODEL}" \
     --debugger_type continue \
     --debugger_temperature 0.0 \
@@ -72,7 +76,8 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --unique_envs \
     --debug \
     --concurrency 10 \
-    --llm_concurrency 20
+    --llm_concurrency 20 \
+    # ${TOGETHER_ARG}
     # --base_url "${ROLLOUT_URL}" \
     # --debugger_base_url "${DEBUGGER_URL}"
 

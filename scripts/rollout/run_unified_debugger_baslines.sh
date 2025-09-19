@@ -5,6 +5,10 @@
 
 echo "Starting unified debugger baseline tests..."
 
+# Optional: route calls via Together AI
+# Set TOGETHER_ARG="--together rollout" or "--together debugger" or "--together both"
+TOGETHER_ARG="${TOGETHER_ARG:-}"
+
 # Debugger strategy (smoke test with trajectory saving)
 echo "Running Debugger strategy smoke test with trajectory saving..."
 python scripts/rollout/openmanus_rollout_debugger.py \
@@ -19,7 +23,8 @@ python scripts/rollout/openmanus_rollout_debugger.py \
   --concurrency 3 \
   --unique_envs \
   --save_per_task_trajectories \
-  --experiment_dir experiments/debugger_smoke_fixed
+  --experiment_dir experiments/debugger_smoke_fixed \
+  ${TOGETHER_ARG}
 
 # Best-of-N strategy (smoke test with trajectory saving)
 echo "Running Best-of-N strategy smoke test with trajectory saving..."
@@ -34,7 +39,8 @@ python scripts/rollout/openmanus_rollout_debugger.py \
   --concurrency 3 \
   --unique_envs \
   --save_per_task_trajectories \
-  --experiment_dir experiments/bon_smoke_fixed
+  --experiment_dir experiments/bon_smoke_fixed \
+  ${TOGETHER_ARG}
 
 # ToT-DFS strategy (smoke test with trajectory saving)
 echo "Running ToT-DFS strategy smoke test with trajectory saving..."
@@ -51,7 +57,8 @@ python scripts/rollout/openmanus_rollout_debugger.py \
   --concurrency 3 \
   --unique_envs \
   --save_per_task_trajectories \
-  --experiment_dir experiments/tot_smoke_fixed
+  --experiment_dir experiments/tot_smoke_fixed \
+  ${TOGETHER_ARG}
 
 # DFSDT strategy (smoke test with trajectory saving)
 echo "Running DFSDT strategy smoke test with trajectory saving..."
@@ -70,7 +77,8 @@ python scripts/rollout/openmanus_rollout_debugger.py \
   --concurrency 3 \
   --unique_envs \
   --save_per_task_trajectories \
-  --experiment_dir experiments/dfsdt_smoke_fixed
+  --experiment_dir experiments/dfsdt_smoke_fixed \
+  ${TOGETHER_ARG}
 
 
 # Best-of-N strategy with per-task storage
@@ -87,7 +95,8 @@ python scripts/rollout/openmanus_rollout_debugger.py \
   --concurrency 10 \
   --unique_envs \
   --save_per_task_trajectories \
-  --experiment_dir experiments/alfworld_bon_fixed
+  --experiment_dir experiments/alfworld_bon_fixed \
+  ${TOGETHER_ARG}
 
 # ToT-DFS strategy with per-task storage
 echo "Running ToT-DFS strategy with per-task trajectory storage..."
@@ -104,7 +113,8 @@ python scripts/rollout/openmanus_rollout_debugger.py \
   --concurrency 5 \
   --unique_envs \
   --save_per_task_trajectories \
-  --experiment_dir experiments/alfworld_tot
+  --experiment_dir experiments/alfworld_tot \
+  ${TOGETHER_ARG}
 
 # DFSDT strategy with per-task storage  
 echo "Running DFSDT strategy with per-task trajectory storage..."
@@ -123,7 +133,8 @@ python scripts/rollout/openmanus_rollout_debugger.py \
   --concurrency 5 \
   --unique_envs \
   --save_per_task_trajectories \
-  --experiment_dir experiments/alfworld_dfsdt
+  --experiment_dir experiments/alfworld_dfsdt \
+  ${TOGETHER_ARG}
   
 
 echo "All baseline tests completed!"
