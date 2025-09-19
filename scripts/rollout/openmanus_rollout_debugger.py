@@ -5,6 +5,7 @@ Provides a single interface for running rollouts across all three environments.
 """
 
 import os
+import atexit
 import time
 import json
 import logging
@@ -16,6 +17,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 import queue
+import threading
 import numpy as np
 import random
 import hashlib
@@ -25,44 +27,52 @@ from scripts.rollout.baselines import run_best_of_n, run_tree_search, SearchPara
 from openai import OpenAI
 
 
-class TeeOutput:
-    """Class to duplicate stdout/stderr to both terminal and file."""
-    def __init__(self, file_path, stream):
-        self.file = open(file_path, 'a', encoding='utf-8')
-        self.stream = stream
-        self.original = getattr(sys, stream)
-        # Copy attributes from original stream
-        self.encoding = getattr(self.original, 'encoding', 'utf-8')
+class FileDescriptorTee:
+    """Mirror a file descriptor to the original stream and a log file."""
 
-    def write(self, data):
-        self.original.write(data)
-        self.file.write(data)
-        self.file.flush()
+    _write_lock = threading.Lock()
 
-    def flush(self):
-        self.original.flush()
-        self.file.flush()
+    def __init__(self, fd: int, log_path: str):
+        self.fd = fd
+        self.log_path = log_path
+        self.original_fd = os.dup(fd)
+        self.pipe_r, self.pipe_w = os.pipe()
+        os.dup2(self.pipe_w, fd)
+        self.log_file = open(log_path, "ab", buffering=0)
+        self._closed = False
+        self._reader_thread = threading.Thread(target=self._drain, daemon=True)
+        self._reader_thread.start()
 
-    def fileno(self):
-        """Return file descriptor of the original stream."""
-        return self.original.fileno()
+    def _drain(self) -> None:
+        with os.fdopen(self.pipe_r, "rb", buffering=0) as reader:
+            while True:
+                chunk = reader.read(4096)
+                if not chunk:
+                    break
+                os.write(self.original_fd, chunk)
+                with self._write_lock:
+                    self.log_file.write(chunk)
+                    self.log_file.flush()
 
-    def isatty(self):
-        """Return whether the original stream is a tty."""
-        return self.original.isatty()
-
-    def __getattr__(self, name):
-        """Delegate any other attributes to the original stream."""
-        return getattr(self.original, name)
-
-    def __enter__(self):
-        setattr(sys, self.stream, self)
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        setattr(sys, self.stream, self.original)
-        self.file.close()
-import threading
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            os.close(self.pipe_w)
+        except OSError:
+            pass
+        try:
+            os.dup2(self.original_fd, self.fd)
+        except OSError:
+            pass
+        if self._reader_thread.is_alive():
+            self._reader_thread.join(timeout=1.0)
+        try:
+            os.close(self.original_fd)
+        except OSError:
+            pass
+        self.log_file.close()
 import asyncio
 from concurrent.futures import ThreadPoolExecutor as AsyncThreadPoolExecutor
 from dataclasses import asdict, is_dataclass
@@ -1177,8 +1187,16 @@ class EnvironmentFactory:
         return ToolUseEnvironmentManager(envs, tool_use_projection, cfg)
     
     @staticmethod
-    def _build_webshop(env_num: int = 1, seed: int = 1, history_length: int = 2,
-                       use_train_set: bool = False, **kwargs):
+    def _build_webshop(
+        env_num: int = 1,
+        seed: int = 1,
+        history_length: int = 2,
+        use_train_set: bool = False,
+        use_summary: bool = False,
+        summary_api_key: Optional[str] = None,
+        summary_endpoint: Optional[str] = None,
+        **kwargs,
+    ):
         """Build WebShop environment"""
         from openmanus_rl.environments.env_package.webshop import build_webshop_envs, webshop_projection
         
@@ -1195,7 +1213,10 @@ class EnvironmentFactory:
         cfg = SimpleNamespace(
             env=SimpleNamespace(
                 env_name="webshop/WebAgentTextEnv",
-                history_length=history_length
+                history_length=history_length,
+                use_summary=bool(use_summary),
+                summary_api_key=summary_api_key,
+                summary_endpoint=summary_endpoint,
             )
         )
         
@@ -1287,6 +1308,108 @@ def prepare_alfworld_game_files(env_type: str, total_envs: int, seed: int) -> Op
     except Exception as e:
         logging.error(f"Failed to collect game files: {e}")
         return None
+
+
+def extract_trajectory_from_memory(
+    env_manager,
+    env_id: int = 0,
+    fallback_steps: Optional[List[Dict[str, Any]]] = None,
+    final_observation: Optional[str] = None,
+    env_type: str = "alfworld",
+) -> List[Dict[str, Any]]:
+    """Build a step-aligned trajectory using memory with safe fallbacks.
+
+    Notes on memory semantics:
+    - Memory stores records after each step (i > 0) as: prev_observation (o_i), action_at_step_i (a_i).
+      Concretely, ``memory[0]`` holds (o_1, a_1), ``memory[1]`` holds (o_2, a_2), etc.
+    - The very first step (o_0, a_0) is not recorded in memory by current env managers.
+    - The "observation" field in our trajectory steps represents the observation AFTER the action (o_{i+1}).
+      For step i, this equals ``memory[i].text_obs`` when available, and equals the fallback observation otherwise.
+
+    WebShop-specific handling (ONLY applies when env_type=="webshop"):
+    - Override observations with raw memory data to avoid summarization effects
+    - Use env_manager.pre_text_obs for the final observation (anchor/raw observation after format_obs,
+      but before templating/summarization)
+    - Other environments: validate memory vs fallback but always keep fallback observations
+
+    Args:
+        env_manager: Environment manager that owns the memory buffer.
+        env_id: Environment ID (0 for single-env scenarios).
+        fallback_steps: Manually collected steps to fill rewards/done/won and any missing pieces.
+        final_observation: Final observation after the last action (kept for future use; currently unused).
+        env_type: Environment type ("webshop", "alfworld", etc.) for env-specific behavior.
+
+    Returns:
+        List[Dict[str, Any]]: Trajectory aligned by step index with fields
+        step, observation (o_{i+1}), agent_input (what agent actually saw including summarized history),
+        action (a_i), reward, done, won.
+    """
+    if not fallback_steps:
+        return []
+
+    aligned_trajectory = []
+    num_steps = len(fallback_steps)
+
+    # Check if env_manager has memory with data
+    has_memory = (
+        hasattr(env_manager, 'memory') and
+        env_manager.memory and
+        hasattr(env_manager.memory, '_data') and
+        env_manager.memory._data and
+        env_id < len(env_manager.memory._data)
+    )
+
+    memory_data = env_manager.memory._data[env_id] if has_memory else []
+
+    # For WebShop, try to get the last raw observation from pre_text_obs
+    last_raw_obs = None
+    if env_type.lower() == "webshop" and hasattr(env_manager, 'pre_text_obs'):
+        if env_manager.pre_text_obs and env_id < len(env_manager.pre_text_obs):
+            last_raw_obs = env_manager.pre_text_obs[env_id]
+            logging.debug(f"    WebShop: Found pre_text_obs for final observation")
+
+    for step_idx in range(num_steps):
+        # Start with fallback data as base (canonical source for rewards/done/won and raw action)
+        trajectory_step = {
+            "step": step_idx,
+            "observation": fallback_steps[step_idx]["observation"],
+            "agent_input": fallback_steps[step_idx].get("agent_input", fallback_steps[step_idx]["observation"]),  # What agent actually saw
+            "action": fallback_steps[step_idx]["action"],  # Always use original LLM action
+            "reward": fallback_steps[step_idx].get("reward", 0.0),
+            "done": fallback_steps[step_idx].get("done", False),
+            "won": fallback_steps[step_idx].get("won", False)
+        }
+
+        # WebShop: Use raw observations from memory to avoid summarization
+        if env_type.lower() == "webshop" and memory_data:
+            # Memory[step_idx].text_obs corresponds to o_{step_idx+1} (post-action observation)
+            if step_idx < len(memory_data):
+                mem_obs = memory_data[step_idx].get("text_obs")
+                if isinstance(mem_obs, str) and mem_obs:
+                    # For WebShop, override with raw memory observation
+                    trajectory_step["observation"] = mem_obs
+                    logging.debug(f"        Step {step_idx}: Using raw memory observation (WebShop)")
+            # Handle the last observation specially
+            elif step_idx == num_steps - 1 and last_raw_obs:
+                # Last observation not in memory yet, use pre_text_obs
+                trajectory_step["observation"] = last_raw_obs
+                logging.debug(f"        Step {step_idx}: Using pre_text_obs for final observation (WebShop)")
+
+        # Other environments: validate but keep fallback observations
+        elif memory_data and env_type.lower() != "webshop":
+            # Memory[step_idx].text_obs corresponds to o_{step_idx+1} (post-action observation)
+            if step_idx < len(memory_data):
+                mem_obs = memory_data[step_idx].get("text_obs")
+                if isinstance(mem_obs, str) and mem_obs and mem_obs != trajectory_step["observation"]:
+                    # Keep fallback as the source of truth but log a mismatch for visibility
+                    logging.debug(
+                        "Memory/fallback observation mismatch at step %d: mem vs fallback (len %d vs %d)",
+                        step_idx, len(mem_obs), len(trajectory_step["observation"])  # lengths to avoid huge logs
+                    )
+
+        aligned_trajectory.append(trajectory_step)
+
+    return aligned_trajectory
 
 
 def generate_debugger_feedback_text(analysis: Dict[str, Any]) -> str:
@@ -1639,8 +1762,8 @@ def run_environment_with_retry(
             obs_dict, reward_dict, done_dict, info_dict = env_manager.step_single(env_id, action)
             
             obs = obs_dict["text"][env_id]
-            reward = reward_dict[env_id]
-            done = done_dict[env_id]
+            reward = float(reward_dict[env_id])  # Convert numpy type to Python float
+            done = bool(done_dict[env_id])  # Convert numpy bool to Python bool
             # info_dict is a list, get the element at env_id
             info = info_dict[env_id] if isinstance(info_dict, list) else info_dict
             
@@ -1653,7 +1776,8 @@ def run_environment_with_retry(
             # Store trajectory step (step_idx is 0-based)
             trajectory_step = {
                 "step": step_idx,  # Keep 0-based indexing for consistency
-                "observation": obs,
+                "observation": obs,  # Raw observation from environment
+                "agent_input": prompt,  # What the agent actually saw (includes summarized history)
                 "action": raw_action,
                 "reward": float(reward),
                 "done": bool(done),
@@ -1721,8 +1845,8 @@ def run_environment_with_retry(
         attempt_data = {
             "retry_idx": retry_idx,
             "trajectory": trajectory_steps.copy(),
-            "won": won,
-            "reward": cumulative_reward,
+            "won": bool(won),  # Ensure Python bool type
+            "reward": float(cumulative_reward),  # Ensure Python float type
             "steps": len(trajectory_steps)
         }
         
@@ -1761,16 +1885,53 @@ def run_environment_with_retry(
             if follow_up_instruction:
                 attempt_data["follow_up_instruction"] = follow_up_instruction
 
+        # Save current trajectory for potential debugging
+        # Extract aligned trajectory from memory with proper step alignment
+        aligned_trajectory = extract_trajectory_from_memory(
+            env_manager,
+            env_id=env_id,
+            fallback_steps=trajectory_steps,
+            final_observation=obs,  # Current obs is the final observation after last action
+            env_type=env_type  # Pass env type for WebShop-specific handling
+        )
+
+        # Add aligned trajectory and metadata for offline analysis
+        if aligned_trajectory and aligned_trajectory != trajectory_steps:
+            # Memory-aligned trajectory differs from manual collection
+            attempt_data["trajectory_aligned"] = aligned_trajectory
+            attempt_data["trajectory_source"] = "memory_aligned"
+            attempt_metadata["trajectory_alignment"] = {
+                "source": "memory",
+                "original_length": len(trajectory_steps),
+                "aligned_length": len(aligned_trajectory),
+                "env_type": env_type,
+                "webshop_raw_obs": env_type.lower() == "webshop"  # Flag if using raw observations
+            }
+        else:
+            # Using fallback trajectory
+            attempt_data["trajectory_source"] = "fallback"
+            attempt_metadata["trajectory_alignment"] = {
+                "source": "fallback",
+                "reason": "no_memory" if not aligned_trajectory else "identical",
+                "length": len(trajectory_steps)
+            }
+
         all_attempt_trajectories.append(attempt_data)
-        
+
         # Save individual attempt trajectory to task dir
         if task_dir:
             attempt_file = os.path.join(task_dir, f"attempt_{retry_idx + 1}_trajectory.json")
             with open(attempt_file, "w") as f:
                 json.dump(attempt_data, f, indent=2)
-        
-        # Save current trajectory for potential debugging
-        last_trajectory = trajectory_steps
+
+        # Use aligned trajectory if available, otherwise fallback to manual collection
+        if aligned_trajectory:
+            last_trajectory = aligned_trajectory
+            logging.debug(f"    Using aligned trajectory from memory: {len(aligned_trajectory)} steps")
+        else:
+            last_trajectory = trajectory_steps
+            logging.debug(f"    Using manually collected trajectory: {len(trajectory_steps)} steps")
+
         last_chat_history = list(chat_history)
         last_metadata = attempt_metadata
         final_reward = cumulative_reward
@@ -1949,6 +2110,12 @@ def main():
                        help="List of available tools for GAIA")
     parser.add_argument("--webshop_train", action="store_true",
                        help="Use WebShop training set instead of test set")
+    parser.add_argument("--use_summary", action="store_true",
+                       help="Use summarization-based memory for history (WebShop/AlfWorld where supported)")
+    parser.add_argument("--summary_api_key", default=None,
+                       help="API key for summarizer service (optional)")
+    parser.add_argument("--summary_endpoint", default=None,
+                       help="HTTP endpoint for summarizer service (optional)")
     
     # Debugger options
     parser.add_argument("--enable_debugger", action="store_true",
@@ -2035,19 +2202,28 @@ def main():
         f"unified_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     )
 
-    # Redirect stdout and stderr to both terminal and log file
-    stdout_tee = TeeOutput(log_fp, 'stdout')
-    stderr_tee = TeeOutput(log_fp, 'stderr')
-    sys.stdout = stdout_tee
-    sys.stderr = stderr_tee
+    # Redirect stdout and stderr at the file descriptor level so Ray worker logs
+    # (which bypass sys.stdout) are mirrored into the log file.
+    stdout_tee = FileDescriptorTee(sys.stdout.fileno(), log_fp)
+    stderr_tee = FileDescriptorTee(sys.stderr.fileno(), log_fp)
+    atexit.register(stdout_tee.close)
+    atexit.register(stderr_tee.close)
 
     print(f"=== Log file: {log_fp} ===")
 
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.INFO,
         format="%(asctime)s - %(message)s",
-        handlers=[logging.FileHandler(log_fp, encoding="utf-8"), logging.StreamHandler()],
+        handlers=[logging.StreamHandler()],
+        force=True,
     )
+
+    # Suppress verbose client logs so captured output matches prior stdout view.
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("filelock").setLevel(logging.WARNING)
+    logging.getLogger("ray").setLevel(logging.WARNING)
     
     logging.info(f"Starting unified rollout for {args.env}")
     logging.info(f"Model: {args.model}, Temperature: {args.temperature}")
@@ -2420,6 +2596,11 @@ def main():
                     
             elif args.env == "webshop":
                 env_kwargs["use_train_set"] = args.webshop_train
+                env_kwargs["use_summary"] = bool(args.use_summary)
+                if args.summary_api_key:
+                    env_kwargs["summary_api_key"] = args.summary_api_key
+                if args.summary_endpoint:
+                    env_kwargs["summary_endpoint"] = args.summary_endpoint
             
             # Batch-level statistics
             batch_overall_success_rates = []
@@ -2943,6 +3124,11 @@ def main():
                 # so we skip building a persistent env_pool below.
             elif args.env == "webshop":
                 common_kwargs["use_train_set"] = args.webshop_train
+                common_kwargs["use_summary"] = bool(args.use_summary)
+                if args.summary_api_key:
+                    common_kwargs["summary_api_key"] = args.summary_api_key
+                if args.summary_endpoint:
+                    common_kwargs["summary_endpoint"] = args.summary_endpoint
 
             env_pool = []
             # For GAIA/WEBSHOP (and AlfWorld without unique_envs), prebuild persistent envs
@@ -3350,6 +3536,11 @@ def main():
                         env_kwargs["game_files"] = alfworld_game_files[:pool_size]
                 elif args.env == "webshop":
                     env_kwargs["use_train_set"] = args.webshop_train
+                    env_kwargs["use_summary"] = bool(args.use_summary)
+                    if args.summary_api_key:
+                        env_kwargs["summary_api_key"] = args.summary_api_key
+                    if args.summary_endpoint:
+                        env_kwargs["summary_endpoint"] = args.summary_endpoint
 
                 env_manager = EnvironmentFactory.build_env(args.env, with_debugger=False, **env_kwargs)
 
@@ -3509,6 +3700,9 @@ def main():
     elif args.env == "gaia":
         successful_tasks = sum(1 for rates in all_task_success_history.values() if any(r > 0 for r in rates))
         logging.info(f"Successfully completed {successful_tasks} out of {len(all_task_success_history)} unique tasks")
+
+    stdout_tee.close()
+    stderr_tee.close()
 
 
 if __name__ == "__main__":
