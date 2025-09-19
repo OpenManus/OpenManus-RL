@@ -1897,6 +1897,14 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.4)
     parser.add_argument("--base_url", default=None,
                        help="OpenAI-compatible base URL (e.g., vLLM http://127.0.0.1:8000/v1)")
+    parser.add_argument("--value_model", default=None,
+                       help="Optional separate model for ToT/DFSDT value scoring (defaults to --model)")
+    parser.add_argument("--value_temperature", type=float, default=None,
+                       help="Temperature for the value model (defaults to --temperature if unset)")
+    parser.add_argument("--value_base_url", default=None,
+                       help="OpenAI-compatible base URL for the value model (defaults to --base_url)")
+    parser.add_argument("--value_together", action="store_true",
+                       help="Route value-model calls through Together regardless of --together")
     
     # Execution parameters
     parser.add_argument("--concurrency", type=int, default=4,
@@ -1916,6 +1924,10 @@ def main():
     parser.add_argument("--diversity_back_steps", type=int, default=2, help="DFSDT: backtrack steps on failure")
     parser.add_argument("--diversity_back_steps_alt", type=int, default=3, help="DFSDT: alternate backtrack if needed")
     parser.add_argument("--propose_k", type=int, default=4, help="ToT/DFSDT: proposals when no explicit list")
+    parser.add_argument("--tot_history_window", type=int, default=4,
+                       help="Number of recent steps to include in ToT prompts (history context)")
+    parser.add_argument("--tot_history_obs_trim", type=int, default=400,
+                       help="Max characters per observation snippet inside ToT history context")
 
     # Output parameters
     parser.add_argument("--dump_path", default=None,
@@ -2269,6 +2281,35 @@ def main():
         env_type=args.env,
         use_together=use_together_rollout,
     )
+
+    value_agent = None
+    override_value_agent = any(
+        [
+            args.value_model,
+            args.value_base_url,
+            args.value_temperature is not None,
+            args.value_together,
+        ]
+    )
+    if override_value_agent:
+        value_agent_model = args.value_model or args.model
+        value_agent_temperature = args.value_temperature if args.value_temperature is not None else args.temperature
+        value_agent_base_url = args.value_base_url if args.value_base_url is not None else args.base_url
+        value_agent_use_together = args.value_together or use_together_rollout
+        value_agent = UnifiedAgent(
+            model_name=value_agent_model,
+            temperature=value_agent_temperature,
+            base_url=value_agent_base_url,
+            env_type=args.env,
+            use_together=value_agent_use_together,
+        )
+        logging.info(
+            "Value model override: model=%s, temperature=%.2f, base_url=%s, together=%s",
+            value_agent_model,
+            value_agent_temperature,
+            value_agent_base_url or "(default)",
+            value_agent_use_together,
+        )
     
     # Create shared LLM executor pool for better concurrency across all tasks
     # Use more workers than task concurrency to handle LLM I/O wait time
@@ -2432,6 +2473,11 @@ def main():
                                 task_dir_local = None
                                 if args.save_per_task_trajectories and trajectories_dir:
                                     task_dir_local = os.path.join(trajectories_dir, _sanitize(task_id_local))
+                                    if os.path.exists(task_dir_local):
+                                        try:
+                                            shutil.rmtree(task_dir_local)
+                                        except Exception as exc:
+                                            logging.warning(f"Failed to reset task dir {task_dir_local}: {exc}")
                                     os.makedirs(task_dir_local, exist_ok=True)
                                 reset_time = time.time() - reset_start
                                 logging.info(f"[PARALLEL] Task {env_idx + 1} reset took {reset_time:.3f}s")
@@ -2506,43 +2552,43 @@ def main():
                                         task_dir=task_dir_local,
                                     )
                                 else:
-                                    # ToT-DFS or DFSDT: run up to max_try independent search attempts (one file per attempt)
                                     sp = SearchParams(
                                         beam_size=args.beam_size,
                                         value_threshold=args.value_threshold,
-                                        max_try=1,  # single trajectory per call
+                                        max_try=args.max_try,
                                         max_depth=args.max_steps,
                                         diversity_back_steps=args.diversity_back_steps,
                                         diversity_back_steps_alt=args.diversity_back_steps_alt,
                                         propose_k=args.propose_k,
+                                        history_window=args.tot_history_window,
+                                        history_observation_trim=args.tot_history_obs_trim,
                                     )
                                     mode = "tot" if args.strategy == "tot" else "dfsdt"
-                                    res = None
-                                    # Optionally clear task dir (already cleared earlier when created)
-                                    for attempt_idx in range(1, args.max_try + 1):
-                                        logging.info(f"[{mode.upper()}] Starting trajectory attempt {attempt_idx}/{args.max_try}")
-                                        sr = run_tree_search(
-                                            env_manager=local_env,
-                                            agent=agent,
-                                            max_steps=args.max_steps,
-                                            env_type=args.env,
-                                            params=sp,
-                                            mode=mode,
-                                            task_dir=task_dir_local if args.save_per_task_trajectories else None,
-                                            attempt_id=attempt_idx if args.save_per_task_trajectories else None,
-                                        )
-                                        if res is None:
-                                            res = sr.copy()
-                                            res["search_attempts"] = []
-                                        res["search_attempts"].append({
-                                            "won": sr.get("won", False),
-                                            "steps": sr.get("steps", 0),
-                                            "strategy": mode,
-                                        })
-                                        if sr.get("won", False):
-                                            logging.info(f"[{mode.upper()}] SUCCESS on attempt {attempt_idx}")
-                                            res = sr
-                                            break
+                                    sr = run_tree_search(
+                                        env_manager=local_env,
+                                        agent=agent,
+                                        max_steps=args.max_steps,
+                                        env_type=args.env,
+                                        params=sp,
+                                        mode=mode,
+                                        task_dir=task_dir_local if args.save_per_task_trajectories else None,
+                                        value_agent=value_agent,
+                                    )
+                                    res = sr
+
+                                    if args.save_per_task_trajectories and task_dir_local:
+                                        try:
+                                            for attempt in sr.get("search_attempts", []):
+                                                attempt_idx = attempt.get("attempt")
+                                                if attempt_idx is None:
+                                                    continue
+                                                attempt_path = os.path.join(
+                                                    task_dir_local, f"attempt_{attempt_idx}_trajectory.json"
+                                                )
+                                                with open(attempt_path, "w", encoding="utf-8") as f:
+                                                    json.dump(attempt, f, ensure_ascii=False, indent=2)
+                                        except Exception as exc:
+                                            logging.debug(f"Failed to persist per-attempt trajectories: {exc}")
                                 rollout_time = time.time() - rollout_start
                                 total_time = time.time() - task_start_time
                                 logging.info(f"[PARALLEL] Task {env_idx + 1} rollout took {rollout_time:.3f}s, total time: {total_time:.3f}s")
@@ -3066,57 +3112,51 @@ def main():
                         task_dir=task_dir,
                     )
                 else:
-                    # ToT/DFSDT direct: run up to max_try independent trajectories (one file per attempt)
                     sp = SearchParams(
                         beam_size=args.beam_size,
                         value_threshold=args.value_threshold,
-                        max_try=1,
+                        max_try=args.max_try,
                         max_depth=args.max_steps,
                         diversity_back_steps=args.diversity_back_steps,
                         diversity_back_steps_alt=args.diversity_back_steps_alt,
                         propose_k=args.propose_k,
+                        history_window=args.tot_history_window,
+                        history_observation_trim=args.tot_history_obs_trim,
                     )
                     mode = "tot" if args.strategy == "tot" else "dfsdt"
-                    res = None
-                    # Clear task dir for fresh attempts
-                    if task_dir and os.path.exists(task_dir):
+                    if args.save_per_task_trajectories and task_dir and os.path.exists(task_dir):
                         try:
                             shutil.rmtree(task_dir)
                         except Exception as e:
                             logging.warning(f"Failed to clear task dir {task_dir}: {e}")
                         os.makedirs(task_dir, exist_ok=True)
-                    for attempt_idx in range(1, args.max_try + 1):
-                        logging.info(f"[{mode.upper()}] Starting trajectory attempt {attempt_idx}/{args.max_try}")
-                        sr = run_tree_search(
+
+                    res = run_tree_search(
                         env_manager=local_mgr,
                         agent=agent,
                         max_steps=args.max_steps,
                         env_type=args.env,
                         params=sp,
-                            mode=mode,
-                            task_dir=task_dir if args.save_per_task_trajectories else None,
-                            attempt_id=attempt_idx if args.save_per_task_trajectories else None,
-                        )
-                        if res is None:
-                            res = sr.copy()
-                            res["search_attempts"] = []
-                        res["search_attempts"].append({
-                            "won": sr.get("won", False),
-                            "steps": sr.get("steps", 0),
-                            "strategy": mode,
-                        })
-                        if sr.get("won", False):
-                            res = sr
-                            break
-                    # Write summary
-                    if task_dir and args.strategy in ("tot", "dfsdt"):
+                        mode=mode,
+                        task_dir=task_dir if args.save_per_task_trajectories else None,
+                        value_agent=value_agent,
+                    )
+
+                    if args.save_per_task_trajectories and task_dir:
                         try:
+                            for attempt in res.get("search_attempts", []):
+                                attempt_idx = attempt.get("attempt")
+                                if attempt_idx is None:
+                                    continue
+                                attempt_path = os.path.join(task_dir, f"attempt_{attempt_idx}_trajectory.json")
+                                with open(attempt_path, "w", encoding="utf-8") as f:
+                                    json.dump(attempt, f, ensure_ascii=False, indent=2)
                             summary_file = os.path.join(task_dir, "task_summary.json")
                             meta = {
                                 "model": agent.model_name,
                                 "env_type": args.env,
                                 "strategy": args.strategy,
-                                "total_attempts": len(res.get("search_attempts", [])) if res.get("search_attempts") else 0,
+                                "total_attempts": len(res.get("search_attempts", [])),
                                 "won": bool(res.get("won", False)),
                                 "timestamp": run_ts,
                             }
@@ -3124,9 +3164,10 @@ def main():
                                 json.dump({
                                     "metadata": meta,
                                     "search_attempts": res.get("search_attempts", []),
+                                    "final_result": {"won": res.get("won", False), "steps": res.get("steps", 0)},
                                 }, f, ensure_ascii=False, indent=2)
                         except Exception as e:
-                            logging.debug(f"Failed to write updated summary: {e}")
+                            logging.debug(f"Failed to persist per-task artifacts: {e}")
                 res["task_id"] = task_id
                 res["env_id"] = env_idx
                 res["round_idx"] = round_idx
