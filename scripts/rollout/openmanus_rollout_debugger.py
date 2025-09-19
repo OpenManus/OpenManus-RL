@@ -517,7 +517,7 @@ These instructions were generated from analyzing previous failures. Consider how
         if generate_follow_up:
             follow_up_instruction = """
 FOLLOW-UP INSTRUCTION GENERATION:
-In addition to the regular analysis, generate a "follow_up_instruction" - a concise, actionable guidance that should be applied to ALL FUTURE STEPS to prevent similar errors. This instruction should:
+In addition to the regular analysis, generate a "follow_up_instruction" — a concise, actionable guidance that should be applied to ALL FUTURE STEPS to prevent similar errors. This instruction must be extremely brief: a single sentence, no lists, no numbering, no line breaks, max ~200 characters. Write it as a direct imperative (e.g., "Verify X before Y; avoid Z"). This instruction should:
 1. Be general enough to apply across multiple steps
 2. Address the root cause category (not just the specific instance)
 3. Build upon previous instructions to form cumulative guidance
@@ -537,7 +537,7 @@ The follow_up_instruction should provide proactive guidance to avoid similar fai
     "evidence": "Specific quote or observation from trajectory supporting this identification",
     "confidence": <0.0-1.0>,
     "root_cause": "Concise description of the fundamental problem",
-    "follow_up_instruction": "General guidance for future steps to prevent similar errors"
+    "follow_up_instruction": "General guidance for future steps to prevent similar errors (few concise sentences)"
 }"""
             additional_requirement = "- Generate a follow_up_instruction that provides proactive guidance for preventing similar errors in future steps"
         else:
@@ -570,38 +570,49 @@ TRAJECTORY ANALYSIS:
 
 {error_reference}
 
-CRITICAL ERROR IDENTIFICATION:
+Your job is to identify the CRITICAL ERROR - the earliest and most important error that led to task failure.
 
-Your task is to identify the CRITICAL ERROR - the earliest and most important error that led to task failure.
+CRITICAL ERROR IDENTIFICATION APPROACH:
+You must take a HOLISTIC, GLOBAL perspective to identify the true root cause of failure. Do NOT rely on any predetermined severity weights or rankings.
 
 ANALYSIS GUIDELINES:
-1. Take a HOLISTIC, GLOBAL perspective - understand the task goal and how the agent's path diverged from success
-2. Find the EARLIEST point where the agent made a decision/error that set it on an irreversible path to failure  
-3. Early exploration steps (1-3) are often normal - don't mark as critical unless there's a clear fundamental error
+1. Consider the ENTIRE trajectory from a global perspective - understand the task goal and how the agent's path diverged from success
+2. Find the EARLIEST point where the agent made a decision or error that set it on an irreversible path to failure
+3. Early exploration steps (steps 1-3) are often normal and should NOT be marked as critical unless there's a clear, fundamental error
 4. An error is critical if:
    - It represents the ROOT CAUSE that made task success impossible
    - It caused a cascade of subsequent errors
    - The trajectory could have succeeded if THIS specific error had not occurred
-   - Correcting this specific error would fundamentally change the trajectory toward success
+   - **IMPORTANT: Correcting this specific error would fundamentally change the trajectory toward success**
+5. Focus on causal chains - trace backwards from the failure to find the origin point
+6. **IMPORTANT: Step 1 only has planning and action modules** - no memory or reflection is possible at step 1 since there's no history yet
+   - Do NOT mark step 1 memory/reflection as critical errors
+   - Early steps without memory/reflection modules are expected
+7. Consider System and Others categories as potential critical errors:
+   - System errors (step_limit, tool_execution_error, llm_limit, environment_error) may also be the true cause of failure
+   - For example, if the agent was performing correctly but hit step_limit, that IS the critical error
+   - Others category captures unusual failures not covered by standard error types
+   - Do NOT ignore these categories
+   
+KEY DECISION PRINCIPLE:
+Think globally: "What was the FIRST decision or error that doomed this trajectory to failure?"
+NOT: "Which error type seems most severe based on a predefined scale?"
 
-5. Consider all error modules:
-   - **Memory**: Issues with information storage, retrieval, or recall
-   - **Reflection**: Problems evaluating progress, outcomes, or causal relationships  
-   - **Planning**: Flawed task decomposition, constraint violations, impossible actions
-   - **Action**: Misaligned actions, format errors, invalid parameters
-   - **System**: Step limits, tool errors, LLM failures, environment issues
-   - **Others**: Unusual failures not covered by standard categories
+The critical error is the one where, if we could go back in time and fix ONLY that error, the entire trajectory would likely succeed.
 
-KEY PRINCIPLE: "What was the FIRST decision or error that doomed this trajectory to failure?"
 {follow_up_instruction}
 REQUIRED OUTPUT FORMAT (JSON):
 {json_format}
 
 IMPORTANT: 
-- Error types MUST match the definitions provided above
+- Error types MUST be selected from the definitions provided above
+- The error_type must match one of the defined types for that module
+- Valid modules include: memory, reflection, planning, action, system, others
+- System errors (step_limit, tool_execution_error, llm_limit, environment_error) are VALID critical errors
+- Others category is for unusual failures not covered by standard types
 - Focus on the error that, if corrected, would have the highest impact on task success
-- The critical_module and failure_type must be consistent with the error taxonomy
 {additional_requirement}
+
 
 Identify the TRUE ROOT CAUSE that made the task unrecoverable."""
 
@@ -649,7 +660,7 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable."""
         log_path: Optional[str] = None,
     ) -> str:
         """
-        Generate enhanced feedback based on critical error analysis
+        Generate feedback from analysis without additional LLM calls
         
         Args:
             observation: Current observation from the environment
@@ -658,82 +669,12 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable."""
             env_type: Type of environment
         
         Returns:
-            Detailed feedback string to inject into observation
+            Detailed feedback string to inject into observation, composed directly
+            from analyze_trajectory output (single API call total)
         """
-        
-        # Extract comprehensive error information
-        critical = analysis.get('raw_critical_error', {})
-        critical_module = critical.get('critical_module', analysis.get('critical_module', 'unknown'))
-        error_type = critical.get('error_type', analysis.get('failure_type', 'unknown'))
-        root_cause = critical.get('root_cause', analysis.get('root_cause', analysis.get('reason', 'Unknown error')))
-        correction_guidance = critical.get('correction_guidance', analysis.get('suggestion', 'Try a different approach'))
-        evidence = critical.get('evidence', analysis.get('evidence', ''))
-        confidence = critical.get('confidence', analysis.get('confidence', 0.5))
-        
-        # Build context-aware feedback prompt
-        feedback_prompt = f"""You are an expert agent coach. Based on a detailed failure analysis, generate specific, actionable feedback for an agent that made a critical error.
-
-ENVIRONMENT: {env_type}
-CURRENT OBSERVATION: {observation}
-PREVIOUS FAILED ACTION: {previous_action}
-
-DETAILED FAILURE ANALYSIS:
-- Critical Module: {critical_module}
-- Error Type: {error_type}  
-- Root Cause: {root_cause}
-- Evidence: {evidence}
-- Correction Guidance: {correction_guidance}
-- Confidence: {confidence:.2f}
-
-FEEDBACK REQUIREMENTS:
-Generate a clear, actionable feedback message that:
-1. SPECIFICALLY addresses the {critical_module} module error of type '{error_type}'
-2. Explains WHY the previous approach failed (based on root cause)
-3. Provides CONCRETE guidance on what to do differently
-4. References specific evidence from the trajectory when relevant
-5. Is concise but comprehensive (3-4 sentences max)
-
-Focus on helping the agent understand both the specific mistake and the corrective action needed.
-
-Output only the feedback message, no additional formatting."""
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": "You are an expert agent coach providing specific, actionable feedback based on detailed error analysis."},
-                    {"role": "user", "content": feedback_prompt}
-                ],
-                temperature=self.temperature * 0.8  # Slightly lower temperature for more focused feedback
-            )
-            
-            response_text = response.choices[0].message.content
-            self._log_llm_call(log_path, feedback_prompt, response_text)
-            feedback = response_text.strip()
-            
-            # Format comprehensive feedback for injection
-            formatted_feedback = f"""
-[DEBUGGER FEEDBACK - Critical Error Detected]
-Error Type: {critical_module}::{error_type} (Confidence: {confidence:.2f})
-Root Cause: {root_cause}
-
-{feedback}
-
-Specific Guidance: {correction_guidance}
-"""
-            
-            return formatted_feedback
-            
-        except Exception as e:
-            logging.error(f"Failed to generate enhanced feedback: {e}")
-            # Fallback to basic feedback with available information
-            fallback_feedback = f"""
-[DEBUGGER FEEDBACK - Previous Attempt Failed]
-Error: {critical_module}::{error_type}
-Issue: {root_cause}
-Recommendation: {correction_guidance}
-"""
-            return fallback_feedback
+        # Compose feedback deterministically from analysis results
+        # No additional LLM calls; ignore log_path
+        return generate_debugger_feedback_text(analysis)
     
     def _format_trajectory(self, trajectory: List[Dict]) -> str:
         """Format trajectory for LLM analysis"""
@@ -1076,17 +1017,12 @@ class ContinuousInstructionManager:
         return self.instruction_history.get(env_id, [])
     
     def format_instructions_for_observation(self, env_id: int) -> str:
-        """Format instructions for injection into observation"""
+        """Format instructions compactly for injection into the observation prompt."""
         instructions = self.get_instructions(env_id)
         if not instructions:
             return ""
-        
-        formatted = "[CONTINUOUS DEBUGGER GUIDANCE]\n"
-        formatted += "Based on previous failures, remember to:\n"
-        for i, instruction in enumerate(instructions, 1):
-            formatted += f"{i}. {instruction}\n"
-        formatted += "Apply these guidelines throughout your problem-solving process.\n"
-        return formatted
+        # Keep overlay minimal: single line label + guidance items joined by '; '
+        return "[CONTINUOUS DEBUGGER GUIDANCE] " + "; ".join(instructions)
 
 
 class TrajectoryManager:
@@ -1518,6 +1454,11 @@ def generate_debugger_feedback_text(analysis: Dict[str, Any]) -> str:
     if evidence and evidence.strip():
         feedback_parts.append(f"Supporting Evidence: {evidence}")
     
+    # Include proactive follow-up instruction if available
+    follow_up = analysis.get('follow_up_instruction')
+    if follow_up:
+        feedback_parts.append(f"Follow-up Instruction (apply to all future steps): {follow_up}")
+    
     feedback_parts.append("This is a replay attempt - apply the corrective guidance to avoid the same mistake.")
     
     return "\n".join(feedback_parts)
@@ -1563,18 +1504,15 @@ def run_environment_with_retry(
     first_attempt_success = False  # Track if first attempt was successful
 
     analysis_log_path: Optional[str] = None
-    feedback_log_path: Optional[str] = None
     if debugger and task_dir:
         analysis_log_path = os.path.join(task_dir, "debugger_analysis_calls.jsonl")
-        feedback_log_path = os.path.join(task_dir, "debugger_feedback_calls.jsonl")
-        for log_path in (analysis_log_path, feedback_log_path):
-            try:
-                os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                if not os.path.exists(log_path):
-                    with open(log_path, "a", encoding="utf-8"):
-                        pass
-            except Exception as exc:
-                logging.debug(f"Failed to initialize debugger log file {log_path}: {exc}")
+        try:
+            os.makedirs(os.path.dirname(analysis_log_path), exist_ok=True)
+            if not os.path.exists(analysis_log_path):
+                with open(analysis_log_path, "a", encoding="utf-8"):
+                    pass
+        except Exception as exc:
+            logging.debug(f"Failed to initialize debugger log file {analysis_log_path}: {exc}")
 
     for retry_idx in range(max_retries):
         logging.info(f"  Env {env_id} - Attempt {retry_idx + 1}/{max_retries}")
@@ -1741,7 +1679,6 @@ def run_environment_with_retry(
                         analysis,
                         failure_action,
                         env_type,
-                        log_path=feedback_log_path,
                     )
                 except Exception as exc:
                     logging.warning(f"Failed to generate LLM feedback, falling back to template: {exc}")
