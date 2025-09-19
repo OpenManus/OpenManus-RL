@@ -139,8 +139,14 @@ class EnvironmentFactory:
     
     @staticmethod
     def _build_alfworld(env_num: int = 1, seed: int = 1, history_length: int = 2,
-                       alf_env_type: str = "alfworld/AlfredTWEnv", 
-                       game_files: Optional[List[str]] = None, **kwargs):
+                       alf_env_type: str = "alfworld/AlfredTWEnv",
+                       game_files: Optional[List[str]] = None,
+                       use_summary: bool = False,
+                       summary_api_key: Optional[str] = None,
+                       summary_endpoint: Optional[str] = None,
+                       summary_model: Optional[str] = "gpt-4o",
+                       summary_concurrency: int = 8,
+                       **kwargs):
         """Build AlfWorld environment"""
         from openmanus_rl.environments.env_package.alfworld import alfworld_projection
         from openmanus_rl.environments.env_package.alfworld import build_alfworld_envs
@@ -162,8 +168,13 @@ class EnvironmentFactory:
         
         cfg = SimpleNamespace(
             env=SimpleNamespace(
-                env_name=alf_env_type, 
-                history_length=history_length
+                env_name=alf_env_type,
+                history_length=history_length,
+                use_summary=use_summary,
+                summary_api_key=summary_api_key,
+                summary_endpoint=summary_endpoint,
+                summary_model=summary_model,
+                summary_concurrency=summary_concurrency,
             )
         )
         
@@ -185,7 +196,8 @@ class EnvironmentFactory:
             seed=seed,
             env_num=env_num,
             group_n=1,
-            is_train=True
+            is_train=True,
+            model_string=kwargs.get('model', 'gpt-4o')
         )
         
         cfg = SimpleNamespace(
@@ -200,7 +212,13 @@ class EnvironmentFactory:
     
     @staticmethod
     def _build_webshop(env_num: int = 1, seed: int = 1, history_length: int = 2,
-                       use_train_set: bool = False, **kwargs):
+                       use_train_set: bool = False,
+                       use_summary: bool = False,
+                       summary_api_key: Optional[str] = None,
+                       summary_endpoint: Optional[str] = None,
+                       summary_model: Optional[str] = "gpt-4o",
+                       summary_concurrency: int = 8,
+                       **kwargs):
         """Build WebShop environment"""
         from openmanus_rl.environments.env_package.webshop import build_webshop_envs, webshop_projection
         
@@ -217,7 +235,12 @@ class EnvironmentFactory:
         cfg = SimpleNamespace(
             env=SimpleNamespace(
                 env_name="webshop/WebAgentTextEnv",
-                history_length=history_length
+                history_length=history_length,
+                use_summary=use_summary,
+                summary_api_key=summary_api_key,
+                summary_endpoint=summary_endpoint,
+                summary_model=summary_model,
+                summary_concurrency=summary_concurrency,
             )
         )
         
@@ -288,6 +311,25 @@ def main():
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--history_length", type=int, default=3)
     
+    # Sharding parameters (workload splitting across processes)
+    parser.add_argument(
+        "--num_shards",
+        type=int,
+        default=1,
+        help=(
+            "Total number of shards to split the workload into. "
+            "Use with --shard_id to run disjoint subsets in parallel."
+        ),
+    )
+    parser.add_argument(
+        "--shard_id",
+        type=int,
+        default=0,
+        help=(
+            "Zero-based shard index for this process; must satisfy 0 <= shard_id < num_shards."
+        ),
+    )
+    
     # Model parameters
     parser.add_argument("--model", default="gpt-4o",
                        help="Model name (OpenAI: gpt-4o, gpt-4o-mini; Together: Qwen/Qwen2.5-7B-Instruct-Turbo, etc.)")
@@ -339,6 +381,10 @@ def main():
                        help="API key for summary LLM (defaults to environment variables)")
     parser.add_argument("--summary_endpoint", default=None, 
                        help="API endpoint for summary LLM (defaults to environment variables)")
+    parser.add_argument("--summary_model", default="gpt-4o",
+                       help="Model name for summarization (OpenAI), default: gpt-4o")
+    parser.add_argument("--summary_concurrency", type=int, default=5,
+                       help="Max parallel summary requests per step (default: 8)")
     
     args = parser.parse_args()
     
@@ -366,9 +412,15 @@ def main():
     logging.info(f"Model: {args.model}, Temperature: {args.temperature}")
     logging.info(f"Total envs: {args.total_envs}, Batch size: {args.batch_size}, Max steps: {args.max_steps}")
     
-    # Calculate number of batches
+    # Validate sharding
+    if args.num_shards < 1:
+        raise ValueError("--num_shards must be >= 1")
+    if not (0 <= args.shard_id < args.num_shards):
+        raise ValueError("--shard_id must be in [0, num_shards)")
+    
+    # Calculate number of batches (may be updated after task/game-file preparation & sharding)
     num_batches = (args.total_envs + args.batch_size - 1) // args.batch_size
-    logging.info(f"Running {args.total_envs} envs in {num_batches} batches")
+    logging.info(f"Running {args.total_envs} envs in {num_batches} batches (pre-sharding)")
     
     # Prepare output files
     dump_fp = None
@@ -380,11 +432,17 @@ def main():
     # Prepare chat history directories
     run_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     chat_base_dir = None
+    memory_base_dir = None
     if args.chat_root:
         chat_ts_root = os.path.join(args.chat_root, 'trajectories', run_ts)
         chat_base_dir = os.path.join(chat_ts_root, args.env, args.model.replace('/', '_'))
         os.makedirs(chat_base_dir, exist_ok=True)
         logging.info(f"Saving chats to: {chat_base_dir}")
+        # Also prepare base directory for memory histories
+        mem_ts_root = os.path.join(args.chat_root, 'histories', run_ts)
+        memory_base_dir = os.path.join(mem_ts_root, args.env, args.model.replace('/', '_'))
+        os.makedirs(memory_base_dir, exist_ok=True)
+        logging.info(f"Saving memory histories to: {memory_base_dir}")
     
     def _sanitize(s: str) -> str:
         """Sanitize string for filename"""
@@ -408,10 +466,31 @@ def main():
         rng = random.Random(args.seed)
         rng.shuffle(gaia_tasks)
         
+        # Apply sharding after shuffle to ensure disjoint subsets across processes
+        if args.num_shards > 1:
+            indices = [i for i in range(len(gaia_tasks)) if i % args.num_shards == args.shard_id]
+            gaia_tasks = [gaia_tasks[i] for i in indices]
+            args.total_envs = len(gaia_tasks)
+            num_batches = (args.total_envs + args.batch_size - 1) // args.batch_size
+            logging.info(
+                f"Applied sharding to GAIA tasks: shard_id={args.shard_id}/{args.num_shards}, "
+                f"effective_total_envs={args.total_envs}, num_batches={num_batches}"
+            )
+        
     elif args.env == "alfworld" and args.unique_envs:
         alfworld_game_files = prepare_alfworld_game_files(args.env, args.total_envs, args.seed)
         if alfworld_game_files:
             logging.info(f"Prepared {len(alfworld_game_files)} unique game files")
+            # Apply sharding to pre-collected game files
+            if args.num_shards > 1:
+                indices = [i for i in range(len(alfworld_game_files)) if i % args.num_shards == args.shard_id]
+                alfworld_game_files = [alfworld_game_files[i] for i in indices]
+                args.total_envs = len(alfworld_game_files)
+                num_batches = (args.total_envs + args.batch_size - 1) // args.batch_size
+                logging.info(
+                    f"Applied sharding to AlfWorld files: shard_id={args.shard_id}/{args.num_shards}, "
+                    f"effective_total_envs={args.total_envs}, num_batches={num_batches}"
+                )
     
     # Dry run mode
     if args.dry_run:
@@ -463,8 +542,10 @@ def main():
                 "history_length": args.history_length,
                 # Summary configuration
                 "use_summary": args.use_summary,
-                "summary_api_key": args.summary_api_key or os.getenv("OAI_KEY") or os.getenv("OPENAI_API_KEY"),
-                "summary_endpoint": args.summary_endpoint or os.getenv("OAI_ENDPOINT") or os.getenv("OPENAI_ENDPOINT"),
+                "summary_api_key": args.summary_api_key or os.getenv("OPENAI_API_KEY") or os.getenv("OAI_KEY"),
+                "summary_endpoint": args.summary_endpoint or os.getenv("OPENAI_ENDPOINT") or os.getenv("OAI_ENDPOINT"),
+                "summary_model": args.summary_model,
+                "summary_concurrency": args.summary_concurrency,
             }
             
             if args.env == "gaia":
@@ -473,6 +554,7 @@ def main():
                 env_kwargs["tasks_data"] = gaia_tasks[start:end]
                 env_kwargs["available_tools"] = args.gaia_tools
                 env_kwargs["max_steps"] = args.max_steps
+                env_kwargs["model"] = args.model
                 
             elif args.env == "alfworld":
                 env_kwargs["alf_env_type"] = args.alf_env_type
@@ -511,7 +593,16 @@ def main():
                     task_total_cnt = defaultdict(int)
                     
                     for step_idx in range(args.max_steps):
-                        logging.info(f"Batch {batch_idx + 1} Step {step_idx}; Dones ({np.array(env_dones).sum()}/{current_batch_size}); SR {overall_success_this_round.mean():.3f}")
+                        # Log both overall SR (successes over all envs) and SR among finished envs.
+                        dones_cnt = int(np.array(env_dones).sum())
+                        succ_cnt = int(overall_success_this_round.sum())
+                        sr_overall = float(succ_cnt / current_batch_size)
+                        sr_done = float(succ_cnt / dones_cnt) if dones_cnt > 0 else 0.0
+                        logging.info(
+                            f"Batch {batch_idx + 1} Step {step_idx}; "
+                            f"Dones ({dones_cnt}/{current_batch_size}); "
+                            f"SR_overall {sr_overall:.3f}; SR_done {sr_done:.3f}"
+                        )
                         
                         # Assemble actions
                         prompts = []
@@ -634,6 +725,61 @@ def main():
                                         saved_flags[i] = True
                                     except Exception as e:
                                         logging.debug(f"Failed to save chat: {e}")
+
+                                # Save memory history aligned with this episode
+                                if memory_base_dir:
+                                    try:
+                                        task_hash = hashlib.sha1(str(task_id).encode()).hexdigest()[:8]
+                                        unique_id = f"b{batch_idx:03d}_t{test_idx:02d}_e{i:02d}-{task_hash}"
+                                        mem_out_path = os.path.join(memory_base_dir, f"memory_{unique_id}.json")
+
+                                        # Extract raw memory records from the environment manager.
+                                        records = []
+                                        try:
+                                            env_memory = getattr(env_manager, 'memory', None)
+                                            env_mem_data = getattr(env_memory, '_data', None)
+                                            if env_mem_data is not None and i < len(env_mem_data):
+                                                for step_no, rec in enumerate(env_mem_data[i], start=1):
+                                                    step_rec = {
+                                                        'step': step_no,
+                                                        'text_obs': rec.get('text_obs'),
+                                                        'action': rec.get('action'),
+                                                    }
+                                                    if 'reflection' in rec:
+                                                        step_rec['reflection'] = rec.get('reflection')
+                                                    records.append(step_rec)
+                                        except Exception as mem_e:
+                                            logging.debug(f"Memory extraction failed: {mem_e}")
+
+                                        # Include cached summary if SummarizedMemory is used
+                                        summary_text = None
+                                        try:
+                                            if env_memory is not None:
+                                                summaries = getattr(env_memory, 'summaries', None)
+                                                if summaries is not None and i < len(summaries):
+                                                    summary_text = summaries[i]
+                                        except Exception:
+                                            pass
+
+                                        mem_meta = {
+                                            "batch_idx": batch_idx,
+                                            "env_id": global_env_counter + i,
+                                            "test_idx": test_idx,
+                                            "model": args.model,
+                                            "steps": len(records),
+                                            "won": won,
+                                            "timestamp": run_ts,
+                                            "environment": args.env,
+                                        }
+                                        if args.env == "alfworld":
+                                            mem_meta["gamefile"] = infos[i].get("extra.gamefile", "")
+                                        elif args.env == "gaia":
+                                            mem_meta["pid"] = infos[i].get("pid", "unknown")
+
+                                        with open(mem_out_path, "w", encoding="utf-8") as f:
+                                            json.dump({"memory": records, "summary": summary_text, "metadata": mem_meta}, f, ensure_ascii=False, indent=2)
+                                    except Exception as e:
+                                        logging.debug(f"Failed to save memory: {e}")
                         
                         if all(env_dones):
                             logging.info("All environments finished early!")
@@ -671,6 +817,62 @@ def main():
                                     saved_flags[i] = True
                                 except Exception as e:
                                     logging.debug(f"Failed to save unfinished chat: {e}")
+
+                    # Save unfinished memory for envs that didn't finish
+                    if memory_base_dir:
+                        for i in range(current_batch_size):
+                            if not env_dones[i]:
+                                try:
+                                    task_hash = hashlib.sha1(f"unfinished_{i}".encode()).hexdigest()[:8]
+                                    unique_id = f"b{batch_idx:03d}_t{test_idx:02d}_e{i:02d}-{task_hash}"
+                                    mem_out_path = os.path.join(memory_base_dir, f"memory_{unique_id}.json")
+
+                                    records = []
+                                    try:
+                                        env_memory = getattr(env_manager, 'memory', None)
+                                        env_mem_data = getattr(env_memory, '_data', None)
+                                        if env_mem_data is not None and i < len(env_mem_data):
+                                            for step_no, rec in enumerate(env_mem_data[i], start=1):
+                                                step_rec = {
+                                                    'step': step_no,
+                                                    'text_obs': rec.get('text_obs'),
+                                                    'action': rec.get('action'),
+                                                }
+                                                if 'reflection' in rec:
+                                                    step_rec['reflection'] = rec.get('reflection')
+                                                records.append(step_rec)
+                                    except Exception as mem_e:
+                                        logging.debug(f"Memory extraction failed: {mem_e}")
+
+                                    summary_text = None
+                                    try:
+                                        if env_memory is not None:
+                                            summaries = getattr(env_memory, 'summaries', None)
+                                            if summaries is not None and i < len(summaries):
+                                                summary_text = summaries[i]
+                                    except Exception:
+                                        pass
+
+                                    mem_meta = {
+                                        "batch_idx": batch_idx,
+                                        "env_id": global_env_counter + i,
+                                        "test_idx": test_idx,
+                                        "model": args.model,
+                                        "steps": len(records),
+                                        "won": False,
+                                        "timestamp": run_ts,
+                                        "environment": args.env,
+                                    }
+                                    if last_infos and i < len(last_infos):
+                                        if args.env == "alfworld":
+                                            mem_meta["gamefile"] = last_infos[i].get("extra.gamefile", "")
+                                        elif args.env == "gaia":
+                                            mem_meta["pid"] = last_infos[i].get("pid", "unknown")
+
+                                    with open(mem_out_path, "w", encoding="utf-8") as f:
+                                        json.dump({"memory": records, "summary": summary_text, "metadata": mem_meta}, f, ensure_ascii=False, indent=2)
+                                except Exception as e:
+                                    logging.debug(f"Failed to save unfinished memory: {e}")
                     
                     # Round statistics
                     round_success_rate = overall_success_this_round.mean()
@@ -724,6 +926,8 @@ def main():
         logging.info(f"Trajectory file: {args.dump_path}")
     if chat_base_dir:
         logging.info(f"Chats directory: {chat_base_dir}")
+    if memory_base_dir:
+        logging.info(f"Memory directory: {memory_base_dir}")
     
     if all_overall_success_rates:
         logging.info(

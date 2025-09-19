@@ -93,7 +93,10 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
                     action_key="action",
                     use_summary=True,
                     summary_api_key=getattr(self.config.env, 'summary_api_key', None),
-                    summary_endpoint=getattr(self.config.env, 'summary_endpoint', None)
+                    summary_endpoint=getattr(self.config.env, 'summary_endpoint', None),
+                    summary_model=getattr(self.config.env, 'summary_model', 'gpt-4o'),
+                    env_type="alfworld",
+                    summary_concurrency=getattr(self.config.env, 'summary_concurrency', 8),
                 )
             else:
                 memory_contexts, valid_lens = self.memory.fetch(
@@ -257,6 +260,9 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
                     use_summary=True,
                     summary_api_key=getattr(self.config.env, 'summary_api_key', None),
                     summary_endpoint=getattr(self.config.env, 'summary_endpoint', None),
+                    summary_model=getattr(self.config.env, 'summary_model', 'gpt-4o'),
+                    env_type="webshop",
+                    summary_concurrency=getattr(self.config.env, 'summary_concurrency', 8),
                 )
             else:
                 memory_contexts, valid_lens = self.memory.fetch(
@@ -273,7 +279,7 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
                 obs = WEBSHOP_TEMPLATE_NO_HIS.format(
                     task_description=self.tasks[i],
                     current_observation=text_obs[i],
-                    available_actions=reformatted_available_actions
+                    available_actions=reformatted_available_actions,
                 )
             else:
                 obs = WEBSHOP_TEMPLATE.format(
@@ -283,14 +289,14 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
                     action_history=memory_contexts[i],
                     current_step=len(self.memory[i]) + 1,
                     current_observation=text_obs[i],
-                    available_actions=reformatted_available_actions
+                    available_actions=reformatted_available_actions,
                 )
                 if len(obs) > 13000:
                     print(f"Warning len(obs)={len(obs)} is too long")
                     obs = WEBSHOP_TEMPLATE_NO_HIS.format(
                         task_description=self.tasks[i],
                         current_observation=text_obs[i],
-                        available_actions=reformatted_available_actions
+                        available_actions=reformatted_available_actions,
                     )
 
             postprocess_text_obs.append(obs)

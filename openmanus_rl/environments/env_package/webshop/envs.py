@@ -46,6 +46,17 @@ class WebshopWorker:
         info = dict(info or {})
         info['available_actions'] = self.env.get_available_actions()
         info['won'] = False
+        
+        # Add task identification information
+        info['goal_idx'] = idx
+        info['task_text'] = self.env.get_instruction_text()
+        
+        # Determine split based on index
+        if idx < 500:
+            info['split'] = 'test'
+        else:
+            info['split'] = 'train'
+        
         return obs, info
     
     def render(self, mode_for_render):
