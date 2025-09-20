@@ -38,20 +38,18 @@ class StepAnalysis:
     planning_error: Optional[ModuleError]
     action_error: Optional[ModuleError]
     step_summary: str
+    system_error: Optional[ModuleError] = None
 
 
 class ErrorTypeDetector:
     """Detects error types without scoring"""
     
-    def __init__(self, api_config: Dict[str, Any]):
+    def __init__(self, api_config: Dict[str, Any], parallel_workers: int = 1):
         self.config = api_config
-        # Build headers; include Authorization only if api_key present
         self.headers = {
-            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_config['api_key']}",
+            "Content-Type": "application/json"
         }
-        api_key = (api_config.get('api_key') or '').strip()
-        if api_key:
-            self.headers["Authorization"] = f"Bearer {api_key}"
         
         # Load error definitions
         self.error_loader = ErrorDefinitionsLoader()
@@ -65,113 +63,62 @@ class ErrorTypeDetector:
             'system': self.error_loader.get_valid_error_types('system'),
             'others': self.error_loader.get_valid_error_types('others')
         }
+        
+        # Concurrency control for phase 1 error detection
+        self.parallel_workers = max(1, int(parallel_workers))
     
-    def parse_trajectory_from_dict(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse trajectory from dictionary (for API use)"""
-        metadata = data.get('metadata', {})
-        # Support both old format (chat_history) and new format (messages)
-        chat_history = data.get('messages', data.get('chat_history', []))
-
-        # Extract task description
-        task_description = ""
-        for msg in chat_history:
-            if msg['role'] == 'user' and 'task' in msg['content'].lower():
-                # Look for task description patterns
-                if 'Your task is:' in msg['content']:
-                    task_description = msg['content'].split('Your task is:')[1].split('\n')[0].strip()
-                    break
-                elif 'put a clean' in msg['content'].lower() or 'find' in msg['content'].lower():
-                    # Extract the task from the first user message
-                    lines = msg['content'].split('\n')
-                    for line in lines:
-                        if 'task' in line.lower() or 'put' in line.lower() or 'find' in line.lower():
-                            task_description = line.strip()
-                            break
-
-        # Extract steps
-        steps = []
-        step_num = 0
-
-        for i, msg in enumerate(chat_history):
-            if msg['role'] == 'assistant':
-                step_num += 1
-
-                # Get environment response
-                env_response = ""
-                if i + 1 < len(chat_history) and chat_history[i + 1]['role'] == 'user':
-                    env_response = chat_history[i + 1]['content']
-
-                # Get the user input for this step (from previous message)
-                current_input = ""
-                if i > 0 and chat_history[i-1]['role'] == 'user':
-                    current_input = chat_history[i-1]['content']
-
-                steps.append({
-                    'step': step_num,
-                    'content': msg['content'],
-                    'env_response': env_response,
-                    'current_input': current_input
-                })
-
-        return {
-            'task_id': metadata.get('task_id', 'unknown'),
-            'task_description': task_description or metadata.get('task', ''),
-            'success': metadata.get('success', metadata.get('won', False)),
-            'steps': steps,
-            'total_steps': step_num,
-            'environment': metadata.get('environment', 'alfworld')
-        }
-
     def parse_trajectory(self, file_path: str) -> Dict[str, Any]:
         """Parse trajectory file"""
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        
+        return self.parse_trajectory_from_dict(data)
+
+    def parse_trajectory_from_dict(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse trajectory data from an in-memory dictionary."""
         metadata = data.get('metadata', {})
         # Support both old format (chat_history) and new format (messages)
         chat_history = data.get('messages', data.get('chat_history', []))
-        
+
         # Extract task description
         task_description = ""
         for msg in chat_history:
-            if msg['role'] == 'user' and 'task' in msg['content'].lower():
-                # Look for task description patterns
-                if 'Your task is:' in msg['content']:
-                    task_description = msg['content'].split('Your task is:')[1].split('\n')[0].strip()
+            if msg.get('role') == 'user' and 'task' in msg.get('content', '').lower():
+                content = msg['content']
+                if 'Your task is:' in content:
+                    task_description = content.split('Your task is:')[1].split('\n')[0].strip()
                     break
-                elif 'put a clean' in msg['content'].lower() or 'find' in msg['content'].lower():
-                    # Extract the task from the first user message
-                    lines = msg['content'].split('\n')
-                    for line in lines:
-                        if 'task' in line.lower() or 'put' in line.lower() or 'find' in line.lower():
-                            task_description = line.strip()
-                            break
-        
+                lines = content.split('\n')
+                for line in lines:
+                    lower_line = line.lower()
+                    if any(key in lower_line for key in ('task', 'put', 'find', 'make', 'clean')):
+                        task_description = line.strip()
+                        break
+                if task_description:
+                    break
+
         # Extract steps
         steps = []
         step_num = 0
-        
         for i, msg in enumerate(chat_history):
-            if msg['role'] == 'assistant':
-                step_num += 1
-                
-                # Get environment response
-                env_response = ""
-                if i + 1 < len(chat_history) and chat_history[i + 1]['role'] == 'user':
-                    env_response = chat_history[i + 1]['content']
-                
-                # Get the user input for this step (from previous message)
-                current_input = ""
-                if i > 0 and chat_history[i-1]['role'] == 'user':
-                    current_input = chat_history[i-1]['content']
-                
-                steps.append({
-                    'step': step_num,
-                    'content': msg['content'],
-                    'env_response': env_response,
-                    'current_input': current_input
-                })
-        
+            if msg.get('role') != 'assistant':
+                continue
+
+            step_num += 1
+            env_response = ""
+            if i + 1 < len(chat_history) and chat_history[i + 1].get('role') == 'user':
+                env_response = chat_history[i + 1].get('content', '')
+
+            current_input = ""
+            if i > 0 and chat_history[i - 1].get('role') == 'user':
+                current_input = chat_history[i - 1].get('content', '')
+
+            steps.append({
+                'step': step_num,
+                'content': msg.get('content', ''),
+                'env_response': env_response,
+                'current_input': current_input
+            })
+
         return {
             'task_id': metadata.get('task_id', 'unknown'),
             'task_description': task_description or metadata.get('task', ''),
@@ -180,7 +127,35 @@ class ErrorTypeDetector:
             'total_steps': step_num,
             'environment': metadata.get('environment', 'alfworld')
         }
-    
+
+    def _step_analysis_to_dict(self, analysis: StepAnalysis) -> Dict[str, Any]:
+        """Convert a StepAnalysis dataclass to a serializable dictionary."""
+        step_dict: Dict[str, Any] = {
+            'step': analysis.step,
+            'errors': {},
+            'summary': analysis.step_summary
+        }
+
+        for module_name in ['memory', 'reflection', 'planning', 'action']:
+            error = getattr(analysis, f"{module_name}_error")
+            if error:
+                step_dict['errors'][module_name] = {
+                    'error_type': error.error_type,
+                    'error_detected': error.error_detected,
+                    'evidence': error.evidence,
+                    'reasoning': error.reasoning
+                }
+
+        if analysis.system_error:
+            step_dict['errors']['system'] = {
+                'error_type': analysis.system_error.error_type,
+                'error_detected': analysis.system_error.error_detected,
+                'evidence': analysis.system_error.evidence,
+                'reasoning': analysis.system_error.reasoning
+            }
+
+        return step_dict
+
     def extract_module_content_from_step(self, content: str, module_name: str, env: str) -> str:
         """Extract specific module content from step"""
         modules = self.extract_modules_from_content(content, env)
@@ -329,7 +304,7 @@ MODULE OUTPUT (What the agent produced for this module):
 {module_content if module_content else "No content found for this module"}
 
 ENVIRONMENT RESPONSE AFTER THIS STEP:
-{env_response[:500] if env_response else "No response"}
+{env_response if env_response else "No response"}
 
 {error_definitions}
 
@@ -387,7 +362,7 @@ Be precise and base your detection on the actual content and error definitions.
             prompt = f"""
 Analyze if this environment response indicates a system error:
 
-Environment Response: {env_response[:500]}
+Environment Response: {env_response}
 
 System error types:
 - tool_execution_error: External tool or API returned error
@@ -476,7 +451,12 @@ REQUIRED OUTPUT FORMAT (JSON):
         
         for module_name in ['memory', 'reflection', 'planning', 'action']:
             module_content = modules.get(module_name, "")
-            
+
+            # Skip memory/reflection for step 1 (no history to remember or reflect on)
+            if step_num == 1 and module_name in ['memory', 'reflection']:
+                module_errors[module_name] = None
+                continue
+
             # Skip memory/reflection for WebShop if not present
             if environment == 'webshop' and module_name in ['memory', 'reflection'] and not module_content:
                 module_errors[module_name] = None
@@ -515,7 +495,8 @@ REQUIRED OUTPUT FORMAT (JSON):
             reflection_error=module_errors.get('reflection'),
             planning_error=module_errors.get('planning'),
             action_error=module_errors.get('action'),
-            step_summary=step_summary
+            step_summary=step_summary,
+            system_error=module_errors.get('system')
         )
     
     async def call_llm(self, prompt: str) -> str:
@@ -529,8 +510,7 @@ REQUIRED OUTPUT FORMAT (JSON):
                 },
                 {"role": "user", "content": prompt}
             ],
-            "temperature": self.config.get('temperature', 0.0),
-            "response_format": {"type": "json_object"}
+            "temperature": self.config.get('temperature', 0.0)
         }
         
         proxy = os.getenv('HTTPS_PROXY') or os.getenv('https_proxy')
@@ -556,59 +536,104 @@ REQUIRED OUTPUT FORMAT (JSON):
         
         return ""
     
-    async def analyze_trajectory(self, trajectory_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze complete trajectory for error types"""
-        
+    async def analyze_trajectory(
+        self,
+        trajectory_data: Dict[str, Any],
+        *,
+        recompute_from_step: int = 1,
+        cached_step_analyses: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Analyze complete trajectory for error types."""
+
         task_description = trajectory_data['task_description']
         task_success = trajectory_data['success']
         steps = trajectory_data['steps']
         environment = trajectory_data['environment']
-        
-        # Analyze each step
-        step_analyses = []
-        previous_steps = []
-        
-        for step_data in steps:
+        total_steps = len(steps)
+
+        if total_steps == 0:
+            return {
+                'task_id': trajectory_data.get('task_id', 'unknown'),
+                'task_description': task_description,
+                'task_success': task_success,
+                'environment': environment,
+                'total_steps': 0,
+                'step_analyses': [],
+                'recompute_from_step': 1,
+                'cached_steps': []
+            }
+
+        cached_by_step: Dict[int, Dict[str, Any]] = {}
+        if cached_step_analyses:
+            for entry in cached_step_analyses:
+                step_num = entry.get('step') if isinstance(entry, dict) else None
+                if isinstance(step_num, int) and 1 <= step_num <= total_steps:
+                    cached_by_step[step_num] = entry
+
+        # Clamp recompute window to valid range (1-based indexing)
+        recompute_from_step = max(1, min(int(recompute_from_step or 1), total_steps))
+
+        results_by_step: Dict[int, Dict[str, Any]] = {}
+        semaphore = asyncio.Semaphore(self.parallel_workers)
+        tasks = []
+
+        async def _analyze(idx: int, step_data: Dict[str, Any]):
+            async with semaphore:
+                analysis = await self.analyze_step(
+                    step_data,
+                    task_description,
+                    steps[:idx],
+                    task_success,
+                    environment
+                )
+                return idx, self._step_analysis_to_dict(analysis)
+
+        for idx, step_data in enumerate(steps):
+            step_num = step_data['step']
+            if step_num < recompute_from_step and step_num in cached_by_step:
+                results_by_step[step_num] = cached_by_step[step_num]
+                continue
+            tasks.append(asyncio.create_task(_analyze(idx, step_data)))
+
+        if tasks:
+            analyzed = await asyncio.gather(*tasks)
+            for idx, analysis_dict in analyzed:
+                results_by_step[idx + 1] = analysis_dict
+
+        # Ensure every step has an entry (fall back to cache or re-run sequentially if needed)
+        for idx, step_data in enumerate(steps):
+            step_num = idx + 1
+            if step_num in results_by_step:
+                continue
+
+            cached = cached_by_step.get(step_num)
+            if cached is not None:
+                results_by_step[step_num] = cached
+                continue
+
             analysis = await self.analyze_step(
                 step_data,
                 task_description,
-                previous_steps,
+                steps[:idx],
                 task_success,
                 environment
             )
-            step_analyses.append(analysis)
-            previous_steps.append(step_data)
-        
-        # Convert to serializable format
-        analyses_dict = []
-        for analysis in step_analyses:
-            step_dict = {
-                'step': analysis.step,
-                'errors': {},
-                'summary': analysis.step_summary
-            }
-            
-            for module_name in ['memory', 'reflection', 'planning', 'action']:
-                error = getattr(analysis, f"{module_name}_error")
-                if error:
-                    step_dict['errors'][module_name] = {
-                        'error_type': error.error_type,
-                        'error_detected': error.error_detected,
-                        'evidence': error.evidence,
-                        'reasoning': error.reasoning
-                    }
-            
-            analyses_dict.append(step_dict)
-        
+            results_by_step[step_num] = self._step_analysis_to_dict(analysis)
+
+        ordered_results = [results_by_step[step] for step in range(1, total_steps + 1)]
+        cached_steps = [step for step in range(1, recompute_from_step) if step in cached_by_step]
+
         return {
             'task_id': trajectory_data['task_id'],
             'task_description': task_description,
             'task_success': task_success,
             'environment': environment,
-            'total_steps': len(steps),
-            'step_analyses': analyses_dict
+            'total_steps': total_steps,
+            'step_analyses': ordered_results,
+            'recompute_from_step': recompute_from_step,
+            'cached_steps': cached_steps
         }
-    
+
     async def process_file(self, file_path: str, output_dir: str, output_filename: str = None) -> Dict[str, Any]:
         """Process a single trajectory file"""
         try:

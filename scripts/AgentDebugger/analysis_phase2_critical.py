@@ -30,6 +30,7 @@ class CriticalError:
     correction_guidance: str
     cascading_effects: List[Dict[str, Any]]
     confidence: float
+    follow_up_instruction: Optional[str] = None
 
 
 class CriticalErrorAnalyzer:
@@ -85,7 +86,9 @@ class CriticalErrorAnalyzer:
     async def identify_critical_error(
         self,
         phase1_results: Dict[str, Any],
-        original_trajectory: Dict[str, Any]
+        original_trajectory: Dict[str, Any],
+        previous_instructions: Optional[List[str]] = None,
+        attempt_index: int = 1
     ) -> Optional[CriticalError]:
         """Identify the critical error that led to failure"""
         
@@ -103,7 +106,9 @@ class CriticalErrorAnalyzer:
         prompt = self._build_critical_error_prompt(
             step_analyses,
             task_description,
-            chat_history
+            chat_history,
+            previous_instructions=previous_instructions,
+            attempt_index=attempt_index
         )
         
         # Call LLM for critical error identification
@@ -118,65 +123,98 @@ class CriticalErrorAnalyzer:
         self,
         step_analyses: List[Dict],
         task_description: str,
-        chat_history: List[Dict]
+        chat_history: List[Dict],
+        previous_instructions: Optional[List[str]] = None,
+        attempt_index: int = 1
     ) -> str:
-        """Build prompt for critical error identification"""
-        
+        """Build prompt for critical error identification and iterative guidance."""
+
         # Format step analyses with errors
         step_summaries = []
         for analysis in step_analyses:
             step_num = analysis['step']
-            errors = analysis.get('errors', {})
-            
+            errors = analysis.get('errors', {}) or {}
+
             # Find agent content for this step
             agent_content = ""
             env_response = ""
             assistant_count = 0
             for i, msg in enumerate(chat_history):
-                if msg['role'] == 'assistant':
+                if msg.get('role') == 'assistant':
                     assistant_count += 1
                     if assistant_count == step_num:
-                        agent_content = msg['content']  # Full content, no truncation
-                        if i + 1 < len(chat_history) and chat_history[i + 1]['role'] == 'user':
-                            env_response = chat_history[i + 1]['content'][:500]  # Increase env response limit too
+                        agent_content = msg.get('content', '')
+                        if i + 1 < len(chat_history) and chat_history[i + 1].get('role') == 'user':
+                            env_response = chat_history[i + 1].get('content', '')[:600]
                         break
-            
+
             step_summary = f"""
 Step {step_num}:
 Agent Output: {agent_content}
 Environment Response: {env_response}
 
 Errors Detected:"""
-            
+
             for module, error_info in errors.items():
                 if error_info and error_info.get('error_detected'):
                     step_summary += f"""
-  - {module}: {error_info['error_type']}
-    Evidence: {error_info['evidence']}
-    Reasoning: {error_info['reasoning']}"""
-            
+  - {module}: {error_info.get('error_type')}
+    Evidence: {error_info.get('evidence', '')}
+    Reasoning: {error_info.get('reasoning', '')}"""
+
             if not any(e.get('error_detected') for e in errors.values() if e):
                 step_summary += "\n  No errors detected in this step"
-            
+
             step_summaries.append(step_summary)
-        
+
         all_steps = "\n".join(step_summaries)
-        
+
+        # Aggregate error patterns for follow-up guidance context
+        error_highlights = []
+        for analysis in step_analyses:
+            step_num = analysis.get('step')
+            errors = analysis.get('errors', {}) or {}
+            for module, error_info in errors.items():
+                if error_info and error_info.get('error_detected'):
+                    reasoning = error_info.get('reasoning', '').strip()
+                    highlight = f"Step {step_num} - {module}: {error_info.get('error_type')}"
+                    if reasoning:
+                        highlight += f" | {reasoning}"
+                    error_highlights.append(highlight)
+
+        error_highlights = error_highlights[:12]
+        error_patterns_block = "- None observed" if not error_highlights else "\n".join(
+            f"- {item}" for item in error_highlights
+        )
+
+        # Previous follow-up instruction context
+        previous_instruction_block = "None"
+        if previous_instructions:
+            previous_instruction_block = "\n".join(f"- {instruction}" for instruction in previous_instructions)
+
         # Get complete error definitions
         error_reference = self.error_loader.format_for_phase2_prompt()
-        
+
         prompt = f"""
-You are an expert at identifying critical failure points in agent trajectories.
+You are an expert at identifying critical failure points in agent trajectories and providing actionable follow-up guidance.
 
 TASK: {task_description}
 TASK RESULT: FAILED
 
+DEBUG ITERATION CONTEXT:
+- Current debug attempt index: {attempt_index}
+- Previously issued follow-up instructions:
+{previous_instruction_block}
+
 STEP-BY-STEP ERROR ANALYSIS:
 {all_steps}
 
+COMMON ERROR PATTERNS OBSERVED:
+{error_patterns_block}
+
 {error_reference}
 
-Your job is to identify the CRITICAL ERROR - the earliest and most important error that led to task failure.
+Your job is to identify the CRITICAL ERROR - the earliest and most important error that led to task failure, and produce an iterative follow-up instruction that will help avoid similar mistakes in future attempts.
 
 CRITICAL ERROR IDENTIFICATION APPROACH:
 You must take a HOLISTIC, GLOBAL perspective to identify the true root cause of failure. Do NOT rely on any predetermined severity weights or rankings.
@@ -191,48 +229,38 @@ ANALYSIS GUIDELINES:
    - The trajectory could have succeeded if THIS specific error had not occurred
    - **IMPORTANT: Correcting this specific error would fundamentally change the trajectory toward success**
 5. Focus on causal chains - trace backwards from the failure to find the origin point
-6. Early steps without memory/reflection modules are expected - don't mark them as errors unless action is clearly wrong
+6. **IMPORTANT: Step 1 only has planning and action modules** - no memory or reflection is possible at step 1 since there's no history yet
+   - Do NOT mark step 1 memory/reflection as critical errors
+   - Early steps without memory/reflection modules are expected
 7. Consider System and Others categories as potential critical errors:
    - System errors (step_limit, tool_execution_error, llm_limit, environment_error) may also be the true cause of failure
    - For example, if the agent was performing correctly but hit step_limit, that IS the critical error
    - Others category captures unusual failures not covered by standard error types
-   - Do NOT ignore these categories
-   
-KEY DECISION PRINCIPLE:
-Think globally: "What was the FIRST decision or error that doomed this trajectory to failure?"
-NOT: "Which error type seems most severe based on a predefined scale?"
 
-The critical error is the one where, if we could go back in time and fix ONLY that error, the entire trajectory would likely succeed.
+FOLLOW-UP INSTRUCTION REQUIREMENTS:
+- Produce a "follow_up_instruction" that is a single, highly actionable sentence (<= 200 characters)
+- It should **extend or refine** previous instructions (if any) rather than repeat them verbatim
+- Ground the instruction in the most impactful error patterns you observed
+- Make it broadly applicable to future steps (not tied to a single observation)
+- Emphasize preventative habits (e.g., validation checks, memory recalls, tool usage safeguards)
+
+Identify the TRUE ROOT CAUSE that made the task unrecoverable.
 
 REQUIRED OUTPUT FORMAT (JSON):
 {{
     "critical_step": <step_number>,
-    "critical_module": "<module_name>",
-    "error_type": "<specific_error_type_from_definitions_above>",
-    "root_cause": "Detailed explanation of why this specific error at this step caused the task to fail",
-    "evidence": "Specific quote or observation from the trajectory supporting this identification",
-    "correction_guidance": "Specific guidance on what the agent should have done differently to avoid this error and succeed",
-    "cascading_effects": [
-        {{
-            "step": <later_step>,
-            "effect": "How the critical error affected this later step"
-        }}
-    ],
-    "confidence": 0.0-1.0
+    "critical_module": "<module_name: memory|reflection|planning|action|system|others>",
+    "error_type": "<specific_error_type_from_definitions>",
+    "root_cause": "Concise description of the fundamental problem",
+    "evidence": "Specific quote or observation from trajectory supporting this identification",
+    "correction_guidance": "Specific guidance on what the agent should have done differently",
+    "cascading_effects": [{{ "step": <step_number>, "impact": "description" }}],
+    "confidence": <0.0-1.0>,
+    "follow_up_instruction": "Single-sentence iterative guidance for future attempts"
 }}
-
-IMPORTANT: 
-- Error types MUST be selected from the definitions provided above
-- The error_type must match one of the defined types for that module
-- Valid modules include: memory, reflection, planning, action, system, others
-- System errors (step_limit, tool_execution_error, llm_limit, environment_error) are VALID critical errors
-- Others category is for unusual failures not covered by standard types
-- Focus on the error that, if corrected, would have the highest impact on task success
-
-Identify the TRUE ROOT CAUSE that made the task unrecoverable.
 """
         return prompt
-    
+
     def _parse_critical_error(self, response: str) -> CriticalError:
         """Parse LLM response for critical error."""
 
@@ -269,7 +297,8 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable.
             evidence=error_data.get('evidence', 'No evidence provided'),
             correction_guidance=error_data.get('correction_guidance', 'No guidance provided'),
             cascading_effects=error_data.get('cascading_effects', []),
-            confidence=float(error_data.get('confidence', 0.5))
+            confidence=float(error_data.get('confidence', 0.5)),
+            follow_up_instruction=error_data.get('follow_up_instruction')
         )
             
             
@@ -312,7 +341,7 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable.
         
         return ""
     
-    async def identify_critical_error(self, phase1_results: Dict, trajectory_data: Dict) -> Dict[str, Any]:
+    async def identify_critical_error(self, phase1_results: Dict, trajectory_data: Dict, previous_instructions: Optional[List[str]] = None, attempt_index: int = 1) -> Dict[str, Any]:
         """Identify critical error from phase1 results and trajectory (for API use)"""
         task_description = phase1_results.get('task_description', 'Unknown task')
         step_analyses = phase1_results.get('step_analyses', [])
@@ -322,7 +351,9 @@ Identify the TRUE ROOT CAUSE that made the task unrecoverable.
         prompt = self._build_critical_error_prompt(
             step_analyses,
             task_description,
-            chat_history
+            chat_history,
+            previous_instructions=previous_instructions,
+            attempt_index=attempt_index
         )
 
         # Call LLM

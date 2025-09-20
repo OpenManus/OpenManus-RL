@@ -445,330 +445,63 @@ class LLMDebugger:
         previous_instructions: Optional[List[str]] = None,
         generate_follow_up: bool = False,
         log_path: Optional[str] = None,
-    ) -> Dict:
-        """
-        Enhanced trajectory analysis with comprehensive error type awareness
-        
-        Args:
-            trajectory: List of trajectory steps
-            env_type: Type of environment (alfworld, gaia, webshop)
-            chat_history: Optional chat history for better context
-            metadata: Optional metadata about the task
-            previous_instructions: List of previous follow-up instructions from earlier failures
-            generate_follow_up: Whether to generate follow-up instructions for future steps
-        
-        Returns:
-            Analysis dict with detailed error classification and guidance
-        """
-        
-        # Format trajectory for LLM analysis
-        trajectory_text = self._format_trajectory(trajectory)
-        
-        # Get task description from metadata if available
-        task_description = "Unknown task"
-        if metadata:
-            task_description = metadata.get("task", metadata.get("initial_observation", "Unknown task"))
-        
-        # Create environment-specific context
-        env_contexts = {
-            "alfworld": """The agent is completing household tasks in a text-based simulation. Common tasks include:
-- pick_and_place: Pick up an object and place it somewhere
-- pick_two_obj_and_place: Pick up two objects and place them  
-- look_at_obj_in_light: Examine an object under a light source
-- pick_heat_then_place_in_recep: Heat an object and place it in a receptacle
-- pick_cool_then_place_in_recep: Cool an object and place it in a receptacle
-- pick_clean_then_place_in_recep: Clean an object and place it in a receptacle
-
-Key mechanics: Agent navigates rooms, interacts with objects, and uses appliances to complete multi-step tasks.""",
-            
-            "gaia": """The agent is solving complex reasoning tasks using various tools including:
-- google_search: Search for information online
-- wikipedia_knowledge_searcher: Search Wikipedia for knowledge  
-- python_code_generator: Generate and execute Python code
-- Other specialized tools for information gathering and processing
-
-Tasks require multi-step reasoning, information synthesis, and tool orchestration.""",
-            
-            "webshop": """The agent is shopping for products on a web interface. The agent must:
-- Search for products matching specific requirements (price, features, ratings)
-- Navigate through product listings and categories
-- Select products that meet all given criteria
-- Complete the purchase process within budget constraints
-
-Success requires understanding product specifications and constraint satisfaction."""
-        }
-        
-        env_context = env_contexts.get(env_type, "The agent is solving a task in an interactive environment.")
-        
-        # Build comprehensive error reference
-        error_reference = self._build_error_reference()
-        
-        # Include previous instructions context if available
-        previous_instructions_context = ""
-        if previous_instructions:
-            previous_instructions_context = f"""
-PREVIOUS DEBUGGER INSTRUCTIONS FROM EARLIER FAILURES:
-{chr(10).join(f"- {instruction}" for instruction in previous_instructions)}
-
-These instructions were generated from analyzing previous failures. Consider how the current failure might relate to or differ from these earlier patterns.
-"""
-        
-        # Configure output format based on whether follow-up instruction is needed
-        if generate_follow_up:
-            follow_up_instruction = """
-FOLLOW-UP INSTRUCTION GENERATION:
-In addition to the regular analysis, generate a "follow_up_instruction" — a concise, actionable guidance that should be applied to ALL FUTURE STEPS to prevent similar errors. This instruction must be extremely brief: a single sentence, no lists, no numbering, no line breaks, max ~200 characters. Write it as a direct imperative (e.g., "Verify X before Y; avoid Z"). This instruction should:
-1. Be general enough to apply across multiple steps
-2. Address the root cause category (not just the specific instance)
-3. Build upon previous instructions to form cumulative guidance
-4. Be clear and actionable for the agent to follow
-5. Focus on preventing common error patterns that could occur in future attempts
-
-The follow_up_instruction should provide proactive guidance to avoid similar failure modes. Please be succint and concise.
-"""
-            # JSON format with follow_up_instruction field
-            json_format = """{
-    "failure_step": <step_number>,
-    "critical_module": "<module_name: memory|reflection|planning|action|system|others>", 
-    "failure_type": "<specific_error_type_from_definitions>",
-    "reason": "Detailed explanation of why this specific error at this step caused task failure",
-    "suggestion": "Specific guidance on what the agent should have done differently",
-    "critical_step": <last_step_that_was_definitely_correct>,
-    "evidence": "Specific quote or observation from trajectory supporting this identification",
-    "confidence": <0.0-1.0>,
-    "root_cause": "Concise description of the fundamental problem",
-    "follow_up_instruction": "General guidance for future steps to prevent similar errors (few concise sentences)"
-}"""
-            additional_requirement = "- Generate a follow_up_instruction that provides proactive guidance for preventing similar errors in future steps"
-        else:
-            follow_up_instruction = ""
-            # JSON format without follow_up_instruction field
-            json_format = """{
-    "failure_step": <step_number>,
-    "critical_module": "<module_name: memory|reflection|planning|action|system|others>", 
-    "failure_type": "<specific_error_type_from_definitions>",
-    "reason": "Detailed explanation of why this specific error at this step caused task failure",
-    "suggestion": "Specific guidance on what the agent should have done differently",
-    "critical_step": <last_step_that_was_definitely_correct>,
-    "evidence": "Specific quote or observation from trajectory supporting this identification",
-    "confidence": <0.0-1.0>,
-    "root_cause": "Concise description of the fundamental problem"
-}"""
-            additional_requirement = ""
-        
-        prompt = f"""You are an expert at identifying critical failure points in agent trajectories. Analyze this failed trajectory using comprehensive error type classification.
-
-TASK: {task_description}
-ENVIRONMENT: {env_type}
-TASK RESULT: FAILED
-
-ENVIRONMENT CONTEXT:
-{env_context}
-{previous_instructions_context}
-TRAJECTORY ANALYSIS:
-{trajectory_text}
-
-{error_reference}
-
-Your job is to identify the CRITICAL ERROR - the earliest and most important error that led to task failure.
-
-CRITICAL ERROR IDENTIFICATION APPROACH:
-You must take a HOLISTIC, GLOBAL perspective to identify the true root cause of failure. Do NOT rely on any predetermined severity weights or rankings.
-
-ANALYSIS GUIDELINES:
-1. Consider the ENTIRE trajectory from a global perspective - understand the task goal and how the agent's path diverged from success
-2. Find the EARLIEST point where the agent made a decision or error that set it on an irreversible path to failure
-3. Early exploration steps (steps 1-3) are often normal and should NOT be marked as critical unless there's a clear, fundamental error
-4. An error is critical if:
-   - It represents the ROOT CAUSE that made task success impossible
-   - It caused a cascade of subsequent errors
-   - The trajectory could have succeeded if THIS specific error had not occurred
-   - **IMPORTANT: Correcting this specific error would fundamentally change the trajectory toward success**
-5. Focus on causal chains - trace backwards from the failure to find the origin point
-6. **IMPORTANT: Step 1 only has planning and action modules** - no memory or reflection is possible at step 1 since there's no history yet
-   - Do NOT mark step 1 memory/reflection as critical errors
-   - Early steps without memory/reflection modules are expected
-7. Consider System and Others categories as potential critical errors:
-   - System errors (step_limit, tool_execution_error, llm_limit, environment_error) may also be the true cause of failure
-   - For example, if the agent was performing correctly but hit step_limit, that IS the critical error
-   - Others category captures unusual failures not covered by standard error types
-   - Do NOT ignore these categories
-   
-KEY DECISION PRINCIPLE:
-Think globally: "What was the FIRST decision or error that doomed this trajectory to failure?"
-NOT: "Which error type seems most severe based on a predefined scale?"
-
-The critical error is the one where, if we could go back in time and fix ONLY that error, the entire trajectory would likely succeed.
-
-{follow_up_instruction}
-REQUIRED OUTPUT FORMAT (JSON):
-{json_format}
-
-IMPORTANT: 
-- Error types MUST be selected from the definitions provided above
-- The error_type must match one of the defined types for that module
-- Valid modules include: memory, reflection, planning, action, system, others
-- System errors (step_limit, tool_execution_error, llm_limit, environment_error) are VALID critical errors
-- Others category is for unusual failures not covered by standard types
-- Focus on the error that, if corrected, would have the highest impact on task success
-{additional_requirement}
-
-
-Identify the TRUE ROOT CAUSE that made the task unrecoverable."""
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": "You are an expert at identifying critical failure points in agent trajectories using comprehensive error type classification."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=self.temperature,
-                response_format={"type": "json_object"}
-            )
-            
-            response_text = response.choices[0].message.content
-            self._log_llm_call(log_path, prompt, response_text)
-            analysis = json.loads(response_text)
-            
-            # Validate and enhance the analysis
-            analysis = self._validate_and_enhance_analysis(analysis, trajectory)
-            
-            return analysis
-            
-        except Exception as e:
-            logging.error(f"Failed to analyze trajectory: {e}")
-            # Return enhanced default analysis
-            return {
-                "failure_step": len(trajectory) - 1,
-                "critical_module": "others",
-                "failure_type": "others", 
-                "reason": "Failed to analyze trajectory due to technical error",
-                "suggestion": "Try a different approach or review the task requirements",
-                "critical_step": 0,
-                "evidence": "Analysis failed due to technical error",
-                "confidence": 0.1,
-                "root_cause": "Technical analysis failure"
-            }
-    
-    def generate_feedback(
-        self,
-        observation: str,
-        analysis: Dict,
-        previous_action: str,
-        env_type: str,
-        log_path: Optional[str] = None,
-    ) -> str:
-        """
-        Generate feedback from analysis without additional LLM calls
-        
-        Args:
-            observation: Current observation from the environment
-            analysis: Enhanced analysis dict from analyze_trajectory
-            previous_action: The action that led to failure
-            env_type: Type of environment
-        
-        Returns:
-            Detailed feedback string to inject into observation, composed directly
-            from analyze_trajectory output (single API call total)
-        """
-        # Compose feedback deterministically from analysis results
-        # No additional LLM calls; ignore log_path
-        return generate_debugger_feedback_text(analysis)
-    
-    def _format_trajectory(self, trajectory: List[Dict]) -> str:
-        """Format trajectory for LLM analysis"""
-        lines = []
-        for step in trajectory:
-            lines.append(f"Step {step['step']}:")
-            lines.append(f"  Observation: {step.get('observation', 'N/A')}")
-            lines.append(f"  Action: {step.get('action', 'N/A')}")
-            if step.get('reward') is not None:
-                lines.append(f"  Reward: {step['reward']}")
-            if step.get('done'):
-                lines.append(f"  Done: {step['done']}, Won: {step.get('won', False)}")
-            lines.append("")
-        return "\n".join(lines)
-
-
-class AdvancedDebugger(LLMDebugger):
-    """Adapter that connects the rollout debugger to the advanced analysis API."""
-
-    def __init__(
-        self,
-        model_name: str = "gpt-4o",
-        temperature: float = 0.3,
-        base_url: str | None = None,
-        api_key: Optional[str] = None,
-        analysis_model: Optional[str] = None,
-        capture_debug_data: bool = False,
-    ) -> None:
-        super().__init__(model_name=model_name, temperature=temperature, base_url=base_url, api_key=api_key)
-
-        if not ADVANCED_DEBUGGER_AVAILABLE:
-            raise ImportError("Advanced debugger API is not available in the current environment")
-
-        # Prefer provided API key, fall back to environment.
-        # Allow empty key when using local OpenAI-compatible endpoints (e.g., vLLM) via base_url.
-        self.api_key = api_key if api_key is not None else os.environ.get("OPENAI_API_KEY", "")
-        if not self.api_key and base_url is None:
-            raise ValueError("OPENAI_API_KEY must be set for AdvancedDebugger when no --debugger_base_url is provided")
-
-        self.analysis_model = analysis_model or model_name
-        self.capture_debug_data = capture_debug_data
-        self.detector = AgentErrorDetectorAPI(
-            self.api_key,
-            model=self.analysis_model,
-            capture_debug_data=capture_debug_data,
-            base_url=base_url,
-        )
-
-    def analyze_trajectory(
-        self,
-        trajectory: List[Dict],
-        env_type: str,
-        chat_history: Optional[List[Dict]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        previous_instructions: Optional[List[str]] = None,
-        generate_follow_up: bool = False,
-        log_path: Optional[str] = None,
+        attempt_index: int = 1,
+        previous_analysis: Optional[Dict[str, Any]] = None,
+        reuse_phase1_from_step: Optional[int] = None,
     ) -> Dict:
         if not chat_history:
             msg = "Advanced debugger requires chat history; none provided for analysis"
             logging.error(msg)
             raise RuntimeError(msg)
 
-        # Build the trajectory_json payload that the API expects
-        
-        ### Fix: trajectory_json is not a valid JSON object for the API
         trajectory_json = self._build_trajectory_json(trajectory, env_type, chat_history, metadata)
         debug_input_payload = _json_safe_copy(trajectory_json) if self.capture_debug_data else None
-        
-        # Log the structure of trajectory_json for debugging
+
+        cache_key = self._derive_cache_key(metadata, chat_history)
+        cached_phase1: Optional[Dict[str, Any]] = None
+        if previous_analysis and isinstance(previous_analysis.get('phase1_errors'), dict):
+            cached_phase1 = previous_analysis['phase1_errors']
+        elif cache_key and cache_key in self._phase1_cache:
+            cached_phase1 = self._phase1_cache[cache_key]
+
+        recompute_from_step = reuse_phase1_from_step or 1
+        if recompute_from_step < 1:
+            recompute_from_step = 1
+
+        effective_attempt_index = max(1, int(attempt_index) if attempt_index is not None else 1)
+        instructions_context = previous_instructions if previous_instructions else None
+
         logging.info(
-            "Advanced debugger starting analysis: steps=%s chat_messages=%s env=%s",
+            "Advanced debugger starting analysis: steps=%s chat_messages=%s env=%s reuse_from_step=%s cached_phase1=%s",
             len(trajectory),
             len(chat_history),
             env_type,
+            recompute_from_step,
+            cached_phase1 is not None,
         )
-        
-        # Log detailed structure for debugging
+
         if trajectory:
             logging.debug("First trajectory step: %s", trajectory[0])
         if chat_history:
             logging.debug("First chat message: %s", chat_history[0])
 
         try:
-            # Call the API with the properly formatted trajectory_json
-            result = self._run_async(self.detector.analyze_trajectory(trajectory_json))
-            
+            result = self._run_async(
+                self.detector.analyze_trajectory(
+                    trajectory_json,
+                    previous_phase1=cached_phase1,
+                    previous_instructions=instructions_context,
+                    attempt_index=effective_attempt_index,
+                    recompute_from_step=recompute_from_step,
+                )
+            )
+
             logging.info(
                 "Advanced debugger API response received: type=%s keys=%s",
                 type(result).__name__,
                 list(result.keys()) if isinstance(result, dict) else None,
             )
-            
-            # Log the actual critical error if found
+
             if isinstance(result, dict) and 'critical_error' in result:
                 critical = result['critical_error']
                 if critical:
@@ -787,8 +520,12 @@ class AdvancedDebugger(LLMDebugger):
             logging.error(f"Traceback: {traceback.format_exc()}")
             raise RuntimeError(f"Advanced debugger API call failed: {exc}") from exc
 
-        # Convert the API result to the expected format
+        if cache_key and isinstance(result, dict) and isinstance(result.get('phase1_errors'), dict):
+            self._phase1_cache[cache_key] = result['phase1_errors']
+
         converted = self._convert_api_result(result, trajectory, env_type)
+        converted['attempt_index'] = effective_attempt_index
+        converted['recompute_from_step'] = recompute_from_step
 
         if self.capture_debug_data:
             if isinstance(result, dict):
@@ -798,9 +535,8 @@ class AdvancedDebugger(LLMDebugger):
             if debug_input_payload is not None:
                 converted['debug_input'] = debug_input_payload
 
-        # Add metadata
         safe_metadata = _json_safe_copy(metadata or {})
-        converted["metadata"] = safe_metadata
+        converted['metadata'] = safe_metadata
 
         return converted
 
@@ -973,15 +709,243 @@ class AdvancedDebugger(LLMDebugger):
             "confidence": confidence,
             "cascading_effects": cascading_effects,
         }
-        
+
+        follow_up_instruction = None
+        if isinstance(critical_error, dict):
+            follow_up_instruction = critical_error.get('follow_up_instruction')
+        if follow_up_instruction:
+            converted_result['follow_up_instruction'] = follow_up_instruction
+
+        if isinstance(phase1_errors, dict):
+            if 'step_analyses' in phase1_errors:
+                converted_result['phase1_step_analyses'] = phase1_errors['step_analyses']
+            if 'cached_steps' in phase1_errors:
+                converted_result['phase1_cached_steps'] = phase1_errors['cached_steps']
+            if 'recompute_from_step' in phase1_errors:
+                converted_result['phase1_recompute_from_step'] = phase1_errors['recompute_from_step']
+
         logging.info(
             "Converted API result: failure_step=%d, failure_type=%s, confidence=%.2f",
             failure_step,
             failure_type,
             confidence
         )
-        
+
         return converted_result
+
+    def _derive_cache_key(
+        self,
+        metadata: Optional[Dict[str, Any]],
+        chat_history: Optional[List[Dict]]
+    ) -> str:
+        # Create a stable cache key for trajectory analyses.
+        hasher = hashlib.md5()
+        key_parts: List[str] = []
+
+        if metadata:
+            for field in ("environment", "task_id", "gamefile", "env_id", "task"):
+                value = metadata.get(field)
+                if value:
+                    key_parts.append(str(value))
+            initial_obs = metadata.get('initial_observation') or metadata.get('initial_obs')
+            if initial_obs:
+                key_parts.append(str(initial_obs)[:256])
+
+        if not key_parts and chat_history:
+            key_parts.append(str(len(chat_history)))
+            first_user = next(
+                (msg.get('content', '') for msg in chat_history if msg.get('role') == 'user'),
+                ''
+            )
+            key_parts.append(first_user[:256])
+
+        key_base = "|".join(key_parts) or f"no-meta-{len(chat_history) if chat_history else 0}"
+        hasher.update(key_base.encode('utf-8', errors='ignore'))
+
+        if chat_history:
+            for msg in chat_history[-4:]:
+                hasher.update(str(msg.get('role', '')).encode('utf-8', errors='ignore'))
+                content = msg.get('content', '')
+                hasher.update(str(content)[:256].encode('utf-8', errors='ignore'))
+
+        return hasher.hexdigest()
+
+
+class AdvancedDebugger(LLMDebugger):
+    """Adapter that connects the rollout debugger to the advanced analysis API."""
+
+    def __init__(
+        self,
+        model_name: str = "gpt-4o",
+        temperature: float = 0.3,
+        base_url: str | None = None,
+        api_key: Optional[str] = None,
+        analysis_model: Optional[str] = None,
+        capture_debug_data: bool = False,
+        phase1_parallel_workers: int = 1,
+    ) -> None:
+        super().__init__(model_name=model_name, temperature=temperature, base_url=base_url, api_key=api_key)
+
+        if not ADVANCED_DEBUGGER_AVAILABLE:
+            raise ImportError("Advanced debugger API is not available in the current environment")
+
+        self.api_key = api_key if api_key is not None else os.environ.get("OPENAI_API_KEY", "")
+        if not self.api_key and base_url is None:
+            raise ValueError("OPENAI_API_KEY must be set for AdvancedDebugger when no --debugger_base_url is provided")
+
+        self.analysis_model = analysis_model or model_name
+        self.capture_debug_data = capture_debug_data
+        self.phase1_parallel_workers = max(1, int(phase1_parallel_workers))
+        self.detector = AgentErrorDetectorAPI(
+            self.api_key,
+            model=self.analysis_model,
+            capture_debug_data=capture_debug_data,
+            base_url=base_url,
+            phase1_parallel_workers=self.phase1_parallel_workers,
+        )
+        self._phase1_cache: Dict[str, Dict[str, Any]] = {}
+
+    def analyze_trajectory(
+        self,
+        trajectory: List[Dict],
+        env_type: str,
+        chat_history: Optional[List[Dict]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        previous_instructions: Optional[List[str]] = None,
+        generate_follow_up: bool = False,
+        log_path: Optional[str] = None,
+        attempt_index: int = 1,
+        previous_analysis: Optional[Dict[str, Any]] = None,
+        reuse_phase1_from_step: Optional[int] = None,
+    ) -> Dict:
+        if not chat_history:
+            msg = "Advanced debugger requires chat history; none provided for analysis"
+            logging.error(msg)
+            raise RuntimeError(msg)
+
+        trajectory_json = self._build_trajectory_json(trajectory, env_type, chat_history, metadata)
+        debug_input_payload = _json_safe_copy(trajectory_json) if self.capture_debug_data else None
+
+        cache_key = self._derive_cache_key(metadata, chat_history)
+        cached_phase1: Optional[Dict[str, Any]] = None
+        if previous_analysis and isinstance(previous_analysis.get('phase1_errors'), dict):
+            cached_phase1 = previous_analysis['phase1_errors']
+        elif cache_key and cache_key in self._phase1_cache:
+            cached_phase1 = self._phase1_cache[cache_key]
+
+        recompute_from_step = reuse_phase1_from_step or 1
+        if recompute_from_step < 1:
+            recompute_from_step = 1
+
+        effective_attempt_index = max(1, int(attempt_index) if attempt_index is not None else 1)
+        instructions_context = previous_instructions if previous_instructions else None
+
+        logging.info(
+            "Advanced debugger starting analysis: steps=%s chat_messages=%s env=%s reuse_from_step=%s cached_phase1=%s",
+            len(trajectory),
+            len(chat_history),
+            env_type,
+            recompute_from_step,
+            cached_phase1 is not None,
+        )
+
+        if trajectory:
+            logging.debug("First trajectory step: %s", trajectory[0])
+        if chat_history:
+            logging.debug("First chat message: %s", chat_history[0])
+
+        try:
+            result = self._run_async(
+                self.detector.analyze_trajectory(
+                    trajectory_json,
+                    previous_phase1=cached_phase1,
+                    previous_instructions=instructions_context,
+                    attempt_index=effective_attempt_index,
+                    recompute_from_step=recompute_from_step,
+                )
+            )
+
+            logging.info(
+                "Advanced debugger API response received: type=%s keys=%s",
+                type(result).__name__,
+                list(result.keys()) if isinstance(result, dict) else None,
+            )
+
+            if isinstance(result, dict) and 'critical_error' in result:
+                critical = result['critical_error']
+                if critical:
+                    logging.info(
+                        "Critical error identified: step=%s module=%s type=%s",
+                        critical.get('critical_step'),
+                        critical.get('critical_module'),
+                        critical.get('error_type')
+                    )
+                else:
+                    logging.warning("No critical error found by advanced debugger")
+        except Exception as exc:
+            logging.error(f"Advanced debugger API call failed: {exc}")
+            logging.error(f"Exception type: {type(exc).__name__}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            raise RuntimeError(f"Advanced debugger API call failed: {exc}") from exc
+
+        if cache_key and isinstance(result, dict) and isinstance(result.get('phase1_errors'), dict):
+            self._phase1_cache[cache_key] = result['phase1_errors']
+
+        converted = self._convert_api_result(result, trajectory, env_type)
+        converted['attempt_index'] = effective_attempt_index
+        converted['recompute_from_step'] = recompute_from_step
+
+        if self.capture_debug_data:
+            if isinstance(result, dict):
+                debug_payload = result.get('debug_payload')
+                if debug_payload is not None:
+                    converted['debug_payload'] = _json_safe_copy(debug_payload)
+            if debug_input_payload is not None:
+                converted['debug_input'] = debug_input_payload
+
+        safe_metadata = _json_safe_copy(metadata or {})
+        converted['metadata'] = safe_metadata
+
+        return converted
+
+    def _derive_cache_key(
+        self,
+        metadata: Optional[Dict[str, Any]],
+        chat_history: Optional[List[Dict]]
+    ) -> str:
+        # Create a stable cache key for trajectory analyses.
+        hasher = hashlib.md5()
+        key_parts: List[str] = []
+
+        if metadata:
+            for field in ("environment", "task_id", "gamefile", "env_id", "task"):
+                value = metadata.get(field)
+                if value:
+                    key_parts.append(str(value))
+            initial_obs = metadata.get('initial_observation') or metadata.get('initial_obs')
+            if initial_obs:
+                key_parts.append(str(initial_obs)[:256])
+
+        if not key_parts and chat_history:
+            key_parts.append(str(len(chat_history)))
+            first_user = next(
+                (msg.get('content', '') for msg in chat_history if msg.get('role') == 'user'),
+                ''
+            )
+            key_parts.append(first_user[:256])
+
+        key_base = "|".join(key_parts) or f"no-meta-{len(chat_history) if chat_history else 0}"
+        hasher.update(key_base.encode('utf-8', errors='ignore'))
+
+        if chat_history:
+            for msg in chat_history[-4:]:
+                hasher.update(str(msg.get('role', '')).encode('utf-8', errors='ignore'))
+                content = msg.get('content', '')
+                hasher.update(str(content)[:256].encode('utf-8', errors='ignore'))
+
+        return hasher.hexdigest()
+
 
 
 class ContinuousInstructionManager:
@@ -1323,13 +1287,12 @@ def extract_trajectory_from_memory(
     - Memory stores records after each step (i > 0) as: prev_observation (o_i), action_at_step_i (a_i).
       Concretely, ``memory[0]`` holds (o_1, a_1), ``memory[1]`` holds (o_2, a_2), etc.
     - The very first step (o_0, a_0) is not recorded in memory by current env managers.
-    - The "observation" field in our trajectory steps represents the observation AFTER the action (o_{i+1}).
-      For step i, this equals ``memory[i].text_obs`` when available, and equals the fallback observation otherwise.
+    - Each stored trajectory step keeps the observation shown to the agent before
+      the action (``observation``). The post-action observation is incorporated
+      into the next step's ``observation`` record.
 
     WebShop-specific handling (ONLY applies when env_type=="webshop"):
-    - Override observations with raw memory data to avoid summarization effects
-    - Use env_manager.pre_text_obs for the final observation (anchor/raw observation after format_obs,
-      but before templating/summarization)
+    - Use raw memory data for observations  
     - Other environments: validate memory vs fallback but always keep fallback observations
 
     Args:
@@ -1341,8 +1304,7 @@ def extract_trajectory_from_memory(
 
     Returns:
         List[Dict[str, Any]]: Trajectory aligned by step index with fields
-        step, observation (o_{i+1}), agent_input (what agent actually saw including summarized history),
-        action (a_i), reward, done, won.
+        step, observation (o_i as seen before the action), action (a_i), reward, done, won.
     """
     if not fallback_steps:
         return []
@@ -1361,51 +1323,27 @@ def extract_trajectory_from_memory(
 
     memory_data = env_manager.memory._data[env_id] if has_memory else []
 
-    # For WebShop, try to get the last raw observation from pre_text_obs
-    last_raw_obs = None
-    if env_type.lower() == "webshop" and hasattr(env_manager, 'pre_text_obs'):
-        if env_manager.pre_text_obs and env_id < len(env_manager.pre_text_obs):
-            last_raw_obs = env_manager.pre_text_obs[env_id]
-            logging.debug(f"    WebShop: Found pre_text_obs for final observation")
-
     for step_idx in range(num_steps):
-        # Start with fallback data as base (canonical source for rewards/done/won and raw action)
+        fallback_step = fallback_steps[step_idx]
+        obs_before = fallback_step.get("observation")
+
         trajectory_step = {
             "step": step_idx,
-            "observation": fallback_steps[step_idx]["observation"],
-            "agent_input": fallback_steps[step_idx].get("agent_input", fallback_steps[step_idx]["observation"]),  # What agent actually saw
-            "action": fallback_steps[step_idx]["action"],  # Always use original LLM action
-            "reward": fallback_steps[step_idx].get("reward", 0.0),
-            "done": fallback_steps[step_idx].get("done", False),
-            "won": fallback_steps[step_idx].get("won", False)
+            "observation": obs_before,
+            "action": fallback_step["action"],
+            "reward": fallback_step.get("reward", 0.0),
+            "done": fallback_step.get("done", False),
+            "won": fallback_step.get("won", False)
         }
 
-        # WebShop: Use raw observations from memory to avoid summarization
-        if env_type.lower() == "webshop" and memory_data:
-            # Memory[step_idx].text_obs corresponds to o_{step_idx+1} (post-action observation)
-            if step_idx < len(memory_data):
-                mem_obs = memory_data[step_idx].get("text_obs")
-                if isinstance(mem_obs, str) and mem_obs:
-                    # For WebShop, override with raw memory observation
-                    trajectory_step["observation"] = mem_obs
-                    logging.debug(f"        Step {step_idx}: Using raw memory observation (WebShop)")
-            # Handle the last observation specially
-            elif step_idx == num_steps - 1 and last_raw_obs:
-                # Last observation not in memory yet, use pre_text_obs
-                trajectory_step["observation"] = last_raw_obs
-                logging.debug(f"        Step {step_idx}: Using pre_text_obs for final observation (WebShop)")
-
-        # Other environments: validate but keep fallback observations
-        elif memory_data and env_type.lower() != "webshop":
-            # Memory[step_idx].text_obs corresponds to o_{step_idx+1} (post-action observation)
-            if step_idx < len(memory_data):
-                mem_obs = memory_data[step_idx].get("text_obs")
-                if isinstance(mem_obs, str) and mem_obs and mem_obs != trajectory_step["observation"]:
-                    # Keep fallback as the source of truth but log a mismatch for visibility
-                    logging.debug(
-                        "Memory/fallback observation mismatch at step %d: mem vs fallback (len %d vs %d)",
-                        step_idx, len(mem_obs), len(trajectory_step["observation"])  # lengths to avoid huge logs
-                    )
+        # Log any discrepancies between stored prompt and memory (informational only)
+        if memory_data and step_idx < len(memory_data):
+            mem_obs = memory_data[step_idx].get("text_obs")
+            if isinstance(mem_obs, str) and mem_obs and mem_obs != obs_before:
+                logging.debug(
+                    "Memory/prompt observation mismatch at step %d: mem vs stored prompt (len %d vs %d)",
+                    step_idx, len(mem_obs), len(obs_before) if isinstance(obs_before, str) else -1
+                )
 
         aligned_trajectory.append(trajectory_step)
 
@@ -1497,6 +1435,7 @@ def run_environment_with_retry(
     last_trajectory = None  # Track the last trajectory for debugging
     last_chat_history: Optional[List[Dict[str, Any]]] = None
     last_metadata: Optional[Dict[str, Any]] = None
+    last_analysis: Optional[Dict[str, Any]] = None
     won = False
     final_info = {}
     all_attempt_trajectories = []
@@ -1546,22 +1485,50 @@ def run_environment_with_retry(
             # Get previous instructions for continuous debugging
             previous_instructions = []
             generate_follow_up = False
-            if continuous_instruction_manager and debugger_type == "continue":
+            if continuous_instruction_manager and debugger_type in ("continue", "advanced"):
                 previous_instructions = continuous_instruction_manager.get_instructions(env_id)
                 generate_follow_up = True
             
+            analysis_kwargs = {
+                'previous_instructions': previous_instructions,
+                'generate_follow_up': generate_follow_up,
+                'log_path': analysis_log_path,
+            }
+            if debugger_type == 'advanced':
+                reuse_phase1_from_step = None
+                if last_analysis:
+                    raw_prev = last_analysis.get('raw_critical_error', {}) or {}
+                    reuse_phase1_from_step = raw_prev.get('critical_step')
+                    if reuse_phase1_from_step is None:
+                        prev_failure_step = last_analysis.get('failure_step')
+                        if prev_failure_step is not None:
+                            try:
+                                reuse_phase1_from_step = int(prev_failure_step) + 1
+                            except (TypeError, ValueError):
+                                reuse_phase1_from_step = None
+                if reuse_phase1_from_step is not None:
+                    try:
+                        reuse_phase1_from_step = max(1, int(reuse_phase1_from_step))
+                    except (TypeError, ValueError):
+                        reuse_phase1_from_step = None
+                analysis_kwargs.update({
+                    'attempt_index': retry_idx,
+                    'previous_analysis': last_analysis,
+                    'reuse_phase1_from_step': reuse_phase1_from_step,
+                })
+                if reuse_phase1_from_step:
+                    logging.info(f"    Reusing Phase 1 analysis up to step {reuse_phase1_from_step - 1}")
+
             analysis = debugger.analyze_trajectory(
                 last_trajectory,
                 env_type,
                 chat_history=last_chat_history,
                 metadata=last_metadata,
-                previous_instructions=previous_instructions,
-                generate_follow_up=generate_follow_up,
-                log_path=analysis_log_path,
+                **analysis_kwargs
             )
             
             # Extract and store follow-up instruction for continuous debugging
-            if continuous_instruction_manager and debugger_type == "continue":
+            if continuous_instruction_manager and debugger_type in ("continue", "advanced"):
                 follow_up_instruction = analysis.get('follow_up_instruction')
                 if follow_up_instruction:
                     continuous_instruction_manager.add_instruction(env_id, follow_up_instruction, retry_idx)
@@ -1603,10 +1570,13 @@ def run_environment_with_retry(
                     "confidence": raw_critical.get('confidence', 0.0),
                     "cascading_effects": raw_critical.get('cascading_effects', []),
                     "trajectory": last_trajectory,
-                    "env_type": env_type
+                    "env_type": env_type,
+                    "phase1_step_analyses": analysis.get('phase1_step_analyses'),
+                    "phase1_cached_steps": analysis.get('phase1_cached_steps'),
+                    "phase1_recompute_from_step": analysis.get('phase1_recompute_from_step')
                 }
 
-                if continuous_instruction_manager and debugger_type == "continue":
+                if continuous_instruction_manager and debugger_type in ("continue", "advanced"):
                     debug_record["follow_up_instruction"] = follow_up_instruction
                     debug_record["continuous_guidance"] = guidance_list
                     debug_record["continuous_guidance_history"] = [
@@ -1624,6 +1594,8 @@ def run_environment_with_retry(
                 with open(debug_file, "w") as f:
                     json.dump(debug_record, f, indent=2)
             
+            last_analysis = analysis
+
             # Extract critical step from raw error or analysis
             raw_critical = analysis.get('raw_critical_error', {})
             critical_step_1based = raw_critical.get('critical_step') or analysis.get('critical_step', 1)
@@ -1708,7 +1680,7 @@ def run_environment_with_retry(
             if hasattr(env_manager, 'debugger_feedback') and env_id in env_manager.debugger_feedback:
                 logging.info(f"    Replay setup verified: feedback will be injected at step {env_manager.debugger_feedback[env_id]['step']}")
 
-        if continuous_instruction_manager and debugger_type == "continue" and not instruction_overlay:
+        if continuous_instruction_manager and debugger_type in ("continue", "advanced") and not instruction_overlay:
             instruction_overlay = continuous_instruction_manager.format_instructions_for_observation(env_id)
 
         # Get initial observation
@@ -1726,21 +1698,20 @@ def run_environment_with_retry(
             if env_done:
                 break
                 
+            # Current textual observation shown to the agent.
+            current_observation = obs
+            prompt = current_observation
+            used_replay_action = False
+
             # Check if we should use a replay action first
             replay_action = env_manager.get_replay_action(env_id)
             if replay_action is not None:
                 action = replay_action
                 logging.debug(f"    Using replay action for step {step_idx}: {action}")
+                used_replay_action = True
             else:
                 # Get action from agent - replay mode is finished, get new action from LLM
                 # The observation already includes debugger feedback if this is the critical step
-                prompt = obs
-                
-                # For continuous debugging, inject accumulated instructions into every observation
-                if continuous_instruction_manager and debugger_type == "continue" and instruction_overlay:
-                    if instruction_overlay not in prompt:
-                        prompt = instruction_overlay + "\n\n" + prompt
-                
                 # Log if we expect debugger feedback in this observation
                 if debugger and analysis:
                     pending_feedback = getattr(env_manager, "debugger_feedback", {})
@@ -1760,13 +1731,13 @@ def run_environment_with_retry(
             
             # Step environment
             obs_dict, reward_dict, done_dict, info_dict = env_manager.step_single(env_id, action)
-            
-            obs = obs_dict["text"][env_id]
+
+            next_observation = obs_dict["text"][env_id]
             reward = float(reward_dict[env_id])  # Convert numpy type to Python float
             done = bool(done_dict[env_id])  # Convert numpy bool to Python bool
             # info_dict is a list, get the element at env_id
             info = info_dict[env_id] if isinstance(info_dict, list) else info_dict
-            
+
             # Ensure info is a dictionary
             if not isinstance(info, dict):
                 info = {}
@@ -1776,22 +1747,22 @@ def run_environment_with_retry(
             # Store trajectory step (step_idx is 0-based)
             trajectory_step = {
                 "step": step_idx,  # Keep 0-based indexing for consistency
-                "observation": obs,  # Raw observation from environment
-                "agent_input": prompt,  # What the agent actually saw (includes summarized history)
+                "observation": current_observation,  # Observation shown to the agent for this decision
                 "action": raw_action,
                 "reward": float(reward),
                 "done": bool(done),
                 "won": bool(info.get("won", False))
             }
             trajectory_steps.append(trajectory_step)
-            
+
             if trajectory_manager:
                 trajectory_manager.add_step(env_id, trajectory_step)
-            
+
             # Update chat history
-            chat_history.append({"role": "user", "content": prompt})
-            chat_history.append({"role": "assistant", "content": raw_action})
-            
+            if not used_replay_action:
+                chat_history.append({"role": "user", "content": prompt})
+                chat_history.append({"role": "assistant", "content": raw_action})
+
             # Write to dump file if specified
             if dump_fp and (save_all_attempts or retry_idx == 0 or won):
                 try:
@@ -1831,10 +1802,14 @@ def run_environment_with_retry(
                     logging.error(f"Failed to write trajectory: {e}")
             
             if done:
+                obs = next_observation
                 env_done = True
                 won = bool(info.get("won", False))
                 final_info = info
                 break
+
+            # Advance to the next observation for the following step
+            obs = next_observation
         
         # Save this attempt's trajectory
         attempt_final_info = info if isinstance(info, dict) else {}
@@ -1852,6 +1827,7 @@ def run_environment_with_retry(
         
         attempt_metadata = {
             "environment": env_type,
+            "env_id": env_id,
             "attempt_index": retry_idx + 1,
             "max_steps": max_steps,
             "success": bool(won),
@@ -1868,7 +1844,17 @@ def run_environment_with_retry(
             attempt_metadata["replay_to_step"] = replay_to_step
         attempt_data["metadata"] = attempt_metadata
 
-        if continuous_instruction_manager and debugger_type == "continue":
+        if analysis:
+            if analysis.get('phase1_step_analyses') is not None:
+                attempt_data['phase1_step_analyses'] = analysis.get('phase1_step_analyses')
+            if analysis.get('phase1_cached_steps') is not None:
+                attempt_data['phase1_cached_steps'] = analysis.get('phase1_cached_steps')
+            if analysis.get('phase1_recompute_from_step') is not None:
+                attempt_data['phase1_recompute_from_step'] = analysis.get('phase1_recompute_from_step')
+            if analysis.get('follow_up_instruction') and 'follow_up_instruction' not in attempt_data:
+                attempt_data['follow_up_instruction'] = analysis.get('follow_up_instruction')
+
+        if continuous_instruction_manager and debugger_type in ("continue", "advanced"):
             effective_guidance = guidance_list or continuous_instruction_manager.get_instructions(env_id)
             effective_history = guidance_history or continuous_instruction_manager.get_instruction_history(env_id)
 
@@ -1996,7 +1982,7 @@ def run_environment_with_retry(
                 ]
             }
 
-            if continuous_instruction_manager and debugger_type == "continue":
+            if continuous_instruction_manager and debugger_type in ("continue", "advanced"):
                 save_data["continuous_guidance"] = continuous_instruction_manager.get_instructions(env_id)
                 save_data["continuous_guidance_history"] = [
                     {"attempt": attempt_idx, "instruction": guidance}
@@ -2023,7 +2009,7 @@ def run_environment_with_retry(
         "all_attempts": all_attempt_trajectories if save_all_attempts else None
     }
 
-    if continuous_instruction_manager and debugger_type == "continue":
+    if continuous_instruction_manager and debugger_type in ("continue", "advanced"):
         result["continuous_guidance"] = continuous_instruction_manager.get_instructions(env_id)
         result["continuous_guidance_history"] = [
             {"attempt": attempt_idx, "instruction": guidance}
@@ -2144,6 +2130,8 @@ def main():
                        help="Save trajectories for all retry attempts")
     parser.add_argument("--debugger_capture_api_debug", action="store_true",
                         help="Include advanced debugger request/response payloads in outputs for troubleshooting")
+    parser.add_argument("--parallel_num_phase_1", type=int, default=1,
+                       help="Maximum number of parallel Phase 1 step analyses for the advanced debugger")
     
     # Together AI routing
     parser.add_argument(
@@ -2514,6 +2502,7 @@ def main():
                     api_key=args.debugger_api_key,
                     analysis_model=args.debugger_model,
                     capture_debug_data=args.debugger_capture_api_debug,
+                    phase1_parallel_workers=args.parallel_num_phase_1,
                 )
             except Exception as exc:
                 logging.error(f"Failed to initialize advanced debugger: {exc}")
@@ -2531,10 +2520,13 @@ def main():
         
         trajectory_manager = TrajectoryManager()
         
-        # Initialize continuous instruction manager for continue mode
-        if args.debugger_type == "continue":
+        # Initialize continuous instruction manager for iterative guidance modes
+        if args.debugger_type in {"continue", "advanced"}:
             continuous_instruction_manager = ContinuousInstructionManager()
-            debugger_type_label = "continue (cumulative guidance)"
+            if args.debugger_type == "continue":
+                debugger_type_label = "continue (cumulative guidance)"
+            else:
+                debugger_type_label = "advanced (iterative guidance)"
         logging.info(
             "Debugger enabled (%s)\n"
             "  Rollout: model=%s, base_url=%s\n"

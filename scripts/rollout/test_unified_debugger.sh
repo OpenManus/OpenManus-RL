@@ -37,28 +37,28 @@ echo "=== Test 1: WebShop with Debugger ==="
 RUN_DIR="${BASE_DIR}/webshop"
 echo "Run directory: ${RUN_DIR}"
 
-python scripts/rollout/openmanus_rollout_debugger.py \
-    --env webshop \
-    --total_envs 10 \
-    --test_times 1 \
-    --start_id 1 \
-    --max_steps 30 \
-    --history_length 40 \
-    --use_summary \
-    --model "${ROLLOUT_MODEL}" \
-    --temperature 0.0 \
-    --webshop_train \
-    --enable_debugger \
-    --max_try 5 \
-    --debugger_model "${DEBUGGER_MODEL}" \
-    --debugger_type continue \
-    --debugger_temperature 0.0 \
-    --experiment_dir "${RUN_DIR}" \
-    --save_all_attempts \
-    --save_per_task_trajectories \
-    --debug \
-    --concurrency 10 \
-    --llm_concurrency 20
+# python scripts/rollout/openmanus_rollout_debugger.py \
+#     --env webshop \
+#     --total_envs 10 \
+#     --test_times 1 \
+#     --start_id 1 \
+#     --max_steps 30 \
+#     --history_length 40 \
+#     --use_summary \
+#     --model "${ROLLOUT_MODEL}" \
+#     --temperature 0.0 \
+#     --webshop_train \
+#     --enable_debugger \
+#     --max_try 5 \
+#     --debugger_model "${DEBUGGER_MODEL}" \
+#     --debugger_type continue \
+#     --debugger_temperature 0.0 \
+#     --experiment_dir "${RUN_DIR}" \
+#     --save_all_attempts \
+#     --save_per_task_trajectories \
+#     --debug \
+#     --concurrency 10 \
+#     --llm_concurrency 20
 
 # Test 1 (Alternative): AlfWorld with debugger - COMMENTED OUT
 # echo "=== Test 1: AlfWorld with Debugger ==="
@@ -84,49 +84,50 @@ python scripts/rollout/openmanus_rollout_debugger.py \
 #concurrency is the number of concurrent tasks to run
 #llm_concurrency is the number of concurrent LLM requests to run
 
-python scripts/rollout/openmanus_rollout_debugger.py \
-  --env alfworld \
-  --total_envs 10 \
-  --test_times 1 \
-  --start_id 1 \
-  --history_length 40 \
-  --strategy tot \
-  --beam_size 4 \
-  --value_threshold 0.2 \
-  --max_try 3 \
-  --model gpt-4o-mini \
-  --temperature 0.4 \
-  --max_steps 15 \
-  --concurrency 10 \
-  --llm_concurrency 50 \
-  --unique_envs \
-  --save_per_task_trajectories \
-  --experiment_dir experiments/tot_smoke_fixed \
-
-
-
-
 # python scripts/rollout/openmanus_rollout_debugger.py \
-#     --env alfworld \
-#     --total_envs 10 \
-#     --test_times 1 \
-#     --start_id 11 \
-#     --max_steps 30 \
-#     --history_length 40 \
-#     --model "${ROLLOUT_MODEL}" \
-#     --temperature 0.0 \
-#     --enable_debugger \
-#     --max_try 5 \
-#     --debugger_model "${DEBUGGER_MODEL}" \
-#     --debugger_type continue \
-#     --debugger_temperature 0.0 \
-#     --experiment_dir "${RUN_DIR}" \
-#     --save_all_attempts \
-#     --save_per_task_trajectories \
-#     --unique_envs \
-#     --debug \
-#     --concurrency 10 \
-#     --llm_concurrency 50 \
+#   --env alfworld \
+#   --total_envs 10 \
+#   --test_times 1 \
+#   --start_id 41 \
+#   --history_length 40 \
+#   --strategy tot \
+#   --beam_size 4 \
+#   --value_threshold 0.2 \
+#   --max_try 3 \
+#   --model gpt-4o-mini \
+#   --temperature 0.4 \
+#   --max_steps 15 \
+#   --concurrency 10 \
+#   --llm_concurrency 50 \
+#   --unique_envs \
+#   --save_per_task_trajectories \
+#   --experiment_dir experiments/tot_smoke_fixed \
+
+
+
+
+python scripts/rollout/openmanus_rollout_debugger.py \
+    --env alfworld \
+    --total_envs 20 \
+    --test_times 1 \
+    --start_id 51 \
+    --max_steps 30 \
+    --history_length 40 \
+    --model "${ROLLOUT_MODEL}" \
+    --temperature 0.0 \
+    --enable_debugger \
+    --max_try 5 \
+    --debugger_model "${DEBUGGER_MODEL}" \
+    --debugger_type advanced \
+    --debugger_temperature 0.0 \
+    --experiment_dir "${RUN_DIR}" \
+    --save_all_attempts \
+    --save_per_task_trajectories \
+    --unique_envs \
+    --debug \
+    --parallel_num_phase_1 5 \
+    --concurrency 20 \
+    --llm_concurrency 80 \
     # ${TOGETHER_ARG}
     # --base_url "${ROLLOUT_URL}" \
     # --debugger_base_url "${DEBUGGER_URL}"

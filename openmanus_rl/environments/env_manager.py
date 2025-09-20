@@ -56,20 +56,16 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         actions, valids = self.projection_f(text_actions, self.envs.get_admissible_commands)
         text_obs, image_obs, rewards, dones, infos = self.envs.step(actions)
         
-        # Check if this is the very first step (before incrementing step_counts)
-        is_first_step = all(self.step_counts[i] == 0 for i in range(len(text_actions)))
-        
-        # Store previous observation and action BEFORE incrementing step count
-        if not is_first_step:  # Only store to memory if it's not the first step
-            self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
+        # Always store previous observation and action to memory (step 0 becomes history for step 1)
+        self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
         self.pre_text_obs = text_obs
 
         # Increment step counts BEFORE building observations for correct feedback injection timing
         for i in range(len(text_actions)):
             self.step_counts[i] += 1
             
-        # Build text observations AFTER incrementing step_counts
-        full_text_obs = self.build_text_obs(text_obs, self.envs.get_admissible_commands, init=is_first_step)
+        # Build text observations with history (init=False means use history template)
+        full_text_obs = self.build_text_obs(text_obs, self.envs.get_admissible_commands, init=False)
             
         if infos[0].get("extra.gamefile") is None:
             infos = set_gamefile(infos, self.gamefile)
@@ -234,21 +230,17 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
 
         next_obs = self.format_obs(next_obs)
         
-        # Check if this is the very first step (before incrementing step_counts)
-        is_first_step = all(self.step_counts[i] == 0 for i in range(len(text_actions)))
-
-        # Store previous observation and action BEFORE incrementing step count
-        if not is_first_step:  # Only store to memory if it's not the first step
-            self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
+        # Always store previous observation and action to memory (step 0 becomes history for step 1)
+        self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
         self.pre_text_obs = next_obs
 
         # Increment step counts BEFORE building observations for correct feedback injection timing
         for i in range(len(text_actions)):
             self.step_counts[i] += 1
         
-        # Build text observations AFTER incrementing step_counts
+        # Build text observations with history (init=False means use history template)
         next_observations = {
-            'text': self.build_text_obs(next_obs, infos, init=is_first_step),
+            'text': self.build_text_obs(next_obs, infos, init=False),
             'image': None,
             'anchor': next_obs.copy()
         }

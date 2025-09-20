@@ -39,6 +39,7 @@ class AgentErrorDetectorAPI:
         model: str = "gpt-4.1-2025-04-14",
         capture_debug_data: bool = False,
         base_url: Optional[str] = None,
+        phase1_parallel_workers: int = 1,
     ):
         """
         Initialize the error detector.
@@ -76,73 +77,93 @@ class AgentErrorDetectorAPI:
         }
 
         self.capture_debug_data = capture_debug_data
-        self.phase1_detector = ErrorTypeDetector(self.api_config)
+        self.phase1_parallel_workers = max(1, int(phase1_parallel_workers))
+        self.phase1_detector = ErrorTypeDetector(self.api_config, parallel_workers=self.phase1_parallel_workers)
         self.phase2_analyzer = CriticalErrorAnalyzer(self.api_config, capture_debug_data=capture_debug_data)
         self.error_loader = ErrorDefinitionsLoader()
 
-    async def analyze_trajectory(self, trajectory_json: Dict) -> Dict:
-        """
-        Complete analysis pipeline: Phase 1 + Phase 2
+    async def analyze_trajectory(
+        self,
+        trajectory_json: Dict,
+        *,
+        previous_phase1: Optional[Dict[str, Any]] = None,
+        previous_instructions: Optional[List[str]] = None,
+        attempt_index: int = 1,
+        recompute_from_step: Optional[int] = None,
+    ) -> Dict:
+        """Complete analysis pipeline: Phase 1 + Phase 2 with optional caching."""
 
-        Args:
-            trajectory_json: Complete trajectory data
+        cached_step_analyses: Optional[List[Dict[str, Any]]] = None
+        if previous_phase1:
+            cached_step_analyses = previous_phase1.get('step_analyses')
 
-        Returns:
-            Combined results with step-by-step errors and critical error
-        """
-        # Phase 1: Detect all errors
-        phase1_results = await self.detect_errors(trajectory_json)
+        # Default recompute window to 1 (start from first step) if not provided
+        recompute = recompute_from_step or 1
 
-        # Phase 2: Find critical error
-        phase2_results = await self.find_critical_error(phase1_results, trajectory_json)
+        # Phase 1: Detect all errors (optionally reusing cached analyses)
+        phase1_results = await self.detect_errors(
+            trajectory_json,
+            recompute_from_step=recompute,
+            cached_step_analyses=cached_step_analyses,
+        )
+
+        # Phase 2: Find critical error with iterative guidance context
+        phase2_results = await self.find_critical_error(
+            phase1_results,
+            trajectory_json,
+            previous_instructions=previous_instructions,
+            attempt_index=attempt_index,
+        )
+
+        critical_error = phase2_results.get('critical_error') if isinstance(phase2_results, dict) else None
+        follow_up_instruction = None
+        if isinstance(critical_error, dict):
+            follow_up_instruction = critical_error.get('follow_up_instruction')
 
         result = {
             'phase1_errors': phase1_results,
-            'critical_error': phase2_results.get('critical_error'),
+            'critical_error': critical_error,
+            'follow_up_instruction': follow_up_instruction,
             'task_success': phase1_results.get('task_success', False),
             'environment': phase1_results.get('environment', 'unknown')
         }
 
-        if self.capture_debug_data and phase2_results.get('debug_payload'):
+        if self.capture_debug_data and isinstance(phase2_results, dict) and phase2_results.get('debug_payload'):
             result['debug_payload'] = phase2_results['debug_payload']
 
         return result
 
-    async def detect_errors(self, trajectory_json: Dict) -> Dict:
-        """
-        Phase 1: Detect all errors in trajectory
-
-        Args:
-            trajectory_json: Complete trajectory data
-
-        Returns:
-            Step-by-step error analysis
-        """
-        # Parse trajectory
+    async def detect_errors(
+        self,
+        trajectory_json: Dict,
+        *,
+        recompute_from_step: int = 1,
+        cached_step_analyses: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict:
+        """Phase 1: Detect all errors in trajectory."""
         trajectory_data = self.phase1_detector.parse_trajectory_from_dict(trajectory_json)
-
-        # Analyze for errors
-        results = await self.phase1_detector.analyze_trajectory(trajectory_data)
-
+        results = await self.phase1_detector.analyze_trajectory(
+            trajectory_data,
+            recompute_from_step=recompute_from_step,
+            cached_step_analyses=cached_step_analyses,
+        )
         return results
 
-    async def find_critical_error(self, phase1_results: Dict, trajectory_json: Dict) -> Dict:
-        """
-        Phase 2: Identify critical failure point
-
-        Args:
-            phase1_results: Results from Phase 1 analysis
-            trajectory_json: Original trajectory data
-
-        Returns:
-            Critical error identification with correction guidance
-        """
-        # Find critical error
+    async def find_critical_error(
+        self,
+        phase1_results: Dict,
+        trajectory_json: Dict,
+        *,
+        previous_instructions: Optional[List[str]] = None,
+        attempt_index: int = 1,
+    ) -> Dict:
+        """Phase 2: Identify critical failure point."""
         critical_error = await self.phase2_analyzer.identify_critical_error(
             phase1_results,
-            trajectory_json
+            trajectory_json,
+            previous_instructions=previous_instructions,
+            attempt_index=attempt_index,
         )
-
         return critical_error
 
     def get_error_definitions(self, module: Optional[str] = None) -> Dict:

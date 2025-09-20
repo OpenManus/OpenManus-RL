@@ -55,9 +55,6 @@ class ToolUseEnvironmentManager(EnvironmentManagerBase):
         actions, valids = self.projection_f(text_actions)
         batch_size = len(text_actions)
         
-        # Check if this is the very first step (before incrementing step_counts)
-        is_first_step = all(self.env_step_counts[i] == 0 for i in range(batch_size))
-        
         # Process actions and execute tools
         observations = []
         rewards = np.zeros(batch_size) 
@@ -87,22 +84,21 @@ class ToolUseEnvironmentManager(EnvironmentManagerBase):
             info['step_count'] = self.step_counts[i]
             infos.append(info)
         
-        # Increment step counts BEFORE building observations for correct debugger feedback timing
+        # Always store observations and actions to memory (step 0 becomes history for step 1)
+        try:
+            self.memory.store({'text_obs': observations, 'action': text_actions})
+        except Exception:
+            # Be permissive: if memory storage fails, continue without history
+            pass
+        
+        # Increment step counts AFTER storing to memory
         for i in range(batch_size):
             if not self.task_completed[i]:
                 self.step_counts[i] += 1
                 self.env_step_counts[i] += 1  # Increment for debugger tracking
-        
-        # After processing all envs, store this step's observations and actions into memory
-        if not is_first_step:  # Only store to memory if it's not the first step
-            try:
-                self.memory.store({'text_obs': observations, 'action': text_actions})
-            except Exception:
-                # Be permissive: if memory storage fails, continue without history
-                pass
 
-        # Build text observations AFTER incrementing step counts
-        full_text_obs = self.build_text_obs(observations=observations, init=is_first_step)
+        # Build text observations with history (init=False means use history template)
+        full_text_obs = self.build_text_obs(observations=observations, init=False)
         
         next_observations = {'text': full_text_obs, 'image': None, 'anchor': observations.copy()}
         rewards = to_numpy(rewards)
