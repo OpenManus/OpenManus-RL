@@ -11,6 +11,7 @@ import json
 import logging
 import argparse
 import shutil
+import re
 from types import SimpleNamespace
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
@@ -224,6 +225,7 @@ class LLMDebugger:
         """
         self.model_name = model_name
         self.temperature = temperature
+        self.capture_debug_data = False
 
         # Initialize OpenAI-compatible client (OpenAI/vLLM/Together)
         if use_together:
@@ -266,6 +268,33 @@ class LLMDebugger:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
         except Exception as exc:
             logging.debug(f"Failed to log LLM call to {log_path}: {exc}")
+
+    def _call_llm(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        """Run a single chat completion with an optional system prompt."""
+        messages: List[Dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        messages.append({"role": "user", "content": prompt})
+
+        response = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=messages,
+            temperature=self.temperature,
+            n=1,
+        )
+
+        return response.choices[0].message.content.strip()
+
+    def generate_feedback(
+        self,
+        failure_observation: str,
+        analysis: Dict[str, Any],
+        failure_action: str,
+        env_type: str,
+    ) -> str:
+        """Default feedback generator that falls back to template text."""
+        return generate_debugger_feedback_text(analysis)
     
     def _load_error_definitions(self) -> Dict[str, Dict[str, Dict[str, str]]]:
         """Load comprehensive error type definitions from AgentDebugger"""
@@ -769,6 +798,193 @@ class LLMDebugger:
                 hasher.update(str(content)[:256].encode('utf-8', errors='ignore'))
 
         return hasher.hexdigest()
+
+
+def _format_simple_trajectory(
+    trajectory: List[Dict[str, Any]],
+    max_steps: int = 12,
+    obs_trim: int = 220,
+) -> str:
+    """Render a concise textual view of a trajectory for LLM prompts."""
+    if not trajectory:
+        return "(empty trajectory)"
+
+    lines: List[str] = []
+    for idx, step in enumerate(trajectory[:max_steps]):
+        obs = (step.get("observation") or "").strip().replace("\r", " ")
+        if len(obs) > obs_trim:
+            obs = obs[:obs_trim].rstrip() + "..."
+        action = (step.get("action") or "").strip()
+        reward = step.get("reward")
+        done = step.get("done")
+        won = step.get("won")
+        lines.append(
+            f"Step {step.get('step', idx)}\nObservation: {obs}\nAction: {action}\nReward: {reward}, done={done}, won={won}"
+        )
+
+    if len(trajectory) > max_steps:
+        lines.append(f"... ({len(trajectory) - max_steps} more steps omitted)")
+
+    return "\n\n".join(lines)
+
+
+class VanillaDebugger(LLMDebugger):
+    """Minimal prompt debugger that identifies a single mistake step and fix."""
+
+    PROMPT_TEMPLATE = (
+        "Trajectory:\n{trajectory}\n\n"
+        "Which step caused the failure?\n"
+        "Reply with:\n"
+        "step: <number>\n"
+        "reason: <short text>\n"
+        "suggestion: <short text>\n"
+    )
+
+    def analyze_trajectory(
+        self,
+        trajectory: List[Dict],
+        env_type: str,
+        chat_history: Optional[List[Dict]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        previous_instructions: Optional[List[str]] = None,
+        generate_follow_up: bool = False,
+        log_path: Optional[str] = None,
+        attempt_index: int = 1,
+        previous_analysis: Optional[Dict[str, Any]] = None,
+        reuse_phase1_from_step: Optional[int] = None,
+    ) -> Dict:
+        prompt = self.PROMPT_TEMPLATE.format(
+            trajectory=_format_simple_trajectory(trajectory)
+        )
+
+        response_text = self._call_llm(prompt)
+        self._log_llm_call(log_path, prompt, response_text)
+
+        parsed_step = None
+        reason = None
+        suggestion = None
+
+        step_match = re.search(r"step\s*[:\-]\s*(\d+)", response_text, re.IGNORECASE)
+        if step_match:
+            try:
+                parsed_step = int(step_match.group(1))
+            except ValueError:
+                parsed_step = None
+
+        reason_match = re.search(r"reason\s*[:\-]\s*(.+)", response_text, re.IGNORECASE)
+        if reason_match:
+            reason = reason_match.group(1).strip()
+
+        suggestion_match = re.search(r"suggestion\s*[:\-]\s*(.+)", response_text, re.IGNORECASE)
+        if suggestion_match:
+            suggestion = suggestion_match.group(1).strip()
+
+        fallback_step = len(trajectory) - 1 if trajectory else 0
+        failure_step = parsed_step if parsed_step is not None else fallback_step
+        failure_step = max(0, min(failure_step, fallback_step)) if trajectory else 0
+
+        reason = reason or "The step broke progress."
+        suggestion = suggestion or "Try a simpler action that follows the task instructions."
+
+        analysis = {
+            "failure_step": failure_step,
+            "critical_step": max(failure_step - 1, 0) if failure_step > 0 else 0,
+            "reason": reason,
+            "suggestion": suggestion,
+            "critical_module": "vanilla",
+            "failure_type": "vanilla",
+            "confidence": 0.0,
+            "analysis_text": response_text,
+        }
+
+        analysis["raw_critical_error"] = {
+            "critical_step": failure_step + 1,
+            "critical_module": "vanilla",
+            "error_type": "vanilla",
+            "root_cause": reason,
+            "evidence": "",
+            "correction_guidance": suggestion,
+            "confidence": 0.0,
+            "cascading_effects": [],
+        }
+
+        return analysis
+
+    def generate_feedback(
+        self,
+        failure_observation: str,
+        analysis: Dict[str, Any],
+        failure_action: str,
+        env_type: str,
+    ) -> str:
+        step_display = analysis.get("failure_step", 0) + 1
+        reason = analysis.get("reason", "")
+        suggestion = analysis.get("suggestion", "")
+
+        parts = [f"Step {step_display} needs a change."]
+        if reason:
+            parts.append(f"Reason: {reason}")
+        if suggestion:
+            parts.append(f"Suggestion: {suggestion}")
+        return "\n".join(parts).strip()
+
+
+class SelfRefineDebugger(LLMDebugger):
+    """Simple self-refine baseline that produces a general retry hint."""
+
+    PROMPT_TEMPLATE = (
+        "Current result: {trajectory}\n\n"
+        "Why is this trajectory not finished the task?\n\n"
+        "Please generate Feedback for the retry:\n"
+    )
+
+    def analyze_trajectory(
+        self,
+        trajectory: List[Dict],
+        env_type: str,
+        chat_history: Optional[List[Dict]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        previous_instructions: Optional[List[str]] = None,
+        generate_follow_up: bool = False,
+        log_path: Optional[str] = None,
+        attempt_index: int = 1,
+        previous_analysis: Optional[Dict[str, Any]] = None,
+        reuse_phase1_from_step: Optional[int] = None,
+    ) -> Dict:
+        prompt = self.PROMPT_TEMPLATE.format(
+            trajectory=_format_simple_trajectory(trajectory)
+        )
+
+        response_text = self._call_llm(prompt)
+        self._log_llm_call(log_path, prompt, response_text)
+
+        feedback = response_text.strip()
+        if not feedback:
+            feedback = "Review the key mistakes and retry with a clearer plan."
+
+        failure_step = len(trajectory) - 1 if trajectory else 0
+
+        return {
+            "failure_step": failure_step,
+            "critical_step": None,
+            "reason": "Trajectory did not complete the task.",
+            "suggestion": feedback,
+            "general_feedback": feedback,
+            "analysis_text": response_text,
+            "critical_module": "self_refine",
+            "failure_type": "self_refine",
+            "confidence": 0.0,
+            "raw_critical_error": None,
+        }
+
+    def generate_feedback(
+        self,
+        failure_observation: str,
+        analysis: Dict[str, Any],
+        failure_action: str,
+        env_type: str,
+    ) -> str:
+        return analysis.get("general_feedback", analysis.get("suggestion", ""))
 
 
 class AdvancedDebugger(LLMDebugger):
@@ -1361,7 +1577,7 @@ def generate_debugger_feedback_text(analysis: Dict[str, Any]) -> str:
         Formatted feedback string to inject into observation  
     """
     # Extract comprehensive error information
-    raw_critical = analysis.get('raw_critical_error', {})
+    raw_critical = analysis.get('raw_critical_error') or {}
     
     if raw_critical:
         critical_module = raw_critical.get('critical_module', 'unknown')
@@ -1558,7 +1774,7 @@ def run_environment_with_retry(
                 )
                 
                 # Extract raw critical error information 
-                raw_critical = analysis.get('raw_critical_error', {})
+                raw_critical = analysis.get('raw_critical_error') or {}
                 debug_record = {
                     "retry": retry_idx,
                     "critical_step": raw_critical.get('critical_step', analysis.get('critical_step', -1)),
@@ -1595,86 +1811,95 @@ def run_environment_with_retry(
                     json.dump(debug_record, f, indent=2)
             
             last_analysis = analysis
-
-            # Extract critical step from raw error or analysis
-            raw_critical = analysis.get('raw_critical_error', {})
-            critical_step_1based = raw_critical.get('critical_step') or analysis.get('critical_step', 1)
-            
-            logging.info(f"    Debugger analysis - Critical step: {critical_step_1based}, Error: {raw_critical.get('error_type', analysis.get('failure_type', 'unknown'))}")
-            logging.info(f"    Root cause: {raw_critical.get('root_cause', analysis.get('reason', 'Unknown'))}")
-            logging.info(f"    Correction guidance: {raw_critical.get('correction_guidance', analysis.get('suggestion', 'Try different approach'))}")
-            
-
-            critical_step_1based = int(critical_step_1based)
-            # AlfWorld environment shows "step 1" in first observation, so offset is 1
-            feedback_inject_step_0based = critical_step_1based  # Inject feedback at error step
-            replay_to_step_0based = feedback_inject_step_0based -1  # Replay up to step before error
-
-            
-            # Handle bounds checking
-            if feedback_inject_step_0based < 0:
-                logging.info(f"    First step failure detected (critical_step={critical_step_1based}), will inject feedback at step 0")
-                feedback_inject_step_0based = 0
-                replay_to_step_0based = -1
-            elif feedback_inject_step_0based >= len(last_trajectory):
-                logging.warning(f"    Feedback inject step {feedback_inject_step_0based} exceeds trajectory length {len(last_trajectory)}, adjusting")
-                feedback_inject_step_0based = len(last_trajectory) - 1
-                replay_to_step_0based = feedback_inject_step_0based - 1
-            
-            logging.info(f"    Will inject feedback at trajectory step {feedback_inject_step_0based} (critical_step={critical_step_1based})")
-            
-            # Setup actions to replay (up to the step before the error)
-            actions_to_replay = []
-            if replay_to_step_0based >= 0:
-                actions_to_replay = [step['action'] for step in last_trajectory[:replay_to_step_0based + 1]]
-                logging.info(f"    Will replay {len(actions_to_replay)} actions before injecting feedback")
-            
-            # Setup replay mode in the environment manager
-            feedback_text = ""
-            if debugger:
-                failure_step = None
-                failure_step_idx = feedback_inject_step_0based
-                if last_trajectory:
-                    if 0 <= failure_step_idx < len(last_trajectory):
-                        failure_step = last_trajectory[failure_step_idx]
-                    else:
-                        failure_step = last_trajectory[-1]
-                        failure_step_idx = len(last_trajectory) - 1
-                failure_observation = ""
-                failure_action = ""
-                if failure_step:
-                    failure_observation = failure_step.get("observation", "") or ""
-                    failure_action = failure_step.get("action", "") or ""
-                try:
-                    feedback_text = debugger.generate_feedback(
-                        failure_observation,
-                        analysis,
-                        failure_action,
-                        env_type,
-                    )
-                except Exception as exc:
-                    logging.warning(f"Failed to generate LLM feedback, falling back to template: {exc}")
-                    feedback_text = generate_debugger_feedback_text(analysis)
-                if not feedback_text:
-                    feedback_text = generate_debugger_feedback_text(analysis)
+            if debugger_type == "self_refine":
+                general_feedback = (analysis.get('general_feedback') or analysis.get('suggestion') or "").strip()
+                env_manager.clear_replay(env_id)
+                if general_feedback:
+                    logging.info(f"    Self-refine feedback: {general_feedback[:100]}...")
+                    env_manager.set_persistent_guidance(env_id, general_feedback, start_step=0)
+                else:
+                    logging.info("    Self-refine produced empty feedback; continuing without guidance")
+                    env_manager.clear_persistent_guidance(env_id)
             else:
-                feedback_text = generate_debugger_feedback_text(analysis)
-            logging.info(f"    Setting up replay: actions_to_replay={len(actions_to_replay)}, feedback_inject_step={feedback_inject_step_0based}")
-            logging.info(f"    Feedback text: {feedback_text[:100]}...")
-            logging.info(f"    Debug: env_manager type = {type(env_manager).__name__}")
-            persistent_guidance_text = instruction_overlay if instruction_overlay else None
-            if persistent_guidance_text:
-                logging.info(
-                    f"    Persistent guidance will be injected from step {feedback_inject_step_0based}: {persistent_guidance_text[:100]}..."
+                # Extract critical step from raw error or analysis
+                raw_critical = analysis.get('raw_critical_error') or {}
+                critical_step_1based = raw_critical.get('critical_step') or analysis.get('critical_step', 1)
+                
+                logging.info(f"    Debugger analysis - Critical step: {critical_step_1based}, Error: {raw_critical.get('error_type', analysis.get('failure_type', 'unknown'))}")
+                logging.info(f"    Root cause: {raw_critical.get('root_cause', analysis.get('reason', 'Unknown'))}")
+                logging.info(f"    Correction guidance: {raw_critical.get('correction_guidance', analysis.get('suggestion', 'Try different approach'))}")
+                
+
+                critical_step_1based = int(critical_step_1based)
+                # AlfWorld environment shows "step 1" in first observation, so offset is 1
+                feedback_inject_step_0based = critical_step_1based  # Inject feedback at error step
+                replay_to_step_0based = feedback_inject_step_0based -1  # Replay up to step before error
+
+                
+                # Handle bounds checking
+                if feedback_inject_step_0based < 0:
+                    logging.info(f"    First step failure detected (critical_step={critical_step_1based}), will inject feedback at step 0")
+                    feedback_inject_step_0based = 0
+                    replay_to_step_0based = -1
+                elif feedback_inject_step_0based >= len(last_trajectory):
+                    logging.warning(f"    Feedback inject step {feedback_inject_step_0based} exceeds trajectory length {len(last_trajectory)}, adjusting")
+                    feedback_inject_step_0based = len(last_trajectory) - 1
+                    replay_to_step_0based = feedback_inject_step_0based - 1
+                
+                logging.info(f"    Will inject feedback at trajectory step {feedback_inject_step_0based} (critical_step={critical_step_1based})")
+                
+                # Setup actions to replay (up to the step before the error)
+                actions_to_replay = []
+                if replay_to_step_0based >= 0:
+                    actions_to_replay = [step['action'] for step in last_trajectory[:replay_to_step_0based + 1]]
+                    logging.info(f"    Will replay {len(actions_to_replay)} actions before injecting feedback")
+                
+                # Setup replay mode in the environment manager
+                feedback_text = ""
+                if debugger:
+                    failure_step = None
+                    failure_step_idx = feedback_inject_step_0based
+                    if last_trajectory:
+                        if 0 <= failure_step_idx < len(last_trajectory):
+                            failure_step = last_trajectory[failure_step_idx]
+                        else:
+                            failure_step = last_trajectory[-1]
+                            failure_step_idx = len(last_trajectory) - 1
+                    failure_observation = ""
+                    failure_action = ""
+                    if failure_step:
+                        failure_observation = failure_step.get("observation", "") or ""
+                        failure_action = failure_step.get("action", "") or ""
+                    try:
+                        feedback_text = debugger.generate_feedback(
+                            failure_observation,
+                            analysis,
+                            failure_action,
+                            env_type,
+                        )
+                    except Exception as exc:
+                        logging.warning(f"Failed to generate LLM feedback, falling back to template: {exc}")
+                        feedback_text = generate_debugger_feedback_text(analysis)
+                    if not feedback_text:
+                        feedback_text = generate_debugger_feedback_text(analysis)
+                else:
+                    feedback_text = generate_debugger_feedback_text(analysis)
+                logging.info(f"    Setting up replay: actions_to_replay={len(actions_to_replay)}, feedback_inject_step={feedback_inject_step_0based}")
+                logging.info(f"    Feedback text: {feedback_text[:100]}...")
+                logging.info(f"    Debug: env_manager type = {type(env_manager).__name__}")
+                persistent_guidance_text = instruction_overlay if instruction_overlay else None
+                if persistent_guidance_text:
+                    logging.info(
+                        f"    Persistent guidance will be injected from step {feedback_inject_step_0based}: {persistent_guidance_text[:100]}..."
+                    )
+                env_manager.setup_replay(
+                    env_id,
+                    actions_to_replay,
+                    feedback_inject_step_0based,
+                    feedback_text,
+                    persistent_guidance_text=persistent_guidance_text,
+                    persistent_guidance_start=feedback_inject_step_0based,
                 )
-            env_manager.setup_replay(
-                env_id,
-                actions_to_replay,
-                feedback_inject_step_0based,
-                feedback_text,
-                persistent_guidance_text=persistent_guidance_text,
-                persistent_guidance_start=feedback_inject_step_0based,
-            )
             
             # Verify setup
             if hasattr(env_manager, 'debugger_feedback') and env_id in env_manager.debugger_feedback:
@@ -2106,8 +2331,15 @@ def main():
     # Debugger options
     parser.add_argument("--enable_debugger", action="store_true",
                        help="Enable LLM debugger for failed trajectories")
-    parser.add_argument("--debugger_type", choices=["naive", "advanced", "continue"], default="naive",
-                       help="Select debugger implementation: naive heuristic, advanced API, or continue (cumulative guidance)")
+    parser.add_argument(
+        "--debugger_type",
+        choices=["naive", "vanilla", "self_refine", "continue", "advanced"],
+        default="naive",
+        help=(
+            "Select debugger implementation: naive heuristic, vanilla simple prompt, "
+            "self_refine guidance, advanced API, or continue (cumulative guidance)"
+        ),
+    )
     parser.add_argument("--max_debug_retry", type=int, default=None,
                        help="Deprecated: use --max_try instead. If set, overrides --max_try for debugger strategy.")
     parser.add_argument("--debugger_model", default="gpt-4o",
@@ -2507,6 +2739,22 @@ def main():
             except Exception as exc:
                 logging.error(f"Failed to initialize advanced debugger: {exc}")
                 raise
+        elif args.debugger_type == "vanilla":
+            debugger = VanillaDebugger(
+                model_name=args.debugger_model,
+                temperature=args.debugger_temperature,
+                base_url=debugger_base_url,
+                api_key=args.debugger_api_key,
+                use_together=use_together_debugger,
+            )
+        elif args.debugger_type == "self_refine":
+            debugger = SelfRefineDebugger(
+                model_name=args.debugger_model,
+                temperature=args.debugger_temperature,
+                base_url=debugger_base_url,
+                api_key=args.debugger_api_key,
+                use_together=use_together_debugger,
+            )
         else:
             debugger = LLMDebugger(
                 model_name=args.debugger_model,
@@ -2515,11 +2763,11 @@ def main():
                 api_key=args.debugger_api_key,
                 use_together=use_together_debugger,
             )
-            if args.debugger_type != "continue":
+            if args.debugger_type == "naive":
                 debugger_type_label = "naive"
-        
+
         trajectory_manager = TrajectoryManager()
-        
+
         # Initialize continuous instruction manager for iterative guidance modes
         if args.debugger_type in {"continue", "advanced"}:
             continuous_instruction_manager = ContinuousInstructionManager()
@@ -2527,6 +2775,10 @@ def main():
                 debugger_type_label = "continue (cumulative guidance)"
             else:
                 debugger_type_label = "advanced (iterative guidance)"
+        elif args.debugger_type == "vanilla":
+            debugger_type_label = "vanilla"
+        elif args.debugger_type == "self_refine":
+            debugger_type_label = "self_refine (general guidance)"
         logging.info(
             "Debugger enabled (%s)\n"
             "  Rollout: model=%s, base_url=%s\n"
