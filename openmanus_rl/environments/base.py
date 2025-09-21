@@ -113,9 +113,6 @@ class EnvironmentManagerBase:
         - debugger_feedback_step: The step where debugger feedback should be injected (0-based)
         - debugger_feedback_text: The feedback text to inject
         """
-        import logging
-        logging.info(f"    setup_replay called: env_id={env_id}, feedback_step={debugger_feedback_step}, actions={len(actions_to_replay)}")
-        
         self.replay_mode[env_id] = True
         self.replay_actions[env_id] = actions_to_replay
         self.current_replay_step[env_id] = 0
@@ -130,8 +127,6 @@ class EnvironmentManagerBase:
             self.set_persistent_guidance(env_id, persistent_guidance_text, start_step)
         else:
             self.clear_persistent_guidance(env_id)
-
-        logging.info(f"    setup_replay complete: debugger_feedback keys = {list(self.debugger_feedback.keys())}")
         
     def is_in_replay_mode(self, env_id: int) -> bool:
         """Check if environment is in replay mode."""
@@ -193,24 +188,13 @@ class EnvironmentManagerBase:
         Returns:
         - feedback: The feedback string or empty string if no feedback for this step
         """
-        import logging
-        logging.info(f"    get_debugger_feedback called: env_id={env_id}, current_step={current_step}")
-        
         if env_id in self.debugger_feedback:
             feedback_data = self.debugger_feedback[env_id]
-            expected_step = feedback_data['step']
-            logging.info(f"    debugger_feedback exists: expected_step={expected_step}, current_step={current_step}")
-            
             if feedback_data['step'] == current_step:
-                logging.info(f"    ✓ Injecting debugger feedback at env_id={env_id}, step={current_step}")
                 feedback_text = feedback_data['feedback']
                 # Replay sequence complete – clear stored state so it doesn't leak into future attempts
                 self.clear_replay(env_id)
                 return feedback_text
-            else:
-                logging.info(f"    × Step mismatch: expected={expected_step}, current={current_step}")
-        else:
-            logging.info(f"    × No debugger_feedback for env_id={env_id}")
             
         return ""
 

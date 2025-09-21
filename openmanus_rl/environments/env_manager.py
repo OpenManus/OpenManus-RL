@@ -124,18 +124,6 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
 
             debugger_feedback = self.get_debugger_feedback(i, current_step_index)
             persistent_guidance = self.get_persistent_guidance(i, current_step_index)
-            if debugger_feedback:
-                import logging
-                logging.info(
-                    f"    AlfWorld: Injecting feedback at env {i}, step {current_step_index}: {debugger_feedback[:50]}..."
-                )
-            else:
-                if hasattr(self, 'debugger_feedback') and i in self.debugger_feedback:
-                    expected_step = self.debugger_feedback[i]['step']
-                    import logging
-                    logging.info(
-                        f"    AlfWorld: No feedback at env {i}, step {current_step_index}, expected at step {expected_step}"
-                    )
 
             if init or self.config.env.history_length <= 0:
                 # Include task_description to satisfy ALFWORLD_TEMPLATE_NO_HIS placeholders.

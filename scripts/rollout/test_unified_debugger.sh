@@ -26,16 +26,18 @@ TOGETHER_ARG="${TOGETHER_ARG:-}"
 # DEBUGGER_URL="${DEBUGGER_URL:-${QWEN3_32B_URL}/v1}"
 ROLLOUT_MODEL="${ROLLOUT_MODEL:-gpt-4o-mini}"
 DEBUGGER_MODEL="${DEBUGGER_MODEL:-gpt-4.1}"
+ROLLOUT_SPLIT="${ROLLOUT_SPLIT:-test}"
 
 echo "=== Configuration ==="
 echo "Rollout: model=${ROLLOUT_MODEL}, url=${ROLLOUT_URL}"
 echo "Debugger: model=${DEBUGGER_MODEL}, url=${DEBUGGER_URL}"
+echo "AlfWorld split: ${ROLLOUT_SPLIT}"
 echo ""
 
 # Test 1: WebShop with debugger
-echo "=== Test 1: WebShop with Debugger ==="
-RUN_DIR="${BASE_DIR}/webshop"
-echo "Run directory: ${RUN_DIR}"
+# echo "=== Test 1: WebShop with Debugger ==="
+# RUN_DIR="${BASE_DIR}/webshop"
+# echo "Run directory: ${RUN_DIR}"
 
 # python scripts/rollout/openmanus_rollout_debugger.py \
 #     --env webshop \
@@ -104,21 +106,22 @@ echo "Run directory: ${RUN_DIR}"
 #   --experiment_dir experiments/tot_smoke_fixed \
 
 
-
+RUN_DIR="${BASE_DIR}/alfworld"
 
 python scripts/rollout/openmanus_rollout_debugger.py \
     --env alfworld \
-    --total_envs 20 \
+    --total_envs 100 \
     --test_times 1 \
-    --start_id 51 \
+    --start_id 1 \
     --max_steps 30 \
     --history_length 40 \
+    --split "${ROLLOUT_SPLIT}" \
     --model "${ROLLOUT_MODEL}" \
     --temperature 0.0 \
     --enable_debugger \
-    --max_try 5 \
+    --max_try 1 \
     --debugger_model "${DEBUGGER_MODEL}" \
-    --debugger_type advanced \
+    --debugger_type vanilla \
     --debugger_temperature 0.0 \
     --experiment_dir "${RUN_DIR}" \
     --save_all_attempts \
@@ -126,7 +129,7 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --unique_envs \
     --debug \
     --parallel_num_phase_1 5 \
-    --concurrency 20 \
+    --concurrency 10 \
     --llm_concurrency 80 \
     # ${TOGETHER_ARG}
     # --base_url "${ROLLOUT_URL}" \

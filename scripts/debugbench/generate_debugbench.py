@@ -35,17 +35,26 @@ def parse_args() -> argparse.Namespace:
                         help="Maximum number of tasks evaluated concurrently")
     parser.add_argument("--temperature", type=float, default=0.0,
                         help="Sampling temperature shared across all models")
-    parser.add_argument("--model_primary", default=os.getenv("PRIMARY_MODEL", os.getenv("ROLLOUT_MODEL", "qwen3-8b")),
+    parser.add_argument("--model_primary", default=os.getenv("PRIMARY_MODEL", os.getenv("ROLLOUT_MODEL", "kunlunz2/Qwen/Qwen3-8B-9f9838eb")),
                         help="Primary rollout model identifier")
-    parser.add_argument("--model_primary_base_url", default=os.getenv("PRIMARY_URL", os.getenv("ROLLOUT_URL", os.getenv("QWEN3_8B_URL", "http://129.212.187.116:8001"))),
+    parser.add_argument("--model_primary_base_url", default=os.getenv(
+        "PRIMARY_URL",
+        os.getenv(
+            "ROLLOUT_URL",
+            os.getenv("TOGETHER_API_BASE_URL", "https://api.together.xyz"),
+        ),
+    ),
                         help="Primary rollout model base URL (without /v1)")
     parser.add_argument("--model_secondary", default=os.getenv("SECONDARY_MODEL", "gpt-4o-mini"),
                         help="Secondary rollout model identifier")
     parser.add_argument("--model_secondary_base_url", default=os.getenv("SECONDARY_URL", os.getenv("OPENAI_BASE_URL")),
                         help="Secondary rollout model base URL (without /v1)")
-    parser.add_argument("--model_tertiary", default=os.getenv("TERTIARY_MODEL", os.getenv("QWEN32B_MODEL", "qwen3-32b")),
+    parser.add_argument("--model_tertiary", default=os.getenv("TERTIARY_MODEL", os.getenv("QWEN32B_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo")),
                         help="Tertiary rollout model identifier")
-    parser.add_argument("--model_tertiary_base_url", default=os.getenv("TERTIARY_URL", os.getenv("QWEN3_32B_URL", "http://134.199.197.179:8001")),
+    parser.add_argument("--model_tertiary_base_url", default=os.getenv(
+        "TERTIARY_URL",
+        os.getenv("AUX_HOST", os.getenv("TOGETHER_API_BASE_URL", "https://api.together.xyz")),
+    ),
                         help="Tertiary rollout model base URL (without /v1)")
 
     parser.add_argument("--alfworld_config", default=str(Path(__file__).resolve().parent.parent / ".." /
@@ -103,6 +112,16 @@ def json_safe(data: Any) -> Any:
         return json.loads(json.dumps(data, default=str))
     except Exception:
         return str(data)
+
+
+def parse_positive_int(value: Optional[str]) -> Optional[int]:
+    if not value:
+        return None
+    try:
+        parsed = int(value)
+        return parsed if parsed > 0 else None
+    except (TypeError, ValueError):
+        return None
 
 
 def collect_alfworld_game_files(config_path: str, split: str) -> List[str]:
@@ -320,38 +339,68 @@ def rollout_task_for_model(env_name: str,
                            spec: Dict[str, Any],
                            args: argparse.Namespace,
                            resources: Dict[str, Any]) -> Tuple[bool, Optional[List[Dict[str, Any]]], Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
-    env_manager = None
-    task_info: Dict[str, Any] = {}
-    reset_kwargs: Dict[str, Any] = {}
-
+    base_delay_value = os.getenv("ROLLOUT_TASK_RETRY_DELAY", os.getenv("ROLLOUT_RETRY_BASE_DELAY", "5"))
     try:
-        if env_name == "gaia":
-            task = resources['tasks'][index]
-            env_manager = build_gaia_manager(task, args)
-            task_info = {"pid": task.get('pid'), "question": task.get('question'), "answer": task.get('answer'), "index": index}
-        elif env_name == "webshop":
-            env_manager = build_webshop_manager(args)
-            reset_kwargs = {"session_indices": [resources['indices'][index]]}
-            task_info = {"session_index": resources['indices'][index]}
-        elif env_name == "alfworld":
-            game_file = resources['files'][index]
-            env_manager = build_alfworld_manager(game_file, args)
-            task_info = {"game_file": game_file, "index": index}
-        else:
-            raise ValueError(f"Unsupported environment {env_name}")
+        base_delay = max(0.0, float(base_delay_value))
+    except (TypeError, ValueError):
+        base_delay = 5.0
+    max_retry_env = os.getenv("ROLLOUT_TASK_MAX_RETRIES", os.getenv("ROLLOUT_MAX_RETRIES", "0"))
+    max_attempts = parse_positive_int(max_retry_env)
 
-        success, trajectory, meta = run_episode(env_name, env_manager, agent, args.max_steps, reset_kwargs)
-        task_info.update(meta)
-        return success, trajectory, meta, task_info
-    except Exception as exc:  # noqa: BLE001
-        logging.error("%s model %s encountered error on index %d: %s", env_name, spec['id'], index, exc)
-        return False, None, None, None
-    finally:
-        if env_manager is not None:
-            try:
-                env_manager.close()
-            except Exception:
-                pass
+    attempt = 0
+    while True:
+        attempt += 1
+        env_manager = None
+        task_info: Dict[str, Any] = {}
+        reset_kwargs: Dict[str, Any] = {}
+
+        try:
+            if env_name == "gaia":
+                task = resources['tasks'][index]
+                env_manager = build_gaia_manager(task, args)
+                task_info = {"pid": task.get('pid'), "question": task.get('question'), "answer": task.get('answer'), "index": index}
+            elif env_name == "webshop":
+                env_manager = build_webshop_manager(args)
+                reset_kwargs = {"session_indices": [resources['indices'][index]]}
+                task_info = {"session_index": resources['indices'][index]}
+            elif env_name == "alfworld":
+                game_file = resources['files'][index]
+                env_manager = build_alfworld_manager(game_file, args)
+                task_info = {"game_file": game_file, "index": index}
+            else:
+                raise ValueError(f"Unsupported environment {env_name}")
+
+            success, trajectory, meta = run_episode(env_name, env_manager, agent, args.max_steps, reset_kwargs)
+            task_info.update(meta)
+            return success, trajectory, meta, task_info
+        except Exception as exc:  # noqa: BLE001
+            logging.error(
+                "%s model %s encountered error on index %d (attempt %d%s): %s",
+                env_name,
+                spec['id'],
+                index,
+                attempt,
+                f"/{max_attempts}" if max_attempts else "",
+                exc,
+            )
+            if max_attempts is not None and attempt >= max_attempts:
+                return False, None, None, None
+            wait_seconds = base_delay * attempt if base_delay > 0 else 0
+            logging.info(
+                "Retrying %s model %s on index %d in %.1f seconds",
+                env_name,
+                spec['id'],
+                index,
+                wait_seconds,
+            )
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+        finally:
+            if env_manager is not None:
+                try:
+                    env_manager.close()
+                except Exception:
+                    pass
 
 
 def write_outputs_for_failure(env_name: str,

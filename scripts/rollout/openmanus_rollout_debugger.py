@@ -109,18 +109,36 @@ class UnifiedAgent:
         self.model_name = model_name
         self.temperature = temperature
         self.env_type = env_type
+        self.base_url = base_url
+        self.is_together = bool(use_together)
+
+        retry_delay_value = os.getenv("ROLLOUT_RETRY_BASE_DELAY", os.getenv("TOGETHER_RETRY_DELAY", "5"))
+        try:
+            retry_delay = float(retry_delay_value)
+        except (TypeError, ValueError):
+            retry_delay = 5.0
+        if retry_delay <= 0:
+            retry_delay = 5.0
+        self.retry_delay_seconds = retry_delay
+        max_retry_env = os.getenv("ROLLOUT_MAX_RETRIES", os.getenv("TOGETHER_MAX_RETRIES", "0"))
+        parsed_max = self._parse_positive_int(max_retry_env)
+        self.retry_max_attempts = parsed_max if parsed_max is not None else 15
         
         # Select client based on explicit Together flag
-        self.is_together = bool(use_together)
-        if self.is_together:
-            # Use OpenAI-compatible client pointed at Together endpoint
+        together_api = False
+        if base_url and "together" in base_url:
+            together_api = True
+
+        if self.is_together or together_api:
+            # Use Together endpoint through OpenAI-compatible client
+            resolved_base_url = base_url or "https://api.together.xyz/v1"
             self.client = OpenAI(
                 api_key=os.environ.get("TOGETHER_API_KEY", ""),
-                base_url="https://api.together.xyz/v1",
+                base_url=resolved_base_url,
             )
         elif base_url:
             self.client = OpenAI(
-                api_key=os.getenv('OPENAI_API_KEY', 'EMPTY'),
+                api_key=os.getenv('OPENAI_API_KEY', ''),
                 base_url=base_url,
             )
         else:
@@ -138,6 +156,21 @@ class UnifiedAgent:
             "gaia": None,  # GAIA uses prompt templates in the environment
             "alfworld": None,  # AlfWorld uses prompt templates in the environment
         }
+
+    def clone_with_temperature(self, temperature: float) -> "UnifiedAgent":
+        """Create a shallow clone of this agent with a different rollout temperature."""
+        clone = UnifiedAgent(
+            model_name=self.model_name,
+            temperature=temperature,
+            base_url=self.base_url,
+            env_type=self.env_type,
+            use_together=self.is_together,
+        )
+        clone.retry_delay_seconds = self.retry_delay_seconds
+        clone.retry_max_attempts = self.retry_max_attempts
+        clone.system_prompts = self.system_prompts
+        clone.client = self.client
+        return clone
         
     def get_action_from_llm(self, obs: str, log_timing: bool = True) -> str:
         """Get action from LLM for a single observation"""
@@ -154,19 +187,59 @@ class UnifiedAgent:
         
         messages.append({"role": "user", "content": obs})
         
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
-            temperature=self.temperature,
-            n=1,
-        )
+        response = self._chat_completion_with_retry(messages)
         
         if log_timing:
             llm_time = time.time() - llm_start
             logging.debug(f"[LLM] Thread {thread_id} LLM call took {llm_time:.3f}s")
-        
-        return response.choices[0].message.content.strip()
-    
+
+        content = ""
+        if response and getattr(response, "choices", None):
+            content = response.choices[0].message.content or ""
+        return content.strip()
+
+    @staticmethod
+    def _parse_positive_int(value: Optional[str]) -> Optional[int]:
+        if not value:
+            return None
+        try:
+            parsed = int(value)
+            return parsed if parsed > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def _chat_completion_with_retry(self, messages: List[Dict[str, Any]]):
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                return self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    temperature=self.temperature,
+                    n=1,
+                )
+            except KeyboardInterrupt:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                wait_seconds = self.retry_delay_seconds
+                logging.warning(
+                    "LLM call failed (attempt %d%s): %s",
+                    attempt,
+                    f"/{self.retry_max_attempts}" if self.retry_max_attempts else "",
+                    exc,
+                )
+                limit_reached = self.retry_max_attempts is not None and attempt >= self.retry_max_attempts
+                if limit_reached:
+                    logging.error(
+                        "LLM call failed after %d attempts; giving up. Last error: %s",
+                        self.retry_max_attempts,
+                        exc,
+                    )
+                    raise
+                logging.info("Retrying in %.1f seconds", wait_seconds)
+                time.sleep(wait_seconds)
+
     def get_action_from_llm_with_shared_pool(self, obs: str, shared_executor, log_timing: bool = True):
         """Get action from LLM using a shared thread pool executor for better global concurrency"""
         def _call_llm():
@@ -226,6 +299,7 @@ class LLMDebugger:
         self.model_name = model_name
         self.temperature = temperature
         self.capture_debug_data = False
+        self._phase1_cache: Dict[str, Dict[str, Any]] = {}
 
         # Initialize OpenAI-compatible client (OpenAI/vLLM/Together)
         if use_together:
@@ -416,7 +490,7 @@ class LLMDebugger:
         analysis.setdefault("failure_type", "others")
         analysis.setdefault("reason", "Unknown error")
         analysis.setdefault("suggestion", "Try a different approach")
-        analysis.setdefault("critical_step", 0)
+        analysis.setdefault("critical_step", analysis["failure_step"])  # default to failure step (0-based)
         analysis.setdefault("evidence", "No evidence provided")
         analysis.setdefault("confidence", 0.5)
         analysis.setdefault("root_cause", analysis.get("reason", "Unknown error"))
@@ -446,14 +520,17 @@ class LLMDebugger:
         if analysis["failure_step"] < 0:
             analysis["failure_step"] = 0
             
-        # Ensure critical_step is before failure_step
-        if analysis["critical_step"] >= analysis["failure_step"]:
-            analysis["critical_step"] = max(0, analysis["failure_step"] - 1)
+        # Normalize critical_step to valid range (0-based and not beyond failure)
+        critical_step = analysis.get("critical_step", analysis["failure_step"])
+        if critical_step < 0 or critical_step > analysis["failure_step"]:
+            critical_step = analysis["failure_step"]
+        analysis["critical_step"] = critical_step
         
         # Add backwards compatibility for old format
         formatted_failure_type = f"{analysis['critical_module']}::{analysis['failure_type']}"
         analysis["raw_critical_error"] = {
-            "critical_step": analysis["failure_step"] + 1,  # Convert to 1-based for consistency with advanced debugger
+            "critical_step": analysis["failure_step"],
+            "failure_step": analysis["failure_step"],
             "critical_module": analysis["critical_module"],
             "error_type": analysis["failure_type"],
             "root_cause": analysis["root_cause"],
@@ -709,14 +786,9 @@ class LLMDebugger:
                 max_index = len(trajectory) - 1
                 failure_step = min(failure_step, max_index)
             
-            # Calculate the step before failure
-            critical_step_index = failure_step - 1
-            if critical_step_index < -1:
-                critical_step_index = -1
-                
         except (TypeError, ValueError) as e:
             raise ValueError(f"Invalid critical_step value: {critical_step}") from e
-        
+
         # Build failure type string
         failure_type = f"{critical_module}::{error_type}"
         
@@ -725,14 +797,19 @@ class LLMDebugger:
         confidence = critical_error.get('confidence', 0.0)
         cascading_effects = critical_error.get('cascading_effects', [])
         
+        # Normalize critical error step indexing to 0-based for downstream consumers
+        normalized_critical_error = dict(critical_error)
+        normalized_critical_error['critical_step'] = failure_step
+        normalized_critical_error.setdefault('failure_step', failure_step)
+
         # Build the result
         converted_result = {
             "failure_step": failure_step,
             "failure_type": failure_type,
             "reason": root_cause,
             "suggestion": correction_guidance,
-            "critical_step": critical_step_index,
-            "raw_critical_error": _json_safe_copy(critical_error),
+            "critical_step": failure_step,
+            "raw_critical_error": _json_safe_copy(normalized_critical_error),
             "phase1_errors": _json_safe_copy(phase1_errors) if phase1_errors else None,
             "evidence": evidence,
             "confidence": confidence,
@@ -802,17 +879,19 @@ class LLMDebugger:
 
 def _format_simple_trajectory(
     trajectory: List[Dict[str, Any]],
-    max_steps: int = 12,
-    obs_trim: int = 220,
+    max_steps: Optional[int] = None,
+    obs_trim: Optional[int] = None,
 ) -> str:
     """Render a concise textual view of a trajectory for LLM prompts."""
     if not trajectory:
         return "(empty trajectory)"
 
     lines: List[str] = []
-    for idx, step in enumerate(trajectory[:max_steps]):
+    slice_end = max_steps if (max_steps is not None and max_steps >= 0) else None
+
+    for idx, step in enumerate(trajectory[:slice_end]):
         obs = (step.get("observation") or "").strip().replace("\r", " ")
-        if len(obs) > obs_trim:
+        if obs_trim is not None and obs_trim > 0 and len(obs) > obs_trim:
             obs = obs[:obs_trim].rstrip() + "..."
         action = (step.get("action") or "").strip()
         reward = step.get("reward")
@@ -822,8 +901,8 @@ def _format_simple_trajectory(
             f"Step {step.get('step', idx)}\nObservation: {obs}\nAction: {action}\nReward: {reward}, done={done}, won={won}"
         )
 
-    if len(trajectory) > max_steps:
-        lines.append(f"... ({len(trajectory) - max_steps} more steps omitted)")
+    if slice_end is not None and len(trajectory) > slice_end:
+        lines.append(f"... ({len(trajectory) - slice_end} more steps omitted)")
 
     return "\n\n".join(lines)
 
@@ -832,12 +911,16 @@ class VanillaDebugger(LLMDebugger):
     """Minimal prompt debugger that identifies a single mistake step and fix."""
 
     PROMPT_TEMPLATE = (
-        "Trajectory:\n{trajectory}\n\n"
-        "Which step caused the failure?\n"
-        "Reply with:\n"
+        "Trajectory :\n{trajectory}\n\n"
+        "Your task:\n"
+        "1. Identify the earliest step whose action, plan, reflection, or memory directly leads the agent off track or repeats ineffective behaviour.\n"
+        "2. Reference that exact step number (0-based) as shown in the trajectory. Do not shift to later steps of that error.\n"
+        "3. Explain why the chosen step is wrong, citing relevant observation/action details.\n"
+        "4. Suggest a concrete alternative for that same step that would move the agent toward success (e.g., a specific action to take instead).\n\n"
+        "Respond strictly in the following format (single spaces around colons, no extra text):\n"
         "step: <number>\n"
-        "reason: <short text>\n"
-        "suggestion: <short text>\n"
+        "reason: <one concise, specific sentence>\n"
+        "suggestion: <one actionable suggestion for that step>\n"
     )
 
     def analyze_trajectory(
@@ -888,7 +971,7 @@ class VanillaDebugger(LLMDebugger):
 
         analysis = {
             "failure_step": failure_step,
-            "critical_step": max(failure_step - 1, 0) if failure_step > 0 else 0,
+            "critical_step": failure_step,
             "reason": reason,
             "suggestion": suggestion,
             "critical_module": "vanilla",
@@ -898,7 +981,8 @@ class VanillaDebugger(LLMDebugger):
         }
 
         analysis["raw_critical_error"] = {
-            "critical_step": failure_step + 1,
+            "critical_step": failure_step,
+            "failure_step": failure_step,
             "critical_module": "vanilla",
             "error_type": "vanilla",
             "root_cause": reason,
@@ -917,11 +1001,11 @@ class VanillaDebugger(LLMDebugger):
         failure_action: str,
         env_type: str,
     ) -> str:
-        step_display = analysis.get("failure_step", 0) + 1
+        step_display = analysis.get("failure_step", 0)
         reason = analysis.get("reason", "")
         suggestion = analysis.get("suggestion", "")
 
-        parts = [f"Step {step_display} needs a change."]
+        parts = [f"Step {step_display} needs a change (0-based index)."]
         if reason:
             parts.append(f"Reason: {reason}")
         if suggestion:
@@ -1320,6 +1404,11 @@ class EnvironmentFactory:
         )
         
         is_train = kwargs.get('is_train', True)
+        eval_dataset = kwargs.get('eval_dataset')
+
+        env_kwargs = {}
+        if eval_dataset:
+            env_kwargs['eval_dataset'] = eval_dataset
 
         envs = build_alfworld_envs(
             alf_config_path, 
@@ -1327,7 +1416,7 @@ class EnvironmentFactory:
             env_num=env_num, 
             group_n=1, 
             is_train=is_train, 
-            env_kwargs={}, 
+            env_kwargs=env_kwargs, 
             game_files=game_files
         )
         
@@ -1448,7 +1537,7 @@ def get_task_id(env_type: str, env_id: int, info: Dict, batch_idx: int = 0) -> s
         return f"{env_type}_b{batch_idx:03d}_e{env_id:03d}"
 
 
-def prepare_alfworld_game_files(env_type: str, total_envs: int, seed: int) -> Optional[List[str]]:
+def prepare_alfworld_game_files(env_type: str, total_envs: int, seed: int, split: str = "train") -> Optional[List[str]]:
     """Prepare unique game files for AlfWorld if requested"""
     if env_type != "alfworld":
         return None
@@ -1465,7 +1554,7 @@ def prepare_alfworld_game_files(env_type: str, total_envs: int, seed: int) -> Op
         cfg = load_config_file(alf_config_path)
         env_type = cfg['env']['type']
         BaseEnvCls = get_environment(env_type)
-        tmp_env = BaseEnvCls(cfg, train_eval='train')
+        tmp_env = BaseEnvCls(cfg, train_eval=split)
         tmp_env.collect_game_files()
         all_game_files = list(getattr(tmp_env, 'game_files', []))
 
@@ -1541,6 +1630,8 @@ def extract_trajectory_from_memory(
 
     memory_data = env_manager.memory._data[env_id] if has_memory else []
 
+    mismatch_count = 0
+
     for step_idx in range(num_steps):
         fallback_step = fallback_steps[step_idx]
         obs_before = fallback_step.get("observation")
@@ -1558,12 +1649,22 @@ def extract_trajectory_from_memory(
         if memory_data and step_idx < len(memory_data):
             mem_obs = memory_data[step_idx].get("text_obs")
             if isinstance(mem_obs, str) and mem_obs and mem_obs != obs_before:
-                logging.debug(
-                    "Memory/prompt observation mismatch at step %d: mem vs stored prompt (len %d vs %d)",
-                    step_idx, len(mem_obs), len(obs_before) if isinstance(obs_before, str) else -1
-                )
+                if mismatch_count < 3:
+                    logging.debug(
+                        "Memory/prompt observation mismatch at step %d: mem vs stored prompt (len %d vs %d)",
+                        step_idx,
+                        len(mem_obs),
+                        len(obs_before) if isinstance(obs_before, str) else -1,
+                    )
+                mismatch_count += 1
 
         aligned_trajectory.append(trajectory_step)
+
+    if mismatch_count > 3:
+        logging.debug(
+            "Memory/prompt observation mismatch suppressed for %d additional step(s)",
+            mismatch_count - 3,
+        )
 
     return aligned_trajectory
 
@@ -1716,7 +1817,12 @@ def run_environment_with_retry(
                 reuse_phase1_from_step = None
                 if last_analysis:
                     raw_prev = last_analysis.get('raw_critical_error', {}) or {}
-                    reuse_phase1_from_step = raw_prev.get('critical_step')
+                    prev_raw_step = raw_prev.get('critical_step')
+                    if prev_raw_step is not None:
+                        try:
+                            reuse_phase1_from_step = int(prev_raw_step) + 1
+                        except (TypeError, ValueError):
+                            reuse_phase1_from_step = None
                     if reuse_phase1_from_step is None:
                         prev_failure_step = last_analysis.get('failure_step')
                         if prev_failure_step is not None:
@@ -1825,22 +1931,36 @@ def run_environment_with_retry(
             else:
                 # Extract critical step from raw error or analysis
                 raw_critical = analysis.get('raw_critical_error') or {}
-                critical_step_1based = raw_critical.get('critical_step') or analysis.get('critical_step', 1)
-                
-                logging.info(f"    Debugger analysis - Critical step: {critical_step_1based}, Error: {raw_critical.get('error_type', analysis.get('failure_type', 'unknown'))}")
+                critical_step_idx = raw_critical.get('critical_step')
+                if critical_step_idx is None:
+                    critical_step_idx = analysis.get('failure_step', analysis.get('critical_step', 0))
+
+                logging.info(
+                    f"    Debugger analysis - Critical step (0-based): {critical_step_idx}, "
+                    f"Error: {raw_critical.get('error_type', analysis.get('failure_type', 'unknown'))}"
+                )
                 logging.info(f"    Root cause: {raw_critical.get('root_cause', analysis.get('reason', 'Unknown'))}")
                 logging.info(f"    Correction guidance: {raw_critical.get('correction_guidance', analysis.get('suggestion', 'Try different approach'))}")
                 
 
-                critical_step_1based = int(critical_step_1based)
-                # AlfWorld environment shows "step 1" in first observation, so offset is 1
-                feedback_inject_step_0based = critical_step_1based  # Inject feedback at error step
-                replay_to_step_0based = feedback_inject_step_0based -1  # Replay up to step before error
+                try:
+                    critical_step_idx = int(critical_step_idx)
+                except (TypeError, ValueError):
+                    logging.warning(
+                        "    Invalid critical step value %s; defaulting to 0",
+                        critical_step_idx,
+                    )
+                    critical_step_idx = 0
+
+                feedback_inject_step_0based = critical_step_idx  # Inject feedback at error step
+                replay_to_step_0based = feedback_inject_step_0based - 1  # Replay up to step before error
 
                 
                 # Handle bounds checking
                 if feedback_inject_step_0based < 0:
-                    logging.info(f"    First step failure detected (critical_step={critical_step_1based}), will inject feedback at step 0")
+                    logging.info(
+                        f"    First step failure detected (critical_step={critical_step_idx}), will inject feedback at step 0"
+                    )
                     feedback_inject_step_0based = 0
                     replay_to_step_0based = -1
                 elif feedback_inject_step_0based >= len(last_trajectory):
@@ -1848,7 +1968,10 @@ def run_environment_with_retry(
                     feedback_inject_step_0based = len(last_trajectory) - 1
                     replay_to_step_0based = feedback_inject_step_0based - 1
                 
-                logging.info(f"    Will inject feedback at trajectory step {feedback_inject_step_0based} (critical_step={critical_step_1based})")
+                logging.info(
+                    f"    Will inject feedback at trajectory step {feedback_inject_step_0based} "
+                    f"(critical_step={critical_step_idx})"
+                )
                 
                 # Setup actions to replay (up to the step before the error)
                 actions_to_replay = []
@@ -2316,6 +2439,8 @@ def main():
     # Environment-specific parameters
     parser.add_argument("--alf_env_type", default="alfworld/AlfredTWEnv",
                        help="AlfWorld environment type")
+    parser.add_argument("--split", choices=["train", "test"], default="train",
+                       help="Dataset split to use for AlfWorld (train/test; defaults to train)")
     parser.add_argument("--gaia_data_path", default="data/gaia/val.json",
                        help="Path to GAIA dataset")
     parser.add_argument("--gaia_tools", nargs='+', 
@@ -2401,6 +2526,21 @@ def main():
                        help="Enable debug logging")
     
     args = parser.parse_args()
+
+    # Normalize AlfWorld split configuration
+    if args.env == "alfworld":
+        if args.split == "train":
+            args.alfworld_is_train = True
+            args.alfworld_eval_dataset = None
+            args.alfworld_split_label = "train"
+        else:
+            args.alfworld_is_train = False
+            args.alfworld_eval_dataset = "eval_in_distribution"
+            args.alfworld_split_label = args.alfworld_eval_dataset
+    else:
+        args.alfworld_is_train = None
+        args.alfworld_eval_dataset = None
+        args.alfworld_split_label = None
     
     # Set default max_steps based on environment
     if args.max_steps is None:
@@ -2569,7 +2709,8 @@ def main():
                 )
                 _cfg = _alf_load_cfg(_alf_cfg_path)
                 _BaseEnvCls = _alf_get_env(_cfg['env']['type'])
-                _tmp_env = _BaseEnvCls(_cfg, train_eval='train')
+                split_label = args.alfworld_split_label or 'train'
+                _tmp_env = _BaseEnvCls(_cfg, train_eval=split_label)
                 _tmp_env.collect_game_files()
                 return list(getattr(_tmp_env, 'game_files', []) or [])
             except Exception as _e:
@@ -2628,7 +2769,8 @@ def main():
         else:
             # Default path: collect, then slice deterministically with optional rotation
             total_needed = max(1, int(args.total_envs)) * max(1, int(args.test_times))
-            alfworld_game_files = prepare_alfworld_game_files(args.env, total_needed, args.seed)
+            split_label = args.alfworld_split_label or "train"
+            alfworld_game_files = prepare_alfworld_game_files(args.env, total_needed, args.seed, split_label)
             if alfworld_game_files:
                 # Apply start offset rotation for initial assignment if requested
                 offset = _compute_start_offset(len(alfworld_game_files))
@@ -2802,13 +2944,13 @@ def main():
     # Statistics tracking
     all_overall_success_rates = []
     all_first_attempt_success_rates = []  # Track first attempt success rates
-    all_debugger_success_rates = []  # Track success rates after debugger assistance
+    all_final_success_rates = []  # Track success rates after strategy/debugger assistance
     all_task_success_history = defaultdict(list)
     global_env_counter = 0
     
     # Track overall statistics
     total_first_attempt_successes = 0
-    total_debugger_successes = 0
+    total_final_successes = 0
     total_tasks = 0
     
     # Main rollout loop
@@ -2835,6 +2977,9 @@ def main():
                 
             elif args.env == "alfworld":
                 env_kwargs["alf_env_type"] = args.alf_env_type
+                env_kwargs["is_train"] = bool(args.alfworld_is_train)
+                if args.alfworld_eval_dataset:
+                    env_kwargs["eval_dataset"] = args.alfworld_eval_dataset
                 if alfworld_game_files:
                     start = batch_idx * args.batch_size
                     end = start + current_batch_size
@@ -2945,11 +3090,17 @@ def main():
                                         if task_dir_local:
                                             attempt_task_dir = os.path.join(task_dir_local, f"attempt_{attempt_idx}")
                                             os.makedirs(attempt_task_dir, exist_ok=True)
-                                        
+
+                                        temp_value = min(0.0 + 0.3 * (attempt_idx - 1), 1.2)
+                                        attempt_agent = agent.clone_with_temperature(temp_value)
+                                        logging.info(
+                                            f"[Best-of-N] Attempt {attempt_idx} uses temperature {temp_value:.2f}"
+                                        )
+
                                         return run_environment_with_retry(
                                             env_id=0,
                                             env_manager=local_env,
-                                            agent=agent,
+                                            agent=attempt_agent,
                                             max_steps=args.max_steps,
                                             env_type=args.env,
                                             debugger=None,
@@ -3110,7 +3261,7 @@ def main():
                         # Update overall statistics
                         total_tasks += len(env_results)
                         total_first_attempt_successes += first_attempt_success_this_round.sum()
-                        total_debugger_successes += overall_success_this_round.sum()
+                        total_final_successes += overall_success_this_round.sum()
                         
                         # Process results for task-specific statistics
                         for result in env_results:
@@ -3125,7 +3276,7 @@ def main():
                         
                         batch_overall_success_rates.append(round_success_rate)
                         all_first_attempt_success_rates.append(first_attempt_rate)
-                        all_debugger_success_rates.append(round_success_rate)
+                        all_final_success_rates.append(round_success_rate)
                         
                         logging.info(f"Batch {batch_idx + 1} Test {test_idx} Results:")
                         logging.info(f"  First attempt success rate: {first_attempt_rate:.4f}")
@@ -3186,8 +3337,6 @@ def main():
                             actions[i] = batch_actions[k]
                         
                         # Environment stepping
-                        prev_prompts = obs["text"]
-                        raw_actions = actions.copy()
                         obs, rewards, dones, infos = env_manager.step(actions.copy())
                         last_infos = infos
                         
@@ -3366,6 +3515,9 @@ def main():
                     per_env_tasks[k % pool_size].append(task)
             elif args.env == "alfworld":
                 common_kwargs["alf_env_type"] = args.alf_env_type
+                common_kwargs["is_train"] = bool(args.alfworld_is_train)
+                if args.alfworld_eval_dataset:
+                    common_kwargs["eval_dataset"] = args.alfworld_eval_dataset
                 # For AlfWorld with unique_envs, we allocate per-round files on the fly
                 # so we skip building a persistent env_pool below.
             elif args.env == "webshop":
@@ -3510,11 +3662,17 @@ def main():
                         if task_dir:
                             attempt_task_dir = os.path.join(task_dir, f"attempt_{attempt_idx}")
                             os.makedirs(attempt_task_dir, exist_ok=True)
-                        
+
+                        temp_value = min(0.0 + 0.3 * (attempt_idx - 1), 1.2)
+                        attempt_agent = agent.clone_with_temperature(temp_value)
+                        logging.info(
+                            f"[Best-of-N] Attempt {attempt_idx} uses temperature {temp_value:.2f}"
+                        )
+
                         return run_environment_with_retry(
                             env_id=0,
                             env_manager=local_mgr,
-                            agent=agent,
+                            agent=attempt_agent,
                             max_steps=args.max_steps,
                             env_type=args.env,
                             debugger=None,
@@ -3662,7 +3820,7 @@ def main():
                         if res.get("first_attempt_success"):
                             total_first_attempt_successes += 1
                         if res.get("won"):
-                            total_debugger_successes += 1
+                            total_final_successes += 1
 
                         task_cat = res.get("task_category", "other")
                         all_task_success_history[task_cat].append(1.0 if res.get("won") else 0.0)
@@ -3670,10 +3828,10 @@ def main():
                     overall_rate = float(np.mean([1.0 if r.get("won") else 0.0 for r in all_slot_results])) if all_slot_results else 0.0
                     first_attempt_rate = float(np.mean([1.0 if r.get("first_attempt_success") else 0.0 for r in all_slot_results])) if all_slot_results else 0.0
                     all_first_attempt_success_rates.append(first_attempt_rate)
-                    all_debugger_success_rates.append(overall_rate)
+                    all_final_success_rates.append(overall_rate)
 
                     logging.info(
-                        f"Overall: First attempt success {first_attempt_rate:.4f}, Debugger success {overall_rate:.4f}"
+                        f"Overall: First attempt success {first_attempt_rate:.4f}, Final success ({args.strategy}) {overall_rate:.4f}"
                     )
             else:
                 # GAIA/WEBSHOP or AlfWorld without unique_envs
@@ -3705,9 +3863,15 @@ def main():
                     first_attempt = np.array([1 if rr.get('first_attempt_success') else 0 for rr in all_slot_results], dtype=float)
                     total_tasks += len(all_slot_results)
                     total_first_attempt_successes += int(first_attempt.sum())
-                    total_debugger_successes += int(overall.sum())
-                    all_first_attempt_success_rates.append(float(first_attempt.mean() if len(first_attempt) else 0.0))
-                    all_debugger_success_rates.append(float(overall.mean() if len(overall) else 0.0))
+                    total_final_successes += int(overall.sum())
+                    first_rate = float(first_attempt.mean() if len(first_attempt) else 0.0)
+                    all_first_attempt_success_rates.append(first_rate)
+                    final_rate = float(overall.mean() if len(overall) else 0.0)
+                    all_final_success_rates.append(final_rate)
+                    logging.info(
+                        f"Overall: First attempt success {first_rate:.4f}, "
+                        f"Final success ({args.strategy}) {final_rate:.4f}"
+                    )
 
             # Close pool (if any)
             if env_pool:
@@ -3733,7 +3897,10 @@ def main():
                         "history_length": args.history_length,
                         "alf_env_type": args.alf_env_type,
                         "game_files": files_this_round,
+                        "is_train": bool(args.alfworld_is_train),
                     }
+                    if args.alfworld_eval_dataset:
+                        env_kwargs["eval_dataset"] = args.alfworld_eval_dataset
                     env_manager = EnvironmentFactory.build_env("alfworld", with_debugger=False, **env_kwargs)
                     obs, infos = env_manager.reset()
                     env_dones = [False] * pool_size
@@ -3760,7 +3927,17 @@ def main():
                                 overall_success_this_round[i] = bool(infos[i].get("won", False))
                         if all(env_dones):
                             break
-                    all_overall_success_rates.append(overall_success_this_round.mean())
+                    round_success = overall_success_this_round.mean()
+                    all_overall_success_rates.append(round_success)
+
+                    # In no-debugger mode, first attempt equals final outcome
+                    tasks_this_round = len(files_this_round) if files_this_round else pool_size
+                    total_tasks += tasks_this_round
+                    successes_this_round = int(overall_success_this_round.sum())
+                    total_first_attempt_successes += successes_this_round
+                    total_final_successes += successes_this_round
+                    all_first_attempt_success_rates.append(round_success)
+                    all_final_success_rates.append(round_success)
                     try:
                         env_manager.envs.close()
                     except Exception:
@@ -3778,6 +3955,9 @@ def main():
                     env_kwargs["max_steps"] = args.max_steps
                 elif args.env == "alfworld":
                     env_kwargs["alf_env_type"] = args.alf_env_type
+                    env_kwargs["is_train"] = bool(args.alfworld_is_train)
+                    if args.alfworld_eval_dataset:
+                        env_kwargs["eval_dataset"] = args.alfworld_eval_dataset
                     if args.unique_envs and alfworld_game_files:
                         env_kwargs["game_files"] = alfworld_game_files[:pool_size]
                 elif args.env == "webshop":
@@ -3793,39 +3973,49 @@ def main():
                 # Repeat for a number of rounds; each round calls reset() and steps to done
                 for test_idx in range(rounds):
                     obs, infos = env_manager.reset()
-                env_dones = [False] * pool_size
-                overall_success_this_round = np.zeros(pool_size, dtype=bool)
+                    env_dones = [False] * pool_size
+                    overall_success_this_round = np.zeros(pool_size, dtype=bool)
 
-                for step_idx in range(args.max_steps):
-                    # Collect prompts for active envs
-                    prompts, idx_map = [], []
-                    for i in range(pool_size):
-                        if not env_dones[i]:
-                            prompts.append(obs["text"][i])
-                            idx_map.append(i)
-                    if not prompts:
-                        break
+                    for step_idx in range(args.max_steps):
+                        # Collect prompts for active envs
+                        prompts, idx_map = [], []
+                        for i in range(pool_size):
+                            if not env_dones[i]:
+                                prompts.append(obs["text"][i])
+                                idx_map.append(i)
+                        if not prompts:
+                            break
 
-                    batch_actions = agent.get_actions_batch(prompts, concurrency=args.concurrency, retries=args.retries)
-                    actions = ["None"] * pool_size
-                    for k, i in enumerate(idx_map):
-                        actions[i] = batch_actions[k]
+                        batch_actions = agent.get_actions_batch(
+                            prompts, concurrency=args.concurrency, retries=args.retries
+                        )
+                        actions = ["None"] * pool_size
+                        for k, i in enumerate(idx_map):
+                            actions[i] = batch_actions[k]
 
-                    prev_prompts = obs["text"]
-                    raw_actions = actions.copy()
-                    obs, rewards, dones, infos = env_manager.step(actions.copy())
+                        prev_prompts = obs["text"]
+                        raw_actions = actions.copy()
+                        obs, rewards, dones, infos = env_manager.step(actions.copy())
 
-                    for i in range(pool_size):
-                        if env_dones[i]:
-                            continue
-                        if dones[i]:
-                            env_dones[i] = True
-                            overall_success_this_round[i] = bool(infos[i].get("won", False))
-                    if all(env_dones):
-                        break
+                        for i in range(pool_size):
+                            if env_dones[i]:
+                                continue
+                            if dones[i]:
+                                env_dones[i] = True
+                                overall_success_this_round[i] = bool(infos[i].get("won", False))
+                        if all(env_dones):
+                            break
 
-                # Update simple aggregate for non-debugger path
-                all_overall_success_rates.append(overall_success_this_round.mean())
+                    round_success = overall_success_this_round.mean()
+                    all_overall_success_rates.append(round_success)
+
+                    # In the single-attempt flow, initial and final outcomes match
+                    total_tasks += pool_size
+                    successes_this_round = int(overall_success_this_round.sum())
+                    total_first_attempt_successes += successes_this_round
+                    total_final_successes += successes_this_round
+                    all_first_attempt_success_rates.append(round_success)
+                    all_final_success_rates.append(round_success)
 
             try:
                 env_manager.envs.close()
@@ -3862,14 +4052,16 @@ def main():
     logging.info(f"Total batches: {num_batches} | Parallel envs: {max(1, int(args.total_envs))} | Total tasks run: {total_tasks}")
     
     # Report both first attempt and post-strategy success rates
-    if args.enable_debugger and total_tasks > 0:
+    if total_tasks > 0:
         first_attempt_success_rate = total_first_attempt_successes / total_tasks
-        strategy_success_rate = total_debugger_successes / total_tasks
-        improvement = strategy_success_rate - first_attempt_success_rate
+        final_success_rate = total_final_successes / total_tasks
+        improvement = final_success_rate - first_attempt_success_rate
         
         logging.info("\n========== Success Rate Analysis ==========")
         logging.info(f"First Attempt Success Rate: {first_attempt_success_rate:.4f} ({total_first_attempt_successes}/{total_tasks})")
-        logging.info(f"Success Rate after {strategy_descriptor}: {strategy_success_rate:.4f} ({total_debugger_successes}/{total_tasks})")
+        logging.info(
+            f"Final Success Rate after {strategy_descriptor}: {final_success_rate:.4f} ({total_final_successes}/{total_tasks})"
+        )
         logging.info(f"Improvement over First Attempt: +{improvement:.4f} ({improvement*100:.2f}%)")
         
         if all_first_attempt_success_rates:
@@ -3877,10 +4069,10 @@ def main():
                 f"First Attempt (avg ± std): "
                 f"{np.mean(all_first_attempt_success_rates):.4f} ± {np.std(all_first_attempt_success_rates):.4f}"
             )
-        if all_debugger_success_rates:
+        if all_final_success_rates:
             logging.info(
                 f"After {strategy_descriptor} (avg ± std): "
-                f"{np.mean(all_debugger_success_rates):.4f} ± {np.std(all_debugger_success_rates):.4f}"
+                f"{np.mean(all_final_success_rates):.4f} ± {np.std(all_final_success_rates):.4f}"
             )
     elif all_overall_success_rates:
         logging.info(
@@ -3891,6 +4083,10 @@ def main():
     # Save final experiment summary to file if experiment_dir is set
     if summaries_dir:
         summary_file = os.path.join(summaries_dir, "experiment_summary.json")
+        first_attempt_rate = float(total_first_attempt_successes) / total_tasks if total_tasks > 0 else 0.0
+        final_success_rate = float(total_final_successes) / total_tasks if total_tasks > 0 else 0.0
+        improvement_rate = final_success_rate - first_attempt_rate
+
         experiment_summary = {
             "experiment_info": {
                 "environment": args.env,
@@ -3909,22 +4105,26 @@ def main():
                 "strategy_descriptor": strategy_descriptor
             },
             "results": {
-                "first_attempt_success_rate": float(total_first_attempt_successes) / total_tasks if total_tasks > 0 else 0,
-                "strategy_success_rate": float(total_debugger_successes) / total_tasks if total_tasks > 0 else 0,
-                "debugger_success_rate": float(total_debugger_successes) / total_tasks if total_tasks > 0 else 0,
-                "improvement": (float(total_debugger_successes) - float(total_first_attempt_successes)) / total_tasks if total_tasks > 0 else 0,
+                "first_attempt_success_rate": first_attempt_rate,
+                "final_success_rate": final_success_rate,
+                "strategy_success_rate": final_success_rate,
+                "debugger_success_rate": final_success_rate,
+                "improvement": improvement_rate,
                 "first_attempt_successes": int(total_first_attempt_successes),
-                "strategy_successes": int(total_debugger_successes),
-                "debugger_successes": int(total_debugger_successes),
+                "final_successes": int(total_final_successes),
+                "strategy_successes": int(total_final_successes),
+                "debugger_successes": int(total_final_successes),
                 "total_tasks": int(total_tasks)
             },
             "statistics": {
                 "first_attempt_mean": float(np.mean(all_first_attempt_success_rates)) if all_first_attempt_success_rates else 0,
                 "first_attempt_std": float(np.std(all_first_attempt_success_rates)) if all_first_attempt_success_rates else 0,
-                "strategy_mean": float(np.mean(all_debugger_success_rates)) if all_debugger_success_rates else 0,
-                "strategy_std": float(np.std(all_debugger_success_rates)) if all_debugger_success_rates else 0,
-                "debugger_mean": float(np.mean(all_debugger_success_rates)) if all_debugger_success_rates else 0,
-                "debugger_std": float(np.std(all_debugger_success_rates)) if all_debugger_success_rates else 0
+                "final_mean": float(np.mean(all_final_success_rates)) if all_final_success_rates else 0,
+                "final_std": float(np.std(all_final_success_rates)) if all_final_success_rates else 0,
+                "strategy_mean": float(np.mean(all_final_success_rates)) if all_final_success_rates else 0,
+                "strategy_std": float(np.std(all_final_success_rates)) if all_final_success_rates else 0,
+                "debugger_mean": float(np.mean(all_final_success_rates)) if all_final_success_rates else 0,
+                "debugger_std": float(np.std(all_final_success_rates)) if all_final_success_rates else 0
             }
         }
         

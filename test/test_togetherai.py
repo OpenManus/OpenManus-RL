@@ -8,17 +8,29 @@ import asyncio
 import time
 import statistics
 import argparse
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict, Any
-from together import Together
+from typing import List, Dict, Any, Optional
+from openai import OpenAI
 
 
 class TogetherAITester:
     """Together AI 性能测试器"""
     
-    def __init__(self, model_name: str = "kunlunz2/Qwen/Qwen3-8B-9f9838eb"):
-        self.client = Together()
+    def __init__(
+        self,
+        model_name: str = "kunlunz2/Qwen/Qwen3-8B-9f9838eb",
+        base_url: Optional[str] = None,
+        temperature: float = 0.0,
+    ):
+        default_base_url = os.environ.get("TOGETHER_API_BASE_URL", "https://api.together.xyz/v1")
+        resolved_base_url = base_url or default_base_url
+        self.client = OpenAI(
+            api_key=os.environ.get("TOGETHER_API_KEY", ""),
+            base_url=resolved_base_url,
+        )
         self.model_name = model_name
+        self.temperature = temperature
         self.test_messages = [
             {"role": "user", "content": "What are some fun things to do in New York?"},
             {"role": "user", "content": "Explain quantum computing in simple terms."},
@@ -47,7 +59,7 @@ class TogetherAITester:
                 model=self.model_name,
                 messages=[message],
                 max_tokens=150,
-                temperature=0.7
+                temperature=self.temperature,
             )
             
             if response and response.choices:
@@ -76,6 +88,7 @@ class TogetherAITester:
         """运行并行测试"""
         print(f"🚀 开始并行测试:")
         print(f"   模型: {self.model_name}")
+        print(f"   Temperature: {self.temperature}")
         print(f"   总请求数: {total_requests}")
         print(f"   并行数: {max_workers}")
         print(f"   {'='*50}")
@@ -197,12 +210,16 @@ class TogetherAITester:
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description="Together AI 并行调用性能测试")
-    parser.add_argument("--model", default='meta-llama/Llama-3.3-70B-Instruct-Turbo', # "kunlunz2/Qwen/Qwen3-8B-9f9838eb", 
+    parser.add_argument("--model", default='meta-llama/Llama-3.3-70B-Instruct-Turbo', #"kunlunz2/Qwen/Qwen3-8B-9f9838eb",   
                        help="要测试的模型名称")
     parser.add_argument("--requests", type=int, default=100,
                        help="总请求数量 (默认: 100)")
     parser.add_argument("--parallel", type=int, default=10,
                        help="并行数量 (默认: 10)")
+    parser.add_argument("--temperature", type=float, default=0.0,
+                       help="采样温度 (默认: 0.0)")
+    parser.add_argument("--base-url", dest="base_url", default=None,
+                       help="Together API Base URL (默认: 环境变量 TOGETHER_API_BASE_URL 或 https://api.together.xyz/v1)")
     parser.add_argument("--quick", action="store_true",
                        help="快速测试模式 (10次请求)")
     
@@ -213,7 +230,11 @@ def main():
         args.requests = 10
         args.parallel = 3
     
-    tester = TogetherAITester(model_name=args.model)
+    tester = TogetherAITester(
+        model_name=args.model,
+        base_url=args.base_url,
+        temperature=args.temperature,
+    )
     
     try:
         stats = tester.run_parallel_test(
