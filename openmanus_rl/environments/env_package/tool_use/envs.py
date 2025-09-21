@@ -16,10 +16,10 @@ class ToolUseEnv:
     Provides tasks from dataset and handles tool execution.
     """
     
-    def __init__(self, tasks_data: List[Dict], available_tools: List[str], seed: int = 42):
+    def __init__(self, tasks_data: List[Dict], available_tools: List[str], seed: int = 42, model_string: str = None):
         self.tasks_data = tasks_data
         self.available_tools = available_tools
-        self.tool_manager = ToolManager(available_tools)
+        self.tool_manager = ToolManager(available_tools, model_string=model_string)
         self.current_task_idx = 0
         self.seed = seed
         random.seed(seed)
@@ -65,7 +65,7 @@ class ToolUseEnvs:
     """
     
     def __init__(self, tasks_data: List[Dict], available_tools: List[str], 
-                 seed: int = 0, env_num: int = 1, group_n: int = 1, is_train: bool = True):
+                 seed: int = 0, env_num: int = 1, group_n: int = 1, is_train: bool = True, model_string: str = None):
         self.tasks_data = tasks_data
         self.available_tools = available_tools
         self.num_processes = env_num * group_n
@@ -75,7 +75,7 @@ class ToolUseEnvs:
         # Create individual environments
         self.envs = []
         for i in range(self.num_processes):
-            env = ToolUseEnv(tasks_data, available_tools, seed + i)
+            env = ToolUseEnv(tasks_data, available_tools, seed + i, model_string=model_string)
             self.envs.append(env)
         
         # Track current task indices for each environment
@@ -121,8 +121,9 @@ class ToolUseEnvs:
 class ToolManager:
     """Manages available tools and their execution"""
     
-    def __init__(self, tool_names: List[str]):
+    def __init__(self, tool_names: List[str], model_string: str = None):
         self.tool_names = tool_names
+        self.model_string = model_string
         self.available_tools = {}
         self._load_tools()
     
@@ -140,7 +141,7 @@ class ToolManager:
         tool_mapping = {
             'google_search': 'openmanus_rl.tools.google_search.tool.Google_Search_Tool',
             'wikipedia_knowledge_searcher': 'openmanus_rl.tools.wikipedia_knowledge_searcher.tool.Wikipedia_Knowledge_Searcher_Tool',
-            'arxiv_paper_searcher': 'openmanus_rl.tools.arxiv_paper_searcher.tool.Arxiv_Paper_Searcher_Tool',
+            'arxiv_paper_searcher': 'openmanus_rl.tools.arxiv_paper_searcher.tool.ArXiv_Paper_Searcher_Tool',
             'pubmed_search': 'openmanus_rl.tools.pubmed_search.tool.Pubmed_Search_Tool',
             'url_text_extractor': 'openmanus_rl.tools.url_text_extractor.tool.URL_Text_Extractor_Tool',
             'python_code_generator': 'openmanus_rl.tools.python_code_generator.tool.Python_Code_Generator_Tool',
@@ -150,13 +151,20 @@ class ToolManager:
             print(f"Unknown tool: {tool_name}, skipping...")
             return
         
+        print(f"Loading tool: {tool_name}")
+        
         module_path = tool_mapping[tool_name]
         module_name, class_name = module_path.rsplit('.', 1)
         
         # Import and instantiate the tool
         module = importlib.import_module(module_name)
         tool_class = getattr(module, class_name)
-        tool_instance = tool_class()
+        
+        # Check if tool requires LLM engine and pass model_string if available
+        if hasattr(tool_class, 'require_llm_engine') and tool_class.require_llm_engine and self.model_string:
+            tool_instance = tool_class(model_string=self.model_string)
+        else:
+            tool_instance = tool_class()
         
         self.available_tools[tool_name] = tool_instance
     
@@ -199,6 +207,6 @@ parameters: {{"param_name": "param_value"}}
 
 
 def build_tool_use_envs(tasks_data: List[Dict], available_tools: List[str], 
-                       seed: int, env_num: int, group_n: int, is_train: bool = True):
+                       seed: int, env_num: int, group_n: int, is_train: bool = True, model_string: str = None):
     """Build tool use environments"""
-    return ToolUseEnvs(tasks_data, available_tools, seed, env_num, group_n, is_train)
+    return ToolUseEnvs(tasks_data, available_tools, seed, env_num, group_n, is_train, model_string=model_string)
