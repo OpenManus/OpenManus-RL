@@ -6,7 +6,7 @@ Provides tasks from dataset and handles tool execution results.
 import json
 import random
 import importlib
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
 
 
@@ -41,7 +41,8 @@ class ToolUseEnv:
             'answer': task_data['answer'], 
             'pid': task_data['pid'],
             'available_tools': self.available_tools,
-            'tool_metadata': self.tool_manager.get_tools_metadata()
+            'tool_metadata': self.tool_manager.get_tools_metadata(),
+            'task_index': self.current_task_idx - 1,
         }
         
         return "", info
@@ -81,18 +82,29 @@ class ToolUseEnvs:
         # Track current task indices for each environment
         self.current_indices = list(range(self.num_processes))
     
-    def reset(self) -> Tuple[List[str], List[Dict]]:
+    def reset(self, task_indices: Optional[List[int]] = None) -> Tuple[List[str], List[Dict]]:
         """Reset all environments"""
         obs_list = []
         info_list = []
-        
-        for i, env in enumerate(self.envs):
-            # Use different tasks for different environments
-            task_idx = (self.current_indices[i]) % len(self.tasks_data)
-            obs, info = env.reset(task_idx=task_idx)
-            obs_list.append(obs)
-            info_list.append(info)
-            self.current_indices[i] += 1
+
+        if task_indices is not None:
+            if len(task_indices) != self.num_processes:
+                raise ValueError(
+                    f"Expected {self.num_processes} task indices, got {len(task_indices)}",
+                )
+            for i, env in enumerate(self.envs):
+                task_idx = int(task_indices[i]) % len(self.tasks_data)
+                obs, info = env.reset(task_idx=task_idx)
+                obs_list.append(obs)
+                info_list.append(info)
+                self.current_indices[i] = task_idx + 1
+        else:
+            for i, env in enumerate(self.envs):
+                task_idx = (self.current_indices[i]) % len(self.tasks_data)
+                obs, info = env.reset(task_idx=task_idx)
+                obs_list.append(obs)
+                info_list.append(info)
+                self.current_indices[i] += 1
         
         return obs_list, info_list
     

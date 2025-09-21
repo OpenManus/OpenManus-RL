@@ -1319,12 +1319,14 @@ class EnvironmentFactory:
             '../../openmanus_rl/environments/env_package/alfworld/configs/config_tw.yaml'
         )
         
+        is_train = kwargs.get('is_train', True)
+
         envs = build_alfworld_envs(
             alf_config_path, 
             seed=seed, 
             env_num=env_num, 
             group_n=1, 
-            is_train=True, 
+            is_train=is_train, 
             env_kwargs={}, 
             game_files=game_files
         )

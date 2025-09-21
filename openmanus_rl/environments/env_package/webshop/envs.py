@@ -1,5 +1,6 @@
 import ray
 import threading
+from typing import List, Optional
 
 # Guard against concurrent ray.init from multiple threads
 _RAY_INIT_LOCK = threading.Lock()
@@ -50,6 +51,7 @@ class WebshopWorker:
         info = dict(info or {})
         info['available_actions'] = self.env.get_available_actions()
         info['won'] = False
+        info['session_index'] = idx
         return obs, info
     
     def render(self, mode_for_render):
@@ -107,7 +109,8 @@ class WebshopMultiProcessEnv(gym.Env):
         self.env_num = env_num
         self.num_processes = env_num * group_n
         self.is_train = is_train
-        if not is_train: assert group_n == 1
+        if not is_train:
+            assert group_n == 1
 
         self._rng = np.random.RandomState(seed)
 
@@ -136,10 +139,12 @@ class WebshopMultiProcessEnv(gym.Env):
         #     self.goal_idxs = range(len(self.env.server.goals))
 
         if not self.is_train:
-            self.goal_idxs = range(500)
+            self.goal_idxs = list(range(500))
+            self._test_cursor = 0
         else:
-            self.goal_idxs = range(500, len(goals))
-            
+            self.goal_idxs = list(range(500, len(goals)))
+            self._test_cursor = 0
+        
         print(self.goal_idxs)
 
     # ------------------------------------------------------------------
@@ -169,9 +174,22 @@ class WebshopMultiProcessEnv(gym.Env):
 
         return obs_list, reward_list, done_list, info_list
 
-    def reset(self):
-        idx = self._rng.choice(self.goal_idxs, size=self.env_num, replace=False)
-        idx = np.repeat(idx, self.group_n).tolist()
+    def reset(self, session_indices: Optional[List[int]] = None):
+        if session_indices is not None:
+            if len(session_indices) != self.env_num:
+                raise ValueError(
+                    f"Expected {self.env_num} session indices, got {len(session_indices)}",
+                )
+            base_indices = [self.goal_idxs[int(i) % len(self.goal_idxs)] for i in session_indices]
+        elif self.is_train:
+            base_indices = self._rng.choice(self.goal_idxs, size=self.env_num, replace=False)
+        else:
+            base_indices = []
+            for _ in range(self.env_num):
+                base_indices.append(self.goal_idxs[self._test_cursor % len(self.goal_idxs)])
+                self._test_cursor += 1
+
+        idx = np.repeat(base_indices, self.group_n).tolist()
 
         # Send reset commands to all workers
         futures = []

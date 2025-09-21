@@ -4,7 +4,7 @@ Tool Use Environment Manager
 
 import json
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from collections import defaultdict
 import numpy as np
 
@@ -25,9 +25,9 @@ class ToolUseEnvironmentManager(EnvironmentManagerBase):
         self.task_completed = []
         self.env_step_counts = defaultdict(int)  # For debugger feedback tracking
         
-    def reset(self):
+    def reset(self, task_indices: Optional[List[int]] = None):
         """Reset environment and get new tasks"""
-        obs, infos = self.envs.reset()
+        obs, infos = self.envs.reset(task_indices=task_indices)
         
         # Extract task information
         self.current_tasks = [info.get('task', '') for info in infos]

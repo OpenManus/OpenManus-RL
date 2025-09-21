@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Union, Any
+from typing import List, Tuple, Dict, Union, Any, Optional
 from collections import defaultdict
 import torch
 import numpy as np
@@ -206,8 +206,8 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
         super().__init__(envs, projection_f, config)
         self.step_counts = defaultdict(int)  # Track step count for each environment
     
-    def reset(self) -> Dict[str, Any]:
-        obs, infos = self.envs.reset()
+    def reset(self, session_indices: Optional[List[int]] = None) -> Dict[str, Any]:
+        obs, infos = self.envs.reset(session_indices=session_indices)
         self.tasks = self.extract_task(obs)
         obs = self.format_obs(obs)
         # infos = [None] * self.envs.num_envs
