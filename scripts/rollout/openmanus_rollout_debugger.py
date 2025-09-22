@@ -109,7 +109,6 @@ class UnifiedAgent:
         self.model_name = model_name
         self.temperature = temperature
         self.env_type = env_type
-        self.base_url = base_url
         self.is_together = bool(use_together)
 
         retry_delay_value = os.getenv("ROLLOUT_RETRY_BASE_DELAY", os.getenv("TOGETHER_RETRY_DELAY", "5"))
@@ -131,17 +130,23 @@ class UnifiedAgent:
 
         if self.is_together or together_api:
             # Use Together endpoint through OpenAI-compatible client
-            resolved_base_url = base_url or "https://api.together.xyz/v1"
+            resolved_base_url = base_url or os.environ.get(
+                "TOGETHER_API_BASE_URL",
+                "https://api.together.xyz/v1",
+            )
+            self.base_url = resolved_base_url
             self.client = OpenAI(
                 api_key=os.environ.get("TOGETHER_API_KEY", ""),
                 base_url=resolved_base_url,
             )
         elif base_url:
+            self.base_url = base_url
             self.client = OpenAI(
                 api_key=os.getenv('OPENAI_API_KEY', ''),
                 base_url=base_url,
             )
         else:
+            self.base_url = None
             self.client = OpenAI(
                 api_key=os.environ.get('OPENAI_API_KEY'),
             )
@@ -303,18 +308,25 @@ class LLMDebugger:
 
         # Initialize OpenAI-compatible client (OpenAI/vLLM/Together)
         if use_together:
+            resolved_base_url = base_url or os.environ.get(
+                "TOGETHER_API_BASE_URL",
+                "https://api.together.xyz/v1",
+            )
+            self.base_url = resolved_base_url
             self.client = OpenAI(
                 api_key=os.environ.get("TOGETHER_API_KEY", ""),
-                base_url="https://api.together.xyz/v1",
+                base_url=resolved_base_url,
             )
         else:
             key = api_key if api_key is not None else os.environ.get('OPENAI_API_KEY', '')
             if base_url:
+                self.base_url = base_url
                 self.client = OpenAI(
                     api_key=key,
                     base_url=base_url,
                 )
             else:
+                self.base_url = None
                 self.client = OpenAI(
                     api_key=key,
                 )
@@ -1083,15 +1095,36 @@ class AdvancedDebugger(LLMDebugger):
         analysis_model: Optional[str] = None,
         capture_debug_data: bool = False,
         phase1_parallel_workers: int = 1,
+        use_together: bool = False,
     ) -> None:
-        super().__init__(model_name=model_name, temperature=temperature, base_url=base_url, api_key=api_key)
+        together_base = base_url
+        if use_together and together_base is None:
+            together_base = os.environ.get(
+                "TOGETHER_API_BASE_URL",
+                "https://api.together.xyz/v1",
+            )
+
+        super().__init__(
+            model_name=model_name,
+            temperature=temperature,
+            base_url=together_base,
+            api_key=api_key,
+            use_together=use_together,
+        )
 
         if not ADVANCED_DEBUGGER_AVAILABLE:
             raise ImportError("Advanced debugger API is not available in the current environment")
 
-        self.api_key = api_key if api_key is not None else os.environ.get("OPENAI_API_KEY", "")
-        if not self.api_key and base_url is None:
-            raise ValueError("OPENAI_API_KEY must be set for AdvancedDebugger when no --debugger_base_url is provided")
+        if use_together:
+            self.api_key = api_key if api_key is not None else os.environ.get("TOGETHER_API_KEY", "")
+            if not self.api_key:
+                raise ValueError("TOGETHER_API_KEY must be set for Together debugger usage")
+            detector_base_url = together_base or self.base_url
+        else:
+            self.api_key = api_key if api_key is not None else os.environ.get("OPENAI_API_KEY", "")
+            detector_base_url = together_base
+            if not self.api_key and detector_base_url is None:
+                raise ValueError("OPENAI_API_KEY must be set for AdvancedDebugger when no --debugger_base_url is provided")
 
         self.analysis_model = analysis_model or model_name
         self.capture_debug_data = capture_debug_data
@@ -1100,7 +1133,7 @@ class AdvancedDebugger(LLMDebugger):
             self.api_key,
             model=self.analysis_model,
             capture_debug_data=capture_debug_data,
-            base_url=base_url,
+            base_url=detector_base_url,
             phase1_parallel_workers=self.phase1_parallel_workers,
         )
         self._phase1_cache: Dict[str, Dict[str, Any]] = {}
@@ -2869,6 +2902,11 @@ def main():
         debugger_type_label = args.debugger_type
         # Use debugger_base_url if provided; otherwise fall back to rollout --base_url
         debugger_base_url = args.debugger_base_url
+        if use_together_debugger and not debugger_base_url:
+            debugger_base_url = os.environ.get(
+                "TOGETHER_API_BASE_URL",
+                "https://api.together.xyz/v1",
+            )
         if args.debugger_type == "advanced":
             try:
                 debugger = AdvancedDebugger(
@@ -2879,6 +2917,7 @@ def main():
                     analysis_model=args.debugger_model,
                     capture_debug_data=args.debugger_capture_api_debug,
                     phase1_parallel_workers=args.parallel_num_phase_1,
+                    use_together=use_together_debugger,
                 )
             except Exception as exc:
                 logging.error(f"Failed to initialize advanced debugger: {exc}")
@@ -2923,6 +2962,11 @@ def main():
             debugger_type_label = "vanilla"
         elif args.debugger_type == "self_refine":
             debugger_type_label = "self_refine (general guidance)"
+
+        rollout_base_url_display = agent.base_url or "(default OpenAI)"
+        debugger_base_url_display = debugger_base_url or (
+            "(default Together)" if use_together_debugger else "(default OpenAI)"
+        )
         logging.info(
             "Debugger enabled (%s)\n"
             "  Rollout: model=%s, base_url=%s\n"
@@ -2930,9 +2974,9 @@ def main():
             "  Max retries: %s",
             debugger_type_label,
             args.model,
-            args.base_url or "(default OpenAI)",
+            rollout_base_url_display,
             args.debugger_model,
-            debugger_base_url or "(default OpenAI)",
+            debugger_base_url_display,
             get_max_retries(),
         )
         

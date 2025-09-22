@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Example (Together AI primary model):
+#   TOGETHER_API_KEY=sk-xxx PRIMARY_MODEL="kunlunz2/Qwen/Qwen3-8B-9f9838eb" \
+#   bash scripts/debugbench/run_debugbench_example.sh
+
 OUTPUT_ROOT="experiments/debugbench_example_alfworld"
 TEMP="${TEMP:-0.0}"
 ENV_PARALLEL="${ENV_PARALLEL:-20}"
@@ -25,11 +29,11 @@ fi
 # AlfWorld test split
 # Model selection (override via environment variables if needed)
 PRIMARY_MODEL="${PRIMARY_MODEL:-${ROLLOUT_MODEL:-kunlunz2/Qwen/Qwen3-8B-9f9838eb}}"
-PRIMARY_HOST="${PRIMARY_HOST:-${ROLLOUT_HOST:-${TOGETHER_API_BASE_URL:-https://api.together.xyz}}}"
+PRIMARY_HOST="${PRIMARY_HOST:-${ROLLOUT_HOST:-${TOGETHER_API_BASE_URL:-https://api.together.xyz/v1}}}"
 SECONDARY_MODEL="${SECONDARY_MODEL:-gpt-4o-mini}"
 SECONDARY_HOST="${SECONDARY_HOST:-${OPENAI_BASE_URL:-}}"
 TERTIARY_MODEL="${TERTIARY_MODEL:-${AUX_MODEL:-Qwen/Qwen2.5-72B-Instruct}}"
-TERTIARY_HOST="${TERTIARY_HOST:-${AUX_HOST:-${TOGETHER_API_BASE_URL:-https://api.together.xyz}}}"
+TERTIARY_HOST="${TERTIARY_HOST:-${AUX_HOST:-${TOGETHER_API_BASE_URL:-https://api.together.xyz/v1}}}"
 
 python scripts/debugbench/generate_debugbench.py \
   --environment alfworld \

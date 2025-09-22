@@ -210,8 +210,13 @@ class TogetherAITester:
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description="Together AI 并行调用性能测试")
-    parser.add_argument("--model", default='meta-llama/Llama-3.3-70B-Instruct-Turbo', #"kunlunz2/Qwen/Qwen3-8B-9f9838eb",   
-                       help="要测试的模型名称")
+    parser.add_argument(
+        "--model",
+        default="kunlunz2/Qwen/Qwen3-8B-9f9838eb",
+        help=(
+            "要测试的模型名称 (示例: kunlunz2/Qwen/Qwen3-8B-9f9838eb)"
+        ),
+    )
     parser.add_argument("--requests", type=int, default=100,
                        help="总请求数量 (默认: 100)")
     parser.add_argument("--parallel", type=int, default=10,

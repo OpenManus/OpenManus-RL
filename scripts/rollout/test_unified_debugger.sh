@@ -14,8 +14,16 @@ QWEN3_32B_URL="${QWEN3_32B_URL:-http://134.199.197.179:8001}"
 export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
 
 # Optional: route calls via Together AI
-# Set TOGETHER_ARG="--together rollout" or "--together debugger" or "--together both"
-TOGETHER_ARG="${TOGETHER_ARG:-}"
+# Set TOGETHER_ARG="--together rollout", "--together debugger" or "--together both"
+# Example usage:
+#   TOGETHER_API_KEY=sk-xxx TOGETHER_ARG="--together both" \\
+#   ROLLOUT_MODEL="kunlunz2/Qwen/Qwen3-8B-9f9838eb" \\
+#   DEBUGGER_MODEL="kunlunz2/Qwen/Qwen3-8B-9f9838eb" \\
+#   bash scripts/rollout/test_unified_debugger.sh
+TOGETHER_ARG="${TOGETHER_ARG:---together rollout}"
+
+TOGETHER_DEFAULT_MODEL="kunlunz2/Qwen/Qwen3-8B-9f9838eb"
+TOGETHER_DEFAULT_BASE_URL="${TOGETHER_API_BASE_URL:-https://api.together.xyz/v1}"
 
 # Configuration
 #ROLLOUT_MODEL="${ROLLOUT_MODEL:-qwen3-8b}"
@@ -24,9 +32,35 @@ TOGETHER_ARG="${TOGETHER_ARG:-}"
 # ROLLOUT_MODEL="${ROLLOUT_MODEL:-qwen3-8b}"
 # DEBUGGER_MODEL="${DEBUGGER_MODEL:-qwen3-32b}"
 # DEBUGGER_URL="${DEBUGGER_URL:-${QWEN3_32B_URL}/v1}"
-ROLLOUT_MODEL="${ROLLOUT_MODEL:-gpt-4o-mini}"
+#ROLLOUT_MODEL="${ROLLOUT_MODEL:-gpt-4o-mini}"
+ROLLOUT_MODEL="${ROLLOUT_MODEL:-kunlunz2/Qwen/Qwen3-8B-9f9838eb}"
 DEBUGGER_MODEL="${DEBUGGER_MODEL:-gpt-4.1}"
+ROLLOUT_URL="${ROLLOUT_URL:-}"
+DEBUGGER_URL="${DEBUGGER_URL:-}"
 ROLLOUT_SPLIT="${ROLLOUT_SPLIT:-test}"
+
+if [[ -n "${TOGETHER_ARG}" ]]; then
+  ROLLOUT_MODEL="${ROLLOUT_MODEL:-${TOGETHER_DEFAULT_MODEL}}"
+  DEBUGGER_MODEL="${DEBUGGER_MODEL:-${TOGETHER_DEFAULT_MODEL}}"
+  ROLLOUT_URL="${ROLLOUT_URL:-${TOGETHER_DEFAULT_BASE_URL}}"
+  DEBUGGER_URL="${DEBUGGER_URL:-${TOGETHER_DEFAULT_BASE_URL}}"
+fi
+
+normalize_base_url() {
+  local raw="$1"
+  if [[ -z "${raw}" ]]; then
+    return
+  fi
+  raw="${raw%/}"
+  if [[ "${raw}" == *"/v1" ]]; then
+    printf '%s' "${raw}"
+  else
+    printf '%s/v1' "${raw}"
+  fi
+}
+
+ROLLOUT_URL="$(normalize_base_url "${ROLLOUT_URL}")"
+DEBUGGER_URL="$(normalize_base_url "${DEBUGGER_URL}")"
 
 echo "=== Configuration ==="
 echo "Rollout: model=${ROLLOUT_MODEL}, url=${ROLLOUT_URL}"
@@ -108,32 +142,47 @@ echo ""
 
 RUN_DIR="${BASE_DIR}/alfworld"
 
-python scripts/rollout/openmanus_rollout_debugger.py \
-    --env alfworld \
-    --total_envs 100 \
-    --test_times 1 \
-    --start_id 1 \
-    --max_steps 30 \
-    --history_length 40 \
-    --split "${ROLLOUT_SPLIT}" \
-    --model "${ROLLOUT_MODEL}" \
-    --temperature 0.0 \
-    --enable_debugger \
-    --max_try 1 \
-    --debugger_model "${DEBUGGER_MODEL}" \
-    --debugger_type vanilla \
-    --debugger_temperature 0.0 \
-    --experiment_dir "${RUN_DIR}" \
-    --save_all_attempts \
-    --save_per_task_trajectories \
-    --unique_envs \
-    --debug \
-    --parallel_num_phase_1 5 \
-    --concurrency 10 \
-    --llm_concurrency 80 \
-    # ${TOGETHER_ARG}
-    # --base_url "${ROLLOUT_URL}" \
-    # --debugger_base_url "${DEBUGGER_URL}"
+cmd=(
+  python scripts/rollout/openmanus_rollout_debugger.py
+  --env alfworld
+  --total_envs 10
+  --test_times 1
+  --start_id 1
+  --max_steps 30
+  --history_length 40
+  --split "${ROLLOUT_SPLIT}"
+  --model "${ROLLOUT_MODEL}"
+  --temperature 0.0
+  --enable_debugger
+  --max_try 1
+  --debugger_model "${DEBUGGER_MODEL}"
+  --debugger_type vanilla
+  --debugger_temperature 0.0
+  --experiment_dir "${RUN_DIR}"
+  --save_all_attempts
+  --save_per_task_trajectories
+  --unique_envs
+  --debug
+  --parallel_num_phase_1 5
+  --concurrency 10
+  --llm_concurrency 80
+)
+
+if [[ -n "${ROLLOUT_URL}" ]]; then
+  cmd+=(--base_url "${ROLLOUT_URL}")
+fi
+
+if [[ -n "${DEBUGGER_URL}" ]]; then
+  cmd+=(--debugger_base_url "${DEBUGGER_URL}")
+fi
+
+if [[ -n "${TOGETHER_ARG}" ]]; then
+  # shellcheck disable=SC2206
+  together_tokens=(${TOGETHER_ARG})
+  cmd+=("${together_tokens[@]}")
+fi
+
+"${cmd[@]}"
 
 # python scripts/rollout/openmanus_rollout_debugger.py \
 #     --env alfworld \
