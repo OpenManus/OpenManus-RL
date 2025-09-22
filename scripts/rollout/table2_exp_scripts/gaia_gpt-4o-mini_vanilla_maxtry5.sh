@@ -2,7 +2,24 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+if git_root="$(cd "${SCRIPT_DIR}" >/dev/null 2>&1 && git rev-parse --show-toplevel 2>/dev/null)"; then
+  REPO_ROOT="${git_root}"
+else
+  CANDIDATE="${SCRIPT_DIR}"
+  REPO_ROOT=""
+  while [[ "${CANDIDATE}" != "/" ]]; do
+    if [[ -d "${CANDIDATE}/scripts" && -f "${CANDIDATE}/pyproject.toml" ]]; then
+      REPO_ROOT="${CANDIDATE}"
+      break
+    fi
+    CANDIDATE="$(dirname "${CANDIDATE}")"
+  done
+  if [[ -z "${REPO_ROOT}" ]]; then
+    echo "Failed to locate repository root" >&2
+    exit 1
+  fi
+fi
 
 cd "${REPO_ROOT}"
 

@@ -34,16 +34,16 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate bash scripts for Table 2 experiments")
     parser.add_argument("--output-dir", default="./table2_exp_scripts", help="Where to write bash scripts")
     parser.add_argument("--base-dir", default="experiments/table2", help="Base directory for experiment outputs")
-    parser.add_argument("--total-envs", type=int, default=50)
+    parser.add_argument("--total-envs", type=int, default=50, help="Number of environments to test")
     parser.add_argument("--test-times", type=int, default=1)
     parser.add_argument("--start-id", type=int, default=1)
     parser.add_argument("--max-steps", type=int, default=30)
     parser.add_argument("--history-length", type=int, default=30)
     parser.add_argument("--split", default="test")
     parser.add_argument("--temperature", type=float, default=0.0)
-    parser.add_argument("--max-try", type=int, default=5)
-    parser.add_argument("--concurrency", type=int, default=10)
-    parser.add_argument("--llm-concurrency", type=int, default=80)
+    parser.add_argument("--max-try", type=int, default=5, help="Number of retries for each environment")
+    parser.add_argument("--concurrency", type=int, default=10, help="Number of environments to test in parallel")
+    parser.add_argument("--llm-concurrency", type=int, default=80, help="Number of LLM calls to make in parallel")
     parser.add_argument("--parallel-phase1", type=int, default=5, help="Phase-1 workers for debugger variants")
     parser.add_argument("--bon-n", type=int, default=3)
     parser.add_argument("--beam-size", type=int, default=4)
@@ -77,7 +77,24 @@ def render_script(
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
-REPO_ROOT="$(cd "${{SCRIPT_DIR}}/.." && pwd)"
+
+if git_root="$(cd "${{SCRIPT_DIR}}" >/dev/null 2>&1 && git rev-parse --show-toplevel 2>/dev/null)"; then
+  REPO_ROOT="${{git_root}}"
+else
+  CANDIDATE="${{SCRIPT_DIR}}"
+  REPO_ROOT=""
+  while [[ "${{CANDIDATE}}" != "/" ]]; do
+    if [[ -d "${{CANDIDATE}}/scripts" && -f "${{CANDIDATE}}/pyproject.toml" ]]; then
+      REPO_ROOT="${{CANDIDATE}}"
+      break
+    fi
+    CANDIDATE="$(dirname "${{CANDIDATE}}")"
+  done
+  if [[ -z "${{REPO_ROOT}}" ]]; then
+    echo "Failed to locate repository root" >&2
+    exit 1
+  fi
+fi
 
 cd "${{REPO_ROOT}}"
 
@@ -209,4 +226,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
