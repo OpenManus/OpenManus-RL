@@ -87,9 +87,40 @@ class ValueScorer:
         candidates: List[str],
         history: Optional[str] = None,
     ) -> List[float]:
+        """Score all candidates in a single call with a strict rubric and tie‑breakers.
+
+        Behavior:
+        - Requests a JSON array with one float per candidate in the same order.
+        - Encourages using the full 0.0–1.0 range and penalizing redundant/invalid actions.
+        - If the first pass yields low variance or malformed output, performs a strict re‑scoring pass.
+        - As a last resort, applies a deterministic tie‑breaker jitter to avoid flat rankings.
+        """
         if not candidates:
             return []
-        # Build a compact JSON request to encourage a JSON map of action->score
+
+        def _parse_scores(text: str, n: int) -> List[float]:
+            try:
+                arr = json.loads(text)
+                if isinstance(arr, list):
+                    vals = [float(x) for x in arr[:n]]
+                    return vals
+            except Exception:
+                pass
+            floats = re.findall(r"[-+]?\d*\.\d+|\d+", text)
+            try:
+                vals = [float(x) for x in floats[:n]]
+                return vals
+            except Exception:
+                return []
+
+        def _normalize(scores: List[float], n: int) -> List[float]:
+            if not scores:
+                return [0.0] * n
+            scores = [max(0.0, min(1.0, float(s))) for s in scores]
+            if len(scores) < n:
+                scores += [0.0] * (n - len(scores))
+            return scores[:n]
+
         cand_json = json.dumps(candidates, ensure_ascii=False)
         history_section = ""
         if history:
@@ -97,31 +128,54 @@ class ValueScorer:
                 "Recent trajectory (oldest to newest):\n"
                 f"{history.strip()}\n\n"
             )
-        prompt = (
-            f"You are evaluating candidate next actions for an agent in {self.env_type}.\n"
+
+        base_prompt = (
+            f"You are evaluating candidate NEXT actions for an agent in {self.env_type}.\n"
+            f"Rate how promising each action is for achieving the goal from the CURRENT state.\n"
             f"{history_section}Current observation:\n{obs}\n\n"
-            f"Candidate actions (JSON list): {cand_json}\n\n"
-            f"For each action, assign a usefulness score between 0.0 and 1.0 inclusive,\n"
-            f"where higher is more promising. Prefer actions that respect the history and avoid repeating failed or redundant steps.\n"
-            f"Return a JSON array of scores aligned with the input order."
+            f"Candidates (JSON list): {cand_json}\n\n"
+            "Scoring rubric (strict):\n"
+            "- Use the FULL 0.0–1.0 range. Do NOT give all 1.0 or all equal scores.\n"
+            "- 0.9–1.0: Directly and obviously advances the goal with minimal risk.\n"
+            "- 0.7–0.9: Strongly promising next step.\n"
+            "- 0.4–0.7: Plausible but uncertain; depends on missing preconditions.\n"
+            "- 0.2–0.4: Weak progress or likely redundant.\n"
+            "- 0.0–0.2: Invalid, circular, or contradicts recent history/admissible options.\n"
+            "- Penalize repeating the same action that just failed, no‑ops, or irrelevant moves.\n"
+            "Return ONLY a JSON array of floats, aligned to input order, length equals number of candidates."
         )
+
+        strict_prompt = (
+            base_prompt + "\n\nImportant: Provide a spread of scores across candidates; avoid ties."
+        )
+
         try:
-            txt = self.agent.get_action_from_llm(prompt)
-            # Try to parse a JSON array; fallback to extract floats
-            scores: List[float] = []
-            try:
-                maybe = json.loads(txt)
-                if isinstance(maybe, list):
-                    scores = [float(x) for x in maybe][: len(candidates)]
-            except Exception:
-                pass
-            if not scores:
-                floats = re.findall(r"\d+\.\d+|\d+", txt)
-                scores = [min(max(float(x), 0.0), 1.0) for x in floats][: len(candidates)]
-            # Pad/trim to length
-            if len(scores) < len(candidates):
-                scores += [0.0] * (len(candidates) - len(scores))
-            return scores[: len(candidates)]
+            txt = self.agent.get_action_from_llm(strict_prompt)
+            scores = _normalize(_parse_scores(txt, len(candidates)), len(candidates))
+
+            # If variance is too low or all equal, attempt one strict re‑scoring pass
+            if len(scores) == len(candidates):
+                if max(scores) - min(scores) < 0.05 or all(abs(s - scores[0]) < 1e-6 for s in scores):
+                    reinforce_prompt = (
+                        base_prompt
+                        + "\n\nYour previous scores lacked differentiation. Now RESCORE STRICTLY:"
+                        + " At least one candidate must be <= 0.25 and at least one must be >= 0.75,"
+                        + " unless all are truly equivalent (rare). Return ONLY the JSON array."
+                    )
+                    txt2 = self.agent.get_action_from_llm(reinforce_prompt)
+                    scores2 = _normalize(_parse_scores(txt2, len(candidates)), len(candidates))
+                    if max(scores2) - min(scores2) >= 0.05:
+                        scores = scores2
+
+            # Final guard: deterministic tie‑breaker jitter to avoid flat rankings
+            if max(scores) - min(scores) < 1e-3:
+                def _jitter(s: str) -> float:
+                    h = hashlib.md5(s.encode("utf-8")).hexdigest()
+                    # Map hash to small epsilon in [0, 0.02)
+                    return (int(h[:6], 16) % 2000) / 100000.0
+                scores = [max(0.0, min(1.0, s + _jitter(candidates[i]))) for i, s in enumerate(scores)]
+
+            return scores
         except Exception as e:
             logging.warning(f"Value scoring failed, defaulting zeros: {e}")
             return [0.0] * len(candidates)
@@ -556,16 +610,15 @@ def run_tree_search(
             cand_list = next_candidates_for_state(obs, info, tried_here)
 
         if not cand_list:
-            finalize_attempt(
-                termination="no_candidates",
-                won_flag=False,
-                reward_value=0.0,
-                path_actions=current_path.copy(),
-                info_snapshot=info,
-                trajectory_snapshot=snapshot_trajectory(step_idx),
-            )
-            if len(all_attempts) >= params.max_try:
-                break
+            # Dead end at this state: backtrack via stack without counting an attempt.
+            search_log["expansions"].append({
+                "depth": depth,
+                "obs_key": state_key_from_obs(obs),
+                "candidates": [],
+                "scores": [],
+                "action": None,
+                "event": "dead_end_no_candidates",
+            })
             continue
 
         history_for_node = build_history_context(step_idx)
@@ -587,7 +640,8 @@ def run_tree_search(
 
         chosen = None
         if mode == "tot":
-            if ordered_scores and ordered_scores[0] < params.value_threshold:
+            # Only prune by value if we actually obtained numeric scores
+            if raw_scores and ordered_scores and ordered_scores[0] < params.value_threshold:
                 search_log["expansions"].append({
                     "depth": depth,
                     "obs_key": state_key,
@@ -596,16 +650,7 @@ def run_tree_search(
                     "action": None,
                     "event": "prune_by_value",
                 })
-                finalize_attempt(
-                    termination="pruned_by_value",
-                    won_flag=False,
-                    reward_value=0.0,
-                    path_actions=current_path.copy(),
-                    info_snapshot=info,
-                    trajectory_snapshot=snapshot_trajectory(step_idx),
-                )
-                if len(all_attempts) >= params.max_try:
-                    break
+                # Pruned by heuristic value; do not count as a full attempt.
                 continue
             if ordered_candidates:
                 chosen = ordered_candidates[0]
@@ -667,7 +712,13 @@ def run_tree_search(
         except ValueError:
             chosen_original_index = None
 
-        obs_dict, reward_dict, done_dict, info_dict = env_manager.step_single(0, chosen)
+        # Environment adapters expect markup like <plan>...</plan><action>...</action>
+        # for WebShop/AlfWorld. Wrap plain candidates accordingly.
+        env_action = chosen
+        if env_type in ("alfworld", "webshop"):
+            env_action = f"<plan>follow admissible action</plan><action>{chosen}</action>"
+
+        obs_dict, reward_dict, done_dict, info_dict = env_manager.step_single(0, env_action)
         new_obs = obs_dict["text"][0]
         reward = float(reward_dict[0])
         done = bool(done_dict[0])

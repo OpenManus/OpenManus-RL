@@ -372,6 +372,79 @@ class LLMDebugger:
 
         return response.choices[0].message.content.strip()
 
+    def _is_context_error(self, exc: Exception) -> bool:
+        """Heuristically detect context-length style errors from providers."""
+        msg = str(exc).lower()
+        patterns = [
+            "maximum context length",
+            "context length",
+            "too many tokens",
+            "max tokens",
+            "prompt is too long",
+            "input is too long",
+            "exceeds the maximum",
+            "token limit",
+            "context_length_exceeded",
+        ]
+        return any(p in msg for p in patterns)
+
+    def _call_llm_with_trajectory_backoff(
+        self,
+        prompt_template: str,
+        trajectory: List[Dict[str, Any]],
+        *,
+        log_path: Optional[str] = None,
+        max_reductions: int = 4,
+        initial_max_steps: Optional[int] = None,
+        initial_obs_trim: Optional[int] = None,
+    ) -> Tuple[str, int, Optional[int]]:
+        """Try calling LLM with shrinking trajectory context when hitting context errors.
+
+        Returns (response_text, used_max_steps, used_obs_trim).
+        """
+        total_steps = len(trajectory)
+        max_steps = initial_max_steps if (initial_max_steps is not None and initial_max_steps > 0) else total_steps
+        obs_trim = initial_obs_trim
+        if obs_trim is not None and obs_trim <= 0:
+            obs_trim = None
+
+        attempt = 0
+        last_exc: Optional[Exception] = None
+        while attempt <= max(0, int(max_reductions)):
+            attempt += 1
+            formatted = _format_simple_trajectory(trajectory, max_steps=max_steps, obs_trim=obs_trim)
+            prompt = prompt_template.format(trajectory=formatted)
+            try:
+                response_text = self._call_llm(prompt)
+                self._log_llm_call(log_path, prompt, response_text)
+                if response_text:
+                    return response_text, max_steps, obs_trim
+            except Exception as exc:
+                last_exc = exc
+                if not self._is_context_error(exc) and attempt > 1:
+                    # If it's not a context error on a subsequent reduction, stop backoff to avoid loops
+                    break
+
+            # Reduce context and retry
+            logging.info(
+                "Debugger LLM context/backoff attempt %d failed; shrinking context (steps=%s, obs_trim=%s)",
+                attempt,
+                max_steps,
+                obs_trim,
+            )
+            if max_steps > 1:
+                max_steps = max(1, max_steps // 2)
+            if obs_trim is None:
+                # Start trimming long observations on the second try
+                obs_trim = 1024
+            else:
+                obs_trim = max(128, obs_trim // 2)
+
+        # If we reach here, backoff failed; re-raise last context error if any, else return empty
+        if last_exc is not None:
+            raise last_exc
+        return "", max_steps, obs_trim
+
     def generate_feedback(
         self,
         failure_observation: str,
@@ -948,12 +1021,19 @@ class VanillaDebugger(LLMDebugger):
         previous_analysis: Optional[Dict[str, Any]] = None,
         reuse_phase1_from_step: Optional[int] = None,
     ) -> Dict:
-        prompt = self.PROMPT_TEMPLATE.format(
-            trajectory=_format_simple_trajectory(trajectory)
-        )
-
-        response_text = self._call_llm(prompt)
-        self._log_llm_call(log_path, prompt, response_text)
+        # Use shrinking-context backoff to handle small‑context debug models
+        try:
+            response_text, used_max_steps, used_obs_trim = self._call_llm_with_trajectory_backoff(
+                self.PROMPT_TEMPLATE,
+                trajectory,
+                log_path=log_path,
+            )
+        except Exception:
+            # Last resort: attempt minimal formatted trajectory
+            minimal = _format_simple_trajectory(trajectory, max_steps=min(4, len(trajectory)), obs_trim=256)
+            prompt = self.PROMPT_TEMPLATE.format(trajectory=minimal)
+            response_text = self._call_llm(prompt)
+            self._log_llm_call(log_path, prompt, response_text)
 
         parsed_step = None
         reason = None
@@ -1047,12 +1127,17 @@ class SelfRefineDebugger(LLMDebugger):
         previous_analysis: Optional[Dict[str, Any]] = None,
         reuse_phase1_from_step: Optional[int] = None,
     ) -> Dict:
-        prompt = self.PROMPT_TEMPLATE.format(
-            trajectory=_format_simple_trajectory(trajectory)
-        )
-
-        response_text = self._call_llm(prompt)
-        self._log_llm_call(log_path, prompt, response_text)
+        try:
+            response_text, used_max_steps, used_obs_trim = self._call_llm_with_trajectory_backoff(
+                self.PROMPT_TEMPLATE,
+                trajectory,
+                log_path=log_path,
+            )
+        except Exception:
+            minimal = _format_simple_trajectory(trajectory, max_steps=min(4, len(trajectory)), obs_trim=256)
+            prompt = self.PROMPT_TEMPLATE.format(trajectory=minimal)
+            response_text = self._call_llm(prompt)
+            self._log_llm_call(log_path, prompt, response_text)
 
         feedback = response_text.strip()
         if not feedback:
@@ -1381,6 +1466,12 @@ class ExtendedEnvironmentManager:
         # Keep a handle to the original manager; delegate attribute access.
         self.base_manager = base_manager
         self.__dict__.update(base_manager.__dict__)
+        # Optional kwargs to be applied on the next reset() call (one-shot)
+        self._next_reset_kwargs: Optional[Dict[str, Any]] = None
+
+    def set_next_reset_kwargs(self, **kwargs) -> None:
+        """Provide one-shot kwargs to pass into the next reset()."""
+        self._next_reset_kwargs = dict(kwargs) if kwargs else None
 
     def reset_single(self, env_id: int):
         """Reset the underlying single environment.
@@ -1388,7 +1479,15 @@ class ExtendedEnvironmentManager:
         Note: env_id is ignored by design since this wrapper is only used
         when env_num == 1. We keep the signature for compatibility.
         """
-        obs, infos = self.reset()
+        # Apply one-shot reset kwargs if provided (e.g., WebShop session_indices)
+        if self._next_reset_kwargs is not None:
+            try:
+                obs, infos = self.reset(**self._next_reset_kwargs)
+            finally:
+                # Clear regardless of success/failure to ensure one-shot semantics
+                self._next_reset_kwargs = None
+        else:
+            obs, infos = self.reset()
         return obs, infos
 
     def step_single(self, env_id: int, action: str):
@@ -3137,7 +3236,16 @@ def main():
                             try:
                                 # Reset once to compute task id and make task dir
                                 reset_start = time.time()
-                                init_obs, init_infos = local_env.reset()
+                                if args.env == "webshop" and per_env_assigned_payloads and per_env_assigned_payloads[env_idx]:
+                                    try:
+                                        session_idx = per_env_assigned_payloads[env_idx][test_idx]
+                                        if hasattr(local_env, "set_next_reset_kwargs"):
+                                            local_env.set_next_reset_kwargs(session_indices=[session_idx])
+                                        init_obs, init_infos = local_env.reset(session_indices=[session_idx])
+                                    except Exception:
+                                        init_obs, init_infos = local_env.reset()
+                                else:
+                                    init_obs, init_infos = local_env.reset()
                                 info0 = init_infos[0] if isinstance(init_infos, list) else init_infos
                                 task_id_local = get_task_id(args.env, env_idx, info0, batch_idx)
                                 task_dir_local = None
@@ -3246,6 +3354,14 @@ def main():
                                         history_observation_trim=args.tot_history_obs_trim,
                                     )
                                     mode = "tot" if args.strategy == "tot" else "dfsdt"
+                                    # Ensure the next reset inside tree search respects assigned session
+                                    if args.env == "webshop" and per_env_assigned_payloads and per_env_assigned_payloads[env_idx]:
+                                        try:
+                                            session_idx = per_env_assigned_payloads[env_idx][test_idx]
+                                            if hasattr(local_env, "set_next_reset_kwargs"):
+                                                local_env.set_next_reset_kwargs(session_indices=[session_idx])
+                                        except Exception:
+                                            pass
                                     sr = run_tree_search(
                                         env_manager=local_env,
                                         agent=agent,
@@ -3770,9 +3886,11 @@ def main():
                     # Reset to get task id and ensure fresh episode
                     local_mgr = env_pool[env_idx]
                     if args.env == "webshop" and per_env_assigned_payloads and per_env_assigned_payloads[env_idx]:
-                        # Pass explicit session index for this env/round
+                        # Ensure run_environment_with_retry or run_tree_search uses this explicit session index
                         try:
                             session_idx = per_env_assigned_payloads[env_idx][round_idx]
+                            if hasattr(local_mgr, "set_next_reset_kwargs"):
+                                local_mgr.set_next_reset_kwargs(session_indices=[session_idx])
                             init_obs, init_infos = local_mgr.reset(session_indices=[session_idx])
                         except Exception:
                             # Fallback to default behavior
