@@ -4,7 +4,6 @@ import torch
 import numpy as np
 from functools import partial
 import os
-import logging
 from openmanus_rl.environments.prompts import *
 from openmanus_rl.environments.base import EnvironmentManagerBase, to_numpy
 from openmanus_rl.memory import SimpleMemory, SummarizedMemory
@@ -194,14 +193,7 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
             self.memory = SimpleMemory()
         super().__init__(envs, projection_f, config)
         self.step_counts = defaultdict(int)  # Track step count for each environment
-        self.use_train_set = bool(getattr(config.env, 'use_train_set', True))
-        if hasattr(self.envs, 'is_train'):
-            env_flag = bool(getattr(self.envs, 'is_train', True))
-            if env_flag != self.use_train_set:
-                raise ValueError(
-                    f"WebShop dataset mismatch: manager use_train_set={self.use_train_set} but env.is_train={env_flag}"
-                )
-
+    
     def reset(self, session_indices: Optional[List[int]] = None) -> Dict[str, Any]:
         obs, infos = self.envs.reset(session_indices=session_indices)
         self.tasks = self.extract_task(obs)
@@ -217,15 +209,6 @@ class WebshopEnvironmentManager(EnvironmentManagerBase):
         # Reset step counts
         for i in range(len(obs)):
             self.step_counts[i] = 0
-
-        if not self.use_train_set:
-            # Sanity check: ensure returned infos correspond to test sessions (indices < 500)
-            sample_idx = infos[0].get('session_index') if infos else None
-            if sample_idx is not None and sample_idx >= 500:
-                logging.warning(
-                    "WebShop reset expected test split but received session_index=%s (>=500)",
-                    sample_idx,
-                )
             
         return observations, infos
 

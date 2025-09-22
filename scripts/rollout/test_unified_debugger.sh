@@ -111,7 +111,6 @@ RUN_DIR="${BASE_DIR}/alfworld"
 python scripts/rollout/openmanus_rollout_debugger.py \
     --env alfworld \
     --total_envs 100 \
-    --seed 42 \
     --test_times 1 \
     --start_id 1 \
     --max_steps 30 \
@@ -130,7 +129,7 @@ python scripts/rollout/openmanus_rollout_debugger.py \
     --unique_envs \
     --debug \
     --parallel_num_phase_1 5 \
-    --concurrency 20 \
+    --concurrency 10 \
     --llm_concurrency 80 \
     # ${TOGETHER_ARG}
     # --base_url "${ROLLOUT_URL}" \

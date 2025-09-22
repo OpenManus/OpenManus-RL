@@ -1485,8 +1485,6 @@ class EnvironmentFactory:
             env=SimpleNamespace(
                 env_name="webshop/WebAgentTextEnv",
                 history_length=history_length,
-                use_train_set=bool(use_train_set),
-                seed=seed,
                 use_summary=bool(use_summary),
                 summary_api_key=summary_api_key,
                 summary_endpoint=summary_endpoint,
@@ -1570,35 +1568,13 @@ def prepare_alfworld_game_files(env_type: str, total_envs: int, seed: int, split
                 unique_game_files.append(path)
         all_game_files = unique_game_files
 
-        available = len(all_game_files)
-        if available < total_envs:
-            logging.error(f"Not enough game files: need {total_envs}, have {available}")
+        if len(all_game_files) < total_envs:
+            logging.error(f"Not enough game files: need {total_envs}, have {len(all_game_files)}")
             return None
-
-        selected_files: List[str]
-        if seed and seed > 0:
-            rng = random.Random(seed)
-            if total_envs < available:
-                indices = list(range(available))
-                chosen_indices = sorted(rng.sample(indices, total_envs))
-                selected_files = [all_game_files[i] for i in chosen_indices]
-            else:
-                selected_files = all_game_files.copy()
-                rng.shuffle(selected_files)
-        else:
-            selected_files = all_game_files[:total_envs]
-
-        if len(selected_files) > total_envs:
-            selected_files = selected_files[:total_envs]
-
-        logging.info(
-            "Prepared %d AlfWorld game files (split=%s, seed=%s)",
-            len(selected_files),
-            split,
-            seed,
-        )
-
-        return selected_files
+            
+        # Preserve the natural order reported by the environment so downstream scheduling
+        # can rely on deterministic task ordering.
+        return all_game_files[:total_envs]
         
     except Exception as e:
         logging.error(f"Failed to collect game files: {e}")
@@ -2409,7 +2385,7 @@ def main():
                        help="Number of test runs per batch")
     parser.add_argument("--max_steps", type=int, default=None,
                        help="Maximum steps per episode (default: 50 for alfworld, 30 for gaia/webshop)")
-    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--history_length", type=int, default=2)
     
     # Model parameters
@@ -2565,14 +2541,6 @@ def main():
         args.alfworld_is_train = None
         args.alfworld_eval_dataset = None
         args.alfworld_split_label = None
-
-    if args.env == "webshop":
-        args.webshop_train = (args.split == "train")
-        logging.info(
-            "WebShop split set to %s -> using %s set",
-            args.split,
-            "train" if args.webshop_train else "test",
-        )
     
     # Set default max_steps based on environment
     if args.max_steps is None:
@@ -2710,39 +2678,21 @@ def main():
         gaia_tasks = load_gaia_tasks(args.gaia_data_path)
         logging.info(f"Loaded {len(gaia_tasks)} tasks")
         
+        # Trim to what will actually be used by a fixed pool of envs
         pool_size = max(1, int(args.total_envs))
         rounds = max(1, int(args.test_times))
-        total_needed = pool_size * rounds
-
-        available = len(gaia_tasks)
-        if args.seed and args.seed > 0:
-            rng = random.Random(args.seed)
-            if total_needed < available:
-                selected_indices = sorted(rng.sample(range(available), total_needed))
-                gaia_tasks = [gaia_tasks[i] for i in selected_indices]
-            else:
-                rng.shuffle(gaia_tasks)
-        else:
-            if total_needed < available:
-                gaia_tasks = gaia_tasks[:total_needed]
-
-        available = len(gaia_tasks)
-        if available < total_needed:
-            logging.warning(
-                f"Only {available} GAIA tasks available (needed {total_needed}); reducing rounds"
-            )
-            rounds = max(1, available // pool_size)
+        max_needed = min(len(gaia_tasks), pool_size * rounds)
+        if len(gaia_tasks) > max_needed:
+            logging.info(f"Trimming GAIA tasks to {max_needed} (pool_size={pool_size}, rounds={rounds})")
+            gaia_tasks = gaia_tasks[:max_needed]
+        elif len(gaia_tasks) < max_needed:
+            logging.warning(f"Only {len(gaia_tasks)} GAIA tasks available, reducing rounds to fit availability")
+            rounds = max(1, len(gaia_tasks) // pool_size)
             args.test_times = rounds
-            total_needed = pool_size * rounds
-            gaia_tasks = gaia_tasks[:total_needed]
-
-        logging.info(
-            "Prepared %d GAIA tasks (seed=%s)",
-            len(gaia_tasks),
-            args.seed if args.seed is not None else "none",
-        )
-
-        # Apply start offset rotation if provided
+        
+        # Shuffle tasks for random sampling variety, then apply start offset rotation
+        rng = random.Random(args.seed)
+        rng.shuffle(gaia_tasks)
         offset = _compute_start_offset(len(gaia_tasks))
         if offset:
             gaia_tasks = gaia_tasks[offset:] + gaia_tasks[:offset]
