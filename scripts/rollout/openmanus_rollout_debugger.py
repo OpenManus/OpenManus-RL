@@ -1571,18 +1571,23 @@ def get_task_id(env_type: str, env_id: int, info: Dict, batch_idx: int = 0) -> s
 
 
 def prepare_alfworld_game_files(env_type: str, total_envs: int, seed: int, split: str = "train") -> Optional[List[str]]:
-    """Prepare unique game files for AlfWorld if requested"""
+    """Collect the full ordered list of AlfWorld game files for a given split.
+
+    Note: Unlike the previous behavior, this now returns the complete unique task list
+    for the requested split (train/test). The caller is responsible for slicing this
+    list according to `start_id`/`start_index` and the total amount needed.
+    """
     if env_type != "alfworld":
         return None
-        
+
     from openmanus_rl.environments.env_package.alfworld.envs import load_config_file
     from openmanus_rl.environments.env_package.alfworld.alfworld.agents.environment import get_environment
-    
+
     alf_config_path = os.path.join(
         os.path.dirname(__file__),
         '../../openmanus_rl/environments/env_package/alfworld/configs/config_tw.yaml'
     )
-    
+
     try:
         cfg = load_config_file(alf_config_path)
         env_type = cfg['env']['type']
@@ -1599,16 +1604,11 @@ def prepare_alfworld_game_files(env_type: str, total_envs: int, seed: int, split
             if path not in seen:
                 seen.add(path)
                 unique_game_files.append(path)
-        all_game_files = unique_game_files
 
-        if len(all_game_files) < total_envs:
-            logging.error(f"Not enough game files: need {total_envs}, have {len(all_game_files)}")
-            return None
-            
         # Preserve the natural order reported by the environment so downstream scheduling
         # can rely on deterministic task ordering.
-        return all_game_files[:total_envs]
-        
+        return unique_game_files
+
     except Exception as e:
         logging.error(f"Failed to collect game files: {e}")
         return None
@@ -2719,25 +2719,43 @@ def main():
         logging.info(f"Loading GAIA tasks from {args.gaia_data_path}")
         gaia_tasks = load_gaia_tasks(args.gaia_data_path)
         logging.info(f"Loaded {len(gaia_tasks)} tasks")
-        
-        # Trim to what will actually be used by a fixed pool of envs
+
+        # Use absolute slicing based on start_id/start_index (no wraparound)
         pool_size = max(1, int(args.total_envs))
-        rounds = max(1, int(args.test_times))
-        max_needed = min(len(gaia_tasks), pool_size * rounds)
-        if len(gaia_tasks) > max_needed:
-            logging.info(f"Trimming GAIA tasks to {max_needed} (pool_size={pool_size}, rounds={rounds})")
-            gaia_tasks = gaia_tasks[:max_needed]
-        elif len(gaia_tasks) < max_needed:
-            logging.warning(f"Only {len(gaia_tasks)} GAIA tasks available, reducing rounds to fit availability")
-            rounds = max(1, len(gaia_tasks) // pool_size)
-            args.test_times = rounds
-        
-        # Shuffle tasks for random sampling variety, then apply start offset rotation
-        rng = random.Random(args.seed)
-        rng.shuffle(gaia_tasks)
-        offset = _compute_start_offset(len(gaia_tasks))
-        if offset:
-            gaia_tasks = gaia_tasks[offset:] + gaia_tasks[:offset]
+        rounds_req = max(1, int(args.test_times))
+
+        # If start_id is provided, prefer it (1-based). Otherwise use legacy 0-based start_index
+        if args.start_id is not None:
+            if args.start_id <= 0:
+                logging.warning(f"start_id={args.start_id} is invalid; using 1 instead")
+                abs_start = 0
+            else:
+                abs_start = args.start_id - 1
+            logging.info(f"GAIA absolute start_id: {args.start_id} -> start_index={abs_start}")
+        else:
+            abs_start = max(0, int(args.start_index or 0))
+            if abs_start:
+                logging.info(f"GAIA absolute start_index: {abs_start}")
+
+        available_after_start = max(0, len(gaia_tasks) - abs_start)
+        max_rounds_by_tasks = available_after_start // pool_size
+        if max_rounds_by_tasks <= 0:
+            logging.error(
+                f"Not enough GAIA tasks from start_index={abs_start}: have {available_after_start}, need at least {pool_size}"
+            )
+            sys.exit(1)
+        if rounds_req > max_rounds_by_tasks:
+            logging.warning(
+                f"Reducing test_times from {rounds_req} to {max_rounds_by_tasks} to avoid repetition beyond dataset end"
+            )
+            rounds_req = max_rounds_by_tasks
+            args.test_times = rounds_req
+
+        take = pool_size * rounds_req
+        gaia_tasks = gaia_tasks[abs_start:abs_start + take]
+        logging.info(
+            f"Prepared {len(gaia_tasks)} GAIA tasks starting at {abs_start} (1-based={abs_start+1})"
+        )
 
     elif args.env == "alfworld" and args.unique_envs:
         # Helper to collect all available AlfWorld game files once
@@ -2809,27 +2827,54 @@ def main():
             logging.info(f"Prepared {len(alfworld_game_files)} game files from IDs (no rotation applied)")
 
         else:
-            # Default path: collect, then slice deterministically with optional rotation
-            total_needed = max(1, int(args.total_envs)) * max(1, int(args.test_times))
+            # Default path: collect full list, then slice deterministically using absolute start offset
+            pool_size_est = max(1, int(args.total_envs))
+            rounds_req = max(1, int(args.test_times))
+            total_needed = pool_size_est * rounds_req
             split_label = args.alfworld_split_label or "train"
-            alfworld_game_files = prepare_alfworld_game_files(args.env, total_needed, args.seed, split_label)
-            if alfworld_game_files:
-                # Apply start offset rotation for initial assignment if requested
-                offset = _compute_start_offset(len(alfworld_game_files))
-                if offset:
-                    alfworld_game_files = alfworld_game_files[offset:] + alfworld_game_files[:offset]
-                logging.info(f"Prepared {len(alfworld_game_files)} unique game files")
-                # If not enough files for requested rounds, reduce rounds to avoid repetition
-                pool_size_est = max(1, int(args.total_envs))
-                max_rounds_by_files = len(alfworld_game_files) // pool_size_est
-                if max_rounds_by_files <= 0:
-                    logging.error("Not enough AlfWorld game files to allocate one per env. Aborting.")
-                    sys.exit(1)
-                if args.test_times > max_rounds_by_files:
-                    logging.warning(
-                        f"Reducing test_times from {args.test_times} to {max_rounds_by_files} to avoid task repetition"
-                    )
-                    args.test_times = max_rounds_by_files
+            all_files_full = prepare_alfworld_game_files(args.env, total_needed, args.seed, split_label) or []
+
+            if not all_files_full:
+                logging.error("Failed to collect AlfWorld game files; aborting.")
+                sys.exit(1)
+
+            # Determine absolute start index (1-based `start_id` takes precedence over 0-based legacy `start_index`)
+            if args.start_id is not None:
+                if args.start_id <= 0:
+                    logging.warning(f"start_id={args.start_id} is invalid; using 1 instead")
+                    abs_start = 0
+                else:
+                    abs_start = args.start_id - 1
+                logging.info(f"Applying absolute start_id: {args.start_id} -> start_index={abs_start}\n")
+            else:
+                abs_start = max(0, int(args.start_index or 0))
+                if abs_start:
+                    logging.info(f"Applying absolute start_index: {abs_start}")
+
+            # Slice from the full ordered list without wrap-around
+            available_after_start = max(0, len(all_files_full) - abs_start)
+            max_rounds_by_files = available_after_start // pool_size_est
+
+            if max_rounds_by_files <= 0:
+                logging.error(
+                    f"Not enough AlfWorld game files from start_index={abs_start}: have {available_after_start}, "
+                    f"need at least {pool_size_est}"
+                )
+                sys.exit(1)
+
+            if rounds_req > max_rounds_by_files:
+                logging.warning(
+                    f"Reducing test_times from {rounds_req} to {max_rounds_by_files} to avoid repetition beyond dataset end"
+                )
+                rounds_req = max_rounds_by_files
+                args.test_times = rounds_req
+
+            take = pool_size_est * rounds_req
+            alfworld_game_files = all_files_full[abs_start:abs_start + take]
+            logging.info(
+                f"Prepared {len(alfworld_game_files)} AlfWorld game files from split='{split_label}' "
+                f"starting at {abs_start} (1-based={abs_start+1})"
+            )
     
     # Dry run mode
     if args.dry_run:
@@ -3628,10 +3673,53 @@ def main():
                     per_env_assigned_payloads[i] = tasks_i
                     per_env_assigned_ids[i] = [str(t.get("pid", f"task_{k}")) for k, t in enumerate(tasks_i)]
             elif args.env == "webshop":
-                # WebShop does not expose task slicing; record placeholders
-                for i in range(pool_size):
-                    per_env_assigned_ids[i] = [f"round_{r+1}" for r in range(rounds)]
-                    per_env_assigned_payloads[i] = [None] * rounds
+                # WebShop: compute explicit session indices using absolute start (no wraparound)
+                try:
+                    # Peek number of available sessions for current split
+                    n_sessions = len(env_pool[0].envs.goal_idxs) if env_pool else 0
+                except Exception:
+                    n_sessions = 0
+
+                if n_sessions <= 0:
+                    logging.warning("Unable to determine WebShop session count; defaulting to 500 for test, 2000 for train")
+                    # Conservative defaults
+                    n_sessions = 500 if not args.webshop_train else 2000
+
+                # Determine absolute start index
+                if args.start_id is not None:
+                    if args.start_id <= 0:
+                        logging.warning(f"start_id={args.start_id} is invalid; using 1 instead")
+                        ws_abs_start = 0
+                    else:
+                        ws_abs_start = args.start_id - 1
+                    logging.info(f"WebShop absolute start_id: {args.start_id} -> start_index={ws_abs_start}")
+                else:
+                    ws_abs_start = max(0, int(args.start_index or 0))
+                    if ws_abs_start:
+                        logging.info(f"WebShop absolute start_index: {ws_abs_start}")
+
+                available_after_start = max(0, n_sessions - ws_abs_start)
+                max_rounds_by_sessions = available_after_start // pool_size
+                if max_rounds_by_sessions <= 0:
+                    logging.error(
+                        f"Not enough WebShop sessions from start_index={ws_abs_start}: have {available_after_start}, "
+                        f"need at least {pool_size}"
+                    )
+                    sys.exit(1)
+                if rounds > max_rounds_by_sessions:
+                    logging.warning(
+                        f"Reducing test_times from {rounds} to {max_rounds_by_sessions} to avoid repetition beyond dataset end"
+                    )
+                    rounds = max_rounds_by_sessions
+                    args.test_times = rounds
+
+                # Assign per-env per-round indices
+                for r in range(rounds):
+                    base = ws_abs_start + r * pool_size
+                    for i in range(pool_size):
+                        idx = base + i
+                        per_env_assigned_payloads[i].append(idx)
+                        per_env_assigned_ids[i].append(f"session_{idx}")
 
             # Save task_ids.txt per env
             if assignments_root is not None:
@@ -3681,7 +3769,16 @@ def main():
                 else:
                     # Reset to get task id and ensure fresh episode
                     local_mgr = env_pool[env_idx]
-                    init_obs, init_infos = local_mgr.reset()
+                    if args.env == "webshop" and per_env_assigned_payloads and per_env_assigned_payloads[env_idx]:
+                        # Pass explicit session index for this env/round
+                        try:
+                            session_idx = per_env_assigned_payloads[env_idx][round_idx]
+                            init_obs, init_infos = local_mgr.reset(session_indices=[session_idx])
+                        except Exception:
+                            # Fallback to default behavior
+                            init_obs, init_infos = local_mgr.reset()
+                    else:
+                        init_obs, init_infos = local_mgr.reset()
                 info0 = init_infos[0] if isinstance(init_infos, list) else init_infos
                 task_id = get_task_id(args.env, env_idx, info0, round_idx)
 

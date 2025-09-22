@@ -26,13 +26,13 @@ cd "${REPO_ROOT}"
 # Generate timestamp for unique run identification
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
-RUN_NAME="alfworld_gpt-4o-mini_self_refine_maxtry5_env50_start1_${TIMESTAMP}"
+RUN_NAME="alfworld_gpt-4o-mini_self_refine_maxtry5_env50_start1_${TIMESTAMP}_gpt-4o-mini_debugger"
 BASE_DIR="experiments/table2"
 RUN_DIR="${BASE_DIR}/${RUN_NAME}"
 mkdir -p "${RUN_DIR}"
 
 MODEL_NAME="gpt-4o-mini"
-DEBUGGER_MODEL="gpt-4.1"
+DEBUGGER_MODEL="gpt-4o-mini"
 TOGETHER_ARG=""
 
 TOTAL_ENVS=50
