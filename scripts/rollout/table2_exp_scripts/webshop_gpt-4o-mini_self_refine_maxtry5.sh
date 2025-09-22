@@ -23,14 +23,17 @@ fi
 
 cd "${REPO_ROOT}"
 
-RUN_NAME="gaia_qwen3-8b_self-refine_maxtry5"
+# Generate timestamp for unique run identification
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+
+RUN_NAME="webshop_gpt-4o-mini_self_refine_maxtry5_env50_start1_${TIMESTAMP}"
 BASE_DIR="experiments/table2"
 RUN_DIR="${BASE_DIR}/${RUN_NAME}"
 mkdir -p "${RUN_DIR}"
 
-MODEL_NAME="kunlunz2/Qwen/Qwen3-8B-9f9838eb"
-DEBUGGER_MODEL="kunlunz2/Qwen/Qwen3-8B-9f9838eb"
-TOGETHER_ARG="--together both"
+MODEL_NAME="gpt-4o-mini"
+DEBUGGER_MODEL="gpt-4.1"
+TOGETHER_ARG=""
 
 TOTAL_ENVS=50
 TEST_TIMES=1
@@ -42,14 +45,14 @@ MAX_TRY=5
 CONCURRENCY=10
 LLM_CONCURRENCY=80
 PARALLEL_PHASE1=5
-BON_N=3
+BON_N=5
 BEAM_SIZE=4
 VALUE_THRESHOLD=0.2
 SPLIT="test"
 
 cmd=(
   python scripts/rollout/openmanus_rollout_debugger.py
-  --env gaia
+  --env webshop
   --strategy debugger
   --enable_debugger
   --model "${MODEL_NAME}"
@@ -69,7 +72,7 @@ cmd=(
   --concurrency ${CONCURRENCY}
   --llm_concurrency ${LLM_CONCURRENCY}
   --debugger_model "${DEBUGGER_MODEL}"
-  --debugger_type self-refine
+  --debugger_type self_refine
   --debugger_temperature 0.0
   --parallel_num_phase_1 ${PARALLEL_PHASE1}
 )

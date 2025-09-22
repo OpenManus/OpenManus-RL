@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
 
@@ -26,7 +27,7 @@ MODELS = {
     },
 }
 
-DEBUGGER_TYPES = ["vanilla", "advanced", "self-refine"]
+DEBUGGER_TYPES = ["vanilla", "advanced", "self_refine"]
 STRATEGIES = ["bon", "tot"]
 
 
@@ -45,7 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concurrency", type=int, default=10, help="Number of environments to test in parallel")
     parser.add_argument("--llm-concurrency", type=int, default=80, help="Number of LLM calls to make in parallel")
     parser.add_argument("--parallel-phase1", type=int, default=5, help="Phase-1 workers for debugger variants")
-    parser.add_argument("--bon-n", type=int, default=3)
+    parser.add_argument("--bon-n", type=int, default=5)
     parser.add_argument("--beam-size", type=int, default=4)
     parser.add_argument("--value-threshold", type=float, default=0.2)
     parser.add_argument("--dry-run", action="store_true", help="Print planned scripts without writing files")
@@ -67,10 +68,10 @@ def render_script(
     run_name = f"{env}_{model_key}_{variant}_maxtry{args.max_try}"
     together_default = ""
     if bool(model_cfg["use_together"]):
-        together_default = "--together both" if variant_type == "debugger" else "--together rollout"
+        together_default = "--together rollout"
 
     model_name = model_cfg["model_name"]
-    debugger_model = model_name
+    debugger_model = "gpt-4.1"
 
     header = dedent(
         f"""#!/usr/bin/env bash
@@ -98,7 +99,10 @@ fi
 
 cd "${{REPO_ROOT}}"
 
-RUN_NAME="{run_name}"
+# Generate timestamp for unique run identification
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+
+RUN_NAME="{run_name}_env{args.total_envs}_start{args.start_id}_${{TIMESTAMP}}"
 BASE_DIR="{args.base_dir}"
 RUN_DIR="${{BASE_DIR}}/${{RUN_NAME}}"
 mkdir -p "${{RUN_DIR}}"

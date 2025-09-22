@@ -1031,7 +1031,8 @@ class SelfRefineDebugger(LLMDebugger):
     PROMPT_TEMPLATE = (
         "Current result: {trajectory}\n\n"
         "Why is this trajectory not finished the task?\n\n"
-        "Please generate Feedback for the retry:\n"
+        "Please generate general Feedback for the retry for its all steps, please output in the following format:\n"
+        "Feedback: <your feedback here>\n"
     )
 
     def analyze_trajectory(
@@ -3127,6 +3128,12 @@ def main():
                                         debugger_type=args.debugger_type,
                                     )
                                 elif args.strategy == "bon":
+                                    # Helper to compute deterministic temperature schedule for Best-of-N
+                                    def _bon_temperature(attempt_idx: int) -> float:
+                                        # Attempt 1 runs at 0.0, subsequent attempts add 0.3 each, capped at 1.2
+                                        increment = max(0, attempt_idx - 1) * 0.3
+                                        return min(0.0 + increment, 1.2)
+
                                     # Helper closure to attempt a single rollout (no debugger, one attempt)
                                     def _single_attempt(attempt_idx: int):
                                         # Create attempt-specific task directory
@@ -3135,7 +3142,7 @@ def main():
                                             attempt_task_dir = os.path.join(task_dir_local, f"attempt_{attempt_idx}")
                                             os.makedirs(attempt_task_dir, exist_ok=True)
 
-                                        temp_value = min(0.0 + 0.3 * (attempt_idx - 1), 1.2)
+                                        temp_value = _bon_temperature(attempt_idx)
                                         attempt_agent = agent.clone_with_temperature(temp_value)
                                         logging.info(
                                             f"[Best-of-N] Attempt {attempt_idx} uses temperature {temp_value:.2f}"
@@ -3700,6 +3707,10 @@ def main():
                         debugger_type=args.debugger_type,
                     )
                 elif args.strategy == "bon":
+                    def _bon_temperature(attempt_idx: int) -> float:
+                        increment = max(0, attempt_idx - 1) * 0.3
+                        return min(0.0 + increment, 1.2)
+
                     def _single_attempt(attempt_idx: int):
                         # Create attempt-specific task directory
                         attempt_task_dir = None
@@ -3707,7 +3718,7 @@ def main():
                             attempt_task_dir = os.path.join(task_dir, f"attempt_{attempt_idx}")
                             os.makedirs(attempt_task_dir, exist_ok=True)
 
-                        temp_value = min(0.0 + 0.3 * (attempt_idx - 1), 1.2)
+                        temp_value = _bon_temperature(attempt_idx)
                         attempt_agent = agent.clone_with_temperature(temp_value)
                         logging.info(
                             f"[Best-of-N] Attempt {attempt_idx} uses temperature {temp_value:.2f}"
@@ -3736,6 +3747,7 @@ def main():
                             continuous_instruction_manager=None,
                             debugger_type="naive",
                         )
+
                     res = run_best_of_n(
                         N=args.bon_n,
                         env_manager=local_mgr,

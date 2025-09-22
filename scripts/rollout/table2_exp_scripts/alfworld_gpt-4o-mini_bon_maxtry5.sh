@@ -23,13 +23,16 @@ fi
 
 cd "${REPO_ROOT}"
 
-RUN_NAME="alfworld_gpt-4o-mini_bon_maxtry5"
+# Generate timestamp for unique run identification
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+
+RUN_NAME="alfworld_gpt-4o-mini_bon_maxtry5_env50_start1_${TIMESTAMP}"
 BASE_DIR="experiments/table2"
 RUN_DIR="${BASE_DIR}/${RUN_NAME}"
 mkdir -p "${RUN_DIR}"
 
 MODEL_NAME="gpt-4o-mini"
-DEBUGGER_MODEL="gpt-4o-mini"
+DEBUGGER_MODEL="gpt-4.1"
 TOGETHER_ARG=""
 
 TOTAL_ENVS=50
@@ -42,7 +45,7 @@ MAX_TRY=5
 CONCURRENCY=10
 LLM_CONCURRENCY=80
 PARALLEL_PHASE1=5
-BON_N=3
+BON_N=5
 BEAM_SIZE=4
 VALUE_THRESHOLD=0.2
 SPLIT="test"
