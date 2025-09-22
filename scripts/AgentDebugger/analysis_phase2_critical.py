@@ -196,7 +196,7 @@ Errors Detected:"""
         error_reference = self.error_loader.format_for_phase2_prompt()
 
         prompt = f"""
-You are an expert at identifying critical failure points in agent trajectories and providing actionable follow-up guidance.
+You are an expert at identifying critical failure points in agent trajectories and providing high-priority, iterative follow-up instructions that MUST be followed across all subsequent steps.
 
 TASK: {task_description}
 TASK RESULT: FAILED
@@ -238,11 +238,11 @@ ANALYSIS GUIDELINES:
    - Others category captures unusual failures not covered by standard error types
 
 FOLLOW-UP INSTRUCTION REQUIREMENTS:
-- Produce a "follow_up_instruction" that is a single, highly actionable sentence (<= 200 characters)
-- It should **extend or refine** previous instructions (if any) rather than repeat them verbatim
-- Ground the instruction in the most impactful error patterns you observed
-- Make it broadly applicable to future steps (not tied to a single observation)
-- Emphasize preventative habits (e.g., validation checks, memory recalls, tool usage safeguards)
+- PURPOSE: This is feedback for following all steps.
+- COMPREHENSIVENESS: Encode preventative habits spanning Memory/Reflection/Planning/Action (e.g., recall goal/constraints, validate plan vs. observation, safe tool usage, post‑action verification).
+- ITERATION: If previous instructions exist, refine and upgrade them—merge, correct, or supersede as needed based on new errors; do NOT repeat verbatim or contradict prior guidance.
+- GENERALITY: Make it broadly applicable to future steps
+- PRIORITY: This guidance overrides default heuristics when conflicts arise; aim to preempt the most common/impactful mistakes seen.
 
 Identify the TRUE ROOT CAUSE that made the task unrecoverable.
 
@@ -310,7 +310,7 @@ REQUIRED OUTPUT FORMAT (JSON):
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are an expert at identifying critical failure points in agent trajectories."
+                    "content": "You are an expert at identifying critical failure points and drafting high-priority, iterative follow-up instructions to guide all subsequent steps."
                 },
                 {"role": "user", "content": prompt}
             ],
@@ -385,9 +385,17 @@ REQUIRED OUTPUT FORMAT (JSON):
         self,
         phase1_file: str,
         original_trajectory_file: str,
-        output_dir: str
+        output_dir: str,
+        *,
+        previous_instructions: Optional[List[str]] = None,
+        attempt_index: int = 1,
     ) -> Dict[str, Any]:
-        """Process a trajectory to identify critical error"""
+        """Process a trajectory to identify critical error.
+
+        Optional parameters allow iterative runs to pass in previously issued
+        follow-up instructions and the current attempt index so the analyzer
+        can refine and upgrade guidance based on prior rounds.
+        """
         
         try:
             # Load data
@@ -397,7 +405,9 @@ REQUIRED OUTPUT FORMAT (JSON):
             # Identify critical error
             critical_error = await self.identify_critical_error(
                 phase1_results,
-                original_trajectory
+                original_trajectory,
+                previous_instructions=previous_instructions,
+                attempt_index=attempt_index,
             )
             
             # Prepare result

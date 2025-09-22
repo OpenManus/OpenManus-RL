@@ -1031,8 +1031,7 @@ class SelfRefineDebugger(LLMDebugger):
     PROMPT_TEMPLATE = (
         "Current result: {trajectory}\n\n"
         "Why is this trajectory not finished the task?\n\n"
-        "Please generate general Feedback for the retry for its all steps, please output in the following format:\n"
-        "Feedback: <your feedback here>\n"
+        "Feedback:"
     )
 
     def analyze_trajectory(
@@ -1935,6 +1934,15 @@ def run_environment_with_retry(
                 }
 
                 if continuous_instruction_manager and debugger_type in ("continue", "advanced"):
+                    # Preserve the guidance context used for this analysis (before adding the new follow-up)
+                    debug_record["previous_instructions"] = previous_instructions
+                    debug_record["previous_follow_up_instruction"] = (
+                        previous_instructions[-1] if previous_instructions else None
+                    )
+                    if previous_instructions:
+                        debug_record["previous_guidance_overlay"] = (
+                            "[CONTINUOUS DEBUGGER GUIDANCE] " + "; ".join(previous_instructions)
+                        )
                     debug_record["follow_up_instruction"] = follow_up_instruction
                     debug_record["continuous_guidance"] = guidance_list
                     debug_record["continuous_guidance_history"] = [
