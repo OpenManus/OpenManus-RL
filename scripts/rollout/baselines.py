@@ -604,7 +604,10 @@ def run_tree_search(
             current_path = current_path[:depth]
 
         state_key = state_key_from_obs(obs)
-        tried_here = tried_at_state.get(state_key, []) if mode == "dfsdt" else []
+        # Avoid repeating the same action at the same state across the entire search,
+        # for both ToT and DFSDT. This ensures when we backtrack to a state, we pick
+        # a previously untried candidate.
+        tried_here = tried_at_state.get(state_key, [])
 
         if not cand_list:
             cand_list = next_candidates_for_state(obs, info, tried_here)
