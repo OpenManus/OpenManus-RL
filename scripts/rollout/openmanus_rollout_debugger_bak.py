@@ -548,7 +548,6 @@ class LLMDebugger:
             "root_cause": analysis["root_cause"],
             "evidence": analysis["evidence"],
             "correction_guidance": analysis["suggestion"],
-            "confidence": analysis["confidence"],
             "cascading_effects": []
         }
         

@@ -29,7 +29,6 @@ class CriticalError:
     evidence: str
     correction_guidance: str
     cascading_effects: List[Dict[str, Any]]
-    confidence: float
     follow_up_instruction: Optional[str] = None
 
 
@@ -253,9 +252,8 @@ REQUIRED OUTPUT FORMAT (JSON):
     "error_type": "<specific_error_type_from_definitions>",
     "root_cause": "Concise description of the fundamental problem",
     "evidence": "Specific quote or observation from trajectory supporting this identification",
-    "correction_guidance": "Specific guidance on what the agent should have done differently",
     "cascading_effects": [{{ "step": <step_number>, "impact": "description" }}],
-    "confidence": <0.0-1.0>,
+    "correction_guidance": "Specific guidance on what the agent should have done differently",
     "follow_up_instruction": "Single-sentence iterative guidance for future attempts"
 }}
 """
@@ -297,7 +295,6 @@ REQUIRED OUTPUT FORMAT (JSON):
             evidence=error_data.get('evidence', 'No evidence provided'),
             correction_guidance=error_data.get('correction_guidance', 'No guidance provided'),
             cascading_effects=error_data.get('cascading_effects', []),
-            confidence=float(error_data.get('confidence', 0.5)),
             follow_up_instruction=error_data.get('follow_up_instruction')
         )
             
@@ -411,7 +408,6 @@ REQUIRED OUTPUT FORMAT (JSON):
                     'error_summary': {
                         'total_steps': phase1_results['total_steps'],
                         'critical_at': f"Step {critical_error.critical_step} - {critical_error.critical_module}:{critical_error.error_type}",
-                        'confidence': critical_error.confidence
                     }
                 }
             else:

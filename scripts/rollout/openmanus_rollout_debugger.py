@@ -577,7 +577,6 @@ class LLMDebugger:
         analysis.setdefault("suggestion", "Try a different approach")
         analysis.setdefault("critical_step", analysis["failure_step"])  # default to failure step (0-based)
         analysis.setdefault("evidence", "No evidence provided")
-        analysis.setdefault("confidence", 0.5)
         analysis.setdefault("root_cause", analysis.get("reason", "Unknown error"))
         
         # Validate module and error type consistency
@@ -621,7 +620,6 @@ class LLMDebugger:
             "root_cause": analysis["root_cause"],
             "evidence": analysis["evidence"],
             "correction_guidance": analysis["suggestion"],
-            "confidence": analysis["confidence"],
             "cascading_effects": []
         }
         
@@ -879,7 +877,6 @@ class LLMDebugger:
         
         # Get evidence and other details
         evidence = critical_error.get('evidence', '')
-        confidence = critical_error.get('confidence', 0.0)
         cascading_effects = critical_error.get('cascading_effects', [])
         
         # Normalize critical error step indexing to 0-based for downstream consumers
@@ -897,7 +894,6 @@ class LLMDebugger:
             "raw_critical_error": _json_safe_copy(normalized_critical_error),
             "phase1_errors": _json_safe_copy(phase1_errors) if phase1_errors else None,
             "evidence": evidence,
-            "confidence": confidence,
             "cascading_effects": cascading_effects,
         }
 
@@ -916,10 +912,9 @@ class LLMDebugger:
                 converted_result['phase1_recompute_from_step'] = phase1_errors['recompute_from_step']
 
         logging.info(
-            "Converted API result: failure_step=%d, failure_type=%s, confidence=%.2f",
+            "Converted API result: failure_step=%d, failure_type=%s,",
             failure_step,
-            failure_type,
-            confidence
+            failure_type
         )
 
         return converted_result
@@ -1068,7 +1063,6 @@ class VanillaDebugger(LLMDebugger):
             "suggestion": suggestion,
             "critical_module": "vanilla",
             "failure_type": "vanilla",
-            "confidence": 0.0,
             "analysis_text": response_text,
         }
 
@@ -1080,7 +1074,6 @@ class VanillaDebugger(LLMDebugger):
             "root_cause": reason,
             "evidence": "",
             "correction_guidance": suggestion,
-            "confidence": 0.0,
             "cascading_effects": [],
         }
 
@@ -1154,7 +1147,6 @@ class SelfRefineDebugger(LLMDebugger):
             "analysis_text": response_text,
             "critical_module": "self_refine",
             "failure_type": "self_refine",
-            "confidence": 0.0,
             "raw_critical_error": None,
         }
 
@@ -1820,7 +1812,6 @@ def generate_debugger_feedback_text(analysis: Dict[str, Any]) -> str:
         root_cause = raw_critical.get('root_cause', 'An error occurred in your previous attempt.')
         correction_guidance = raw_critical.get('correction_guidance', 'Try a different approach.')
         evidence = raw_critical.get('evidence', '')
-        confidence = raw_critical.get('confidence', 0.5)
         failure_type = f"{critical_module}::{error_type}"
     else:
         # Fallback to enhanced analysis format
@@ -1829,13 +1820,12 @@ def generate_debugger_feedback_text(analysis: Dict[str, Any]) -> str:
         root_cause = analysis.get('root_cause', analysis.get('reason', 'An error occurred in your previous attempt.'))
         correction_guidance = analysis.get('suggestion', 'Try a different approach.')
         evidence = analysis.get('evidence', '')
-        confidence = analysis.get('confidence', 0.5)
         failure_type = f"{critical_module}::{error_type}"
     
     # Build comprehensive feedback with error type awareness
     feedback_parts = [
         f"[DEBUGGER FEEDBACK - Critical Error Analysis]",
-        f"Previous Attempt Failed: {failure_type} (Confidence: {confidence:.2f})",
+        f"Previous Attempt Failed: {failure_type}",
         f"Root Cause: {root_cause}",
         f"Corrective Action: {correction_guidance}"
     ]
@@ -2023,7 +2013,6 @@ def run_environment_with_retry(
                     "root_cause": raw_critical.get('root_cause', analysis.get('reason', 'Unknown error')),
                     "evidence": raw_critical.get('evidence', ''),
                     "correction_guidance": raw_critical.get('correction_guidance', analysis.get('suggestion', 'Try a different approach')),
-                    "confidence": raw_critical.get('confidence', 0.0),
                     "cascading_effects": raw_critical.get('cascading_effects', []),
                     "trajectory": last_trajectory,
                     "env_type": env_type,
