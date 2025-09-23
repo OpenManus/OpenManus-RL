@@ -29,7 +29,6 @@ class CriticalError:
     evidence: str
     correction_guidance: str
     cascading_effects: List[Dict[str, Any]]
-    confidence: float
     follow_up_instruction: Optional[str] = None
 
 
@@ -169,24 +168,6 @@ Errors Detected:"""
 
         all_steps = "\n".join(step_summaries)
 
-        # Aggregate error patterns for follow-up guidance context
-        error_highlights = []
-        for analysis in step_analyses:
-            step_num = analysis.get('step')
-            errors = analysis.get('errors', {}) or {}
-            for module, error_info in errors.items():
-                if error_info and error_info.get('error_detected'):
-                    reasoning = error_info.get('reasoning', '').strip()
-                    highlight = f"Step {step_num} - {module}: {error_info.get('error_type')}"
-                    if reasoning:
-                        highlight += f" | {reasoning}"
-                    error_highlights.append(highlight)
-
-        error_highlights = error_highlights[:12]
-        error_patterns_block = "- None observed" if not error_highlights else "\n".join(
-            f"- {item}" for item in error_highlights
-        )
-
         # Previous follow-up instruction context
         previous_instruction_block = "None"
         if previous_instructions:
@@ -209,9 +190,8 @@ DEBUG ITERATION CONTEXT:
 STEP-BY-STEP ERROR ANALYSIS:
 {all_steps}
 
-COMMON ERROR PATTERNS OBSERVED:
-{error_patterns_block}
 
+ERROR DEFINITIONS:
 {error_reference}
 
 Your job is to identify the CRITICAL ERROR - the earliest and most important error that led to task failure, and produce an iterative follow-up instruction that will help avoid similar mistakes in future attempts.
@@ -238,13 +218,12 @@ ANALYSIS GUIDELINES:
    - Others category captures unusual failures not covered by standard error types
 
 FOLLOW-UP INSTRUCTION REQUIREMENTS:
-- PURPOSE: This is feedback for following all steps.
+- PURPOSE: This is feedback for following all steps to avoid the similar errors have been observed in the trajectory in future attempts.
 - COMPREHENSIVENESS: Encode preventative habits spanning Memory/Reflection/Planning/Action (e.g., recall goal/constraints, validate plan vs. observation, safe tool usage, post‑action verification).
 - ITERATION: If previous instructions exist, refine and upgrade them—merge, correct, or supersede as needed based on new errors; do NOT repeat verbatim or contradict prior guidance.
-- GENERALITY: Make it broadly applicable to future steps
-- PRIORITY: This guidance overrides default heuristics when conflicts arise; aim to preempt the most common/impactful mistakes seen.
+- GENERALITY: Make it broadly applicable to future steps to avoid the similar errors have been observed in the trajectory in future attempts.
 
-Identify the TRUE ROOT CAUSE that made the task unrecoverable.
+Identify the TRUE ROOT CAUSE that made the task unrecoverable and provide the follow-up instruction for following all steps to avoid the similar errors have been observed in the trajectory in future attempts.
 
 REQUIRED OUTPUT FORMAT (JSON):
 {{
@@ -255,8 +234,7 @@ REQUIRED OUTPUT FORMAT (JSON):
     "evidence": "Specific quote or observation from trajectory supporting this identification",
     "correction_guidance": "Specific guidance on what the agent should have done differently",
     "cascading_effects": [{{ "step": <step_number>, "impact": "description" }}],
-    "confidence": <0.0-1.0>,
-    "follow_up_instruction": "Single-sentence iterative guidance for future attempts"
+    "follow_up_instruction": "Instruction for following all steps to avoid the similar errors have been observed in the trajectory in future attempts."
 }}
 """
         return prompt
@@ -297,7 +275,6 @@ REQUIRED OUTPUT FORMAT (JSON):
             evidence=error_data.get('evidence', 'No evidence provided'),
             correction_guidance=error_data.get('correction_guidance', 'No guidance provided'),
             cascading_effects=error_data.get('cascading_effects', []),
-            confidence=float(error_data.get('confidence', 0.5)),
             follow_up_instruction=error_data.get('follow_up_instruction')
         )
             
@@ -421,7 +398,6 @@ REQUIRED OUTPUT FORMAT (JSON):
                     'error_summary': {
                         'total_steps': phase1_results['total_steps'],
                         'critical_at': f"Step {critical_error.critical_step} - {critical_error.critical_module}:{critical_error.error_type}",
-                        'confidence': critical_error.confidence
                     }
                 }
             else:
