@@ -26,7 +26,7 @@ cd "${REPO_ROOT}"
 # Generate timestamp for unique run identification
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
-RUN_NAME="alfworld_qwen3-8b_vanilla_maxtry5_env50_start1_${TIMESTAMP}"
+RUN_NAME="alfworld_qwen3-8b_vanilla_maxtry5_env50_start51_${TIMESTAMP}"
 BASE_DIR="experiments/table2"
 RUN_DIR="${BASE_DIR}/${RUN_NAME}"
 mkdir -p "${RUN_DIR}"

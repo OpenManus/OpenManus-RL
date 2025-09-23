@@ -42,7 +42,7 @@ MAX_STEPS=30
 HISTORY_LENGTH=30
 TEMPERATURE=0.0
 MAX_TRY=5
-CONCURRENCY=10
+CONCURRENCY=20
 LLM_CONCURRENCY=80
 PARALLEL_PHASE1=5
 BON_N=5
@@ -61,6 +61,7 @@ cmd=(
   --start_id ${START_ID}
   --max_steps ${MAX_STEPS}
   --history_length ${HISTORY_LENGTH}
+  --use_summary
   --split "${SPLIT}"
   --temperature ${TEMPERATURE}
   --max_try ${MAX_TRY}

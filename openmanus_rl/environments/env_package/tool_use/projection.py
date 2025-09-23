@@ -62,8 +62,15 @@ def tool_use_projection(actions: List[str]) -> Tuple[List[str], List[int]]:
 
 
 def _has_tool_call(action: str) -> bool:
-    """Check if action contains a tool call"""
-    return bool(re.search(r'<tool_call>.*?</tool_call>', action, re.DOTALL))
+    """Return True if the text contains a tool call block.
+
+    Supports both legacy <tool_call>...</tool_call> and main-style
+    <action>...</action> wrappers.
+    """
+    if re.search(r"<tool_call>.*?</tool_call>", action, re.DOTALL):
+        return True
+    # Accept <action> wrapper as a tool-call container for GAIA prompts
+    return bool(re.search(r"<action>.*?</action>", action, re.DOTALL))
 
 
 def _has_answer(action: str) -> bool:
@@ -79,11 +86,12 @@ def _parse_tool_call(action: str) -> Tuple[str, bool]:
         Tuple of (parsed_action, is_valid)
     """
     try:
-        # Extract tool call content
-        tool_match = re.search(r'<tool_call>(.*?)</tool_call>', action, re.DOTALL)
-        if not tool_match:
+        # Extract tool call content from either <tool_call> or <action>
+        tool_match = re.search(r"<tool_call>(.*?)</tool_call>", action, re.DOTALL)
+        if tool_match is None:
+            tool_match = re.search(r"<action>(.*?)</action>", action, re.DOTALL)
+        if tool_match is None:
             return action, False
-        
         tool_content = tool_match.group(1).strip()
         
         # Parse tool name and parameters
@@ -93,7 +101,8 @@ def _parse_tool_call(action: str) -> Tuple[str, bool]:
         lines = tool_content.split('\n')
         for line in lines:
             line = line.strip()
-            if line.lower().startswith('tool:'):
+            # Accept either 'tool:' (preferred) or 'action:' as the tool name line
+            if line.lower().startswith('tool:') or line.lower().startswith('action:'):
                 tool_name = line.split(':', 1)[1].strip()
             elif line.lower().startswith('parameters:'):
                 try:

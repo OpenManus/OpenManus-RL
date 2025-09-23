@@ -17,10 +17,10 @@ Instructions:
 4. When you have sufficient information, provide your final answer in <answer></answer> tags
 
 Format for tool usage:
-<tool_call>
+<action>
 tool: [tool_name]
 parameters: {{"param1": "value1", "param2": "value2"}}
-</tool_call>
+</action>
 
 Now it's your turn to take an action. You should first reason step-by-step about the current situation. This reasoning process MUST be enclosed within <plan> </plan> tags.
 Once you've finished your reasoning, you should either use a tool or provide your final answer within <answer> </answer> tags.
@@ -35,6 +35,8 @@ Prior to this step, you have already taken {step_count} step(s). Below are the f
 You are now at step {current_step} and this is the final step.
 Current Observation: {current_observation}
 You must provide your final answer within <answer> </answer> tags.
+Even if the evidence is incomplete, infer the most plausible answer.
+Never respond with "unknown", "cannot determine", or similar phrases.
 """
 
 TOOL_USE_TEMPLATE = """
@@ -55,7 +57,7 @@ You should first recall relevant past experiences and reason from our conversati
 <memory>
 Look at the past observations and actions from our conversation history.
 - Please retrieve the most relavent memory for this step including the relevant observation and action in a RAG style along with the step number.
-- These memory should be helpful milestones to solve this task.git reset --soft HEAD~1
+- These memory should be helpful milestones to solve this task.
 </memory>
 
 After that, you should reflect on the last action and its outcome, then MUST summarize within <reflection> </reflection> tags like this:
@@ -85,4 +87,3 @@ parameters: {{"param1": "value1", "param2": "value2"}}
 </action>
 
 """
-

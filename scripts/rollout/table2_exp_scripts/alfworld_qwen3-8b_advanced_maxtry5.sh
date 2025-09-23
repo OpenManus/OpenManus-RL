@@ -26,7 +26,7 @@ cd "${REPO_ROOT}"
 # Generate timestamp for unique run identification
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
-RUN_NAME="alfworld_qwen3-8b_advanced_maxtry5_env50_start1_${TIMESTAMP}"
+RUN_NAME="alfworld_qwen3-8b_advanced_maxtry5_env100_start1_${TIMESTAMP}"
 BASE_DIR="experiments/table2"
 RUN_DIR="${BASE_DIR}/${RUN_NAME}"
 mkdir -p "${RUN_DIR}"
@@ -35,14 +35,14 @@ MODEL_NAME="kunlunz2/Qwen/Qwen3-8B-9f9838eb"
 DEBUGGER_MODEL="gpt-4.1"
 TOGETHER_ARG="--together rollout"
 
-TOTAL_ENVS=50
+TOTAL_ENVS=100
 TEST_TIMES=1
 START_ID=1
 MAX_STEPS=30
 HISTORY_LENGTH=30
 TEMPERATURE=0.0
 MAX_TRY=5
-CONCURRENCY=10
+CONCURRENCY=20
 LLM_CONCURRENCY=80
 PARALLEL_PHASE1=5
 BON_N=5

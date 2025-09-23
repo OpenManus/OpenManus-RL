@@ -26,7 +26,7 @@ cd "${REPO_ROOT}"
 # Generate timestamp for unique run identification
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
-RUN_NAME="alfworld_qwen3-next-80b_tot_maxtry5_env50_start1_${TIMESTAMP}"
+RUN_NAME="alfworld_qwen3-next-80b_tot_maxtry5_env50_start51_${TIMESTAMP}"
 BASE_DIR="experiments/table2"
 RUN_DIR="${BASE_DIR}/${RUN_NAME}"
 mkdir -p "${RUN_DIR}"
@@ -37,11 +37,11 @@ TOGETHER_ARG="--together rollout"
 
 TOTAL_ENVS=50
 TEST_TIMES=1
-START_ID=1
+START_ID=51
 MAX_STEPS=30
 HISTORY_LENGTH=30
 TEMPERATURE=0.0
-MAX_TRY=5
+MAX_TRY=4
 CONCURRENCY=10
 LLM_CONCURRENCY=80
 PARALLEL_PHASE1=5

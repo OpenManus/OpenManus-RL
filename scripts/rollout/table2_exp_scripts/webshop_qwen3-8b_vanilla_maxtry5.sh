@@ -60,6 +60,7 @@ cmd=(
   --test_times ${TEST_TIMES}
   --start_id ${START_ID}
   --max_steps ${MAX_STEPS}
+  --use_summary
   --history_length ${HISTORY_LENGTH}
   --split "${SPLIT}"
   --temperature ${TEMPERATURE}

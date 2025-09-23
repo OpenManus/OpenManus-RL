@@ -1559,8 +1559,8 @@ class EnvironmentFactory:
                    env_num: int = 1, seed: int = 1, history_length: int = 2,
                    max_steps: int = 30, **kwargs):
         """Build GAIA/Tool Use environment"""
-        from openmanus_rl.environments.env_package.tool_use import tool_use_projection
-        from openmanus_rl.environments.env_package.tool_use import build_tool_use_envs
+        from openmanus_rl.environments.env_package.tool_use.projection import tool_use_projection
+        from openmanus_rl.environments.env_package.tool_use.envs import build_tool_use_envs
         from openmanus_rl.environments.env_package.tool_use.manager import ToolUseEnvironmentManager
         
         envs = build_tool_use_envs(

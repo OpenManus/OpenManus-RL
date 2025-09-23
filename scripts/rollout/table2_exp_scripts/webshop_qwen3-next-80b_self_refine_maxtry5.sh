@@ -32,8 +32,8 @@ RUN_DIR="${BASE_DIR}/${RUN_NAME}"
 mkdir -p "${RUN_DIR}"
 
 MODEL_NAME="Qwen/Qwen3-Next-80B-A3B-Instruct"
-DEBUGGER_MODEL="gpt-4.1"
-TOGETHER_ARG="--together rollout"
+DEBUGGER_MODEL="Qwen/Qwen3-Next-80B-A3B-Instruct"
+TOGETHER_ARG="--together both"
 
 TOTAL_ENVS=50
 TEST_TIMES=1
@@ -61,6 +61,7 @@ cmd=(
   --start_id ${START_ID}
   --max_steps ${MAX_STEPS}
   --history_length ${HISTORY_LENGTH}
+  --use_summary
   --split "${SPLIT}"
   --temperature ${TEMPERATURE}
   --max_try ${MAX_TRY}
