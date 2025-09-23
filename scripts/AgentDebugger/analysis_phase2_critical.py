@@ -10,7 +10,7 @@ import os
 import asyncio
 import aiohttp
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 import logging
 from error_definitions_loader import ErrorDefinitionsLoader
@@ -30,6 +30,16 @@ class CriticalError:
     correction_guidance: str
     cascading_effects: List[Dict[str, Any]]
     follow_up_instruction: Optional[str] = None
+
+
+FOLLOW_UP_PROMPT_TEMPLATE = (
+    "Current result (critical step {critical_step}, {critical_module}::{error_type}):\n"
+    "{trajectory_summary}\n\n"
+    "Task: {task_description}\n"
+    "Root cause: {root_cause}\n\n"
+    "Why is this trajectory not finished the task?\n\n"
+    "Feedback:"
+)
 
 
 class CriticalErrorAnalyzer:
@@ -82,51 +92,14 @@ class CriticalErrorAnalyzer:
             'task_success': metadata.get('success', metadata.get('won', False))
         }
     
-    async def identify_critical_error(
-        self,
-        phase1_results: Dict[str, Any],
-        original_trajectory: Dict[str, Any],
-        previous_instructions: Optional[List[str]] = None,
-        attempt_index: int = 1
-    ) -> Optional[CriticalError]:
-        """Identify the critical error that led to failure"""
-        
-        # Skip successful tasks
-        if phase1_results['task_success']:
-            logger.info("Task succeeded - no critical error to identify")
-            return None
-        
-        # Prepare analysis data
-        step_analyses = phase1_results['step_analyses']
-        task_description = phase1_results['task_description']
-        chat_history = original_trajectory['chat_history']
-        
-        # Build critical error identification prompt
-        prompt = self._build_critical_error_prompt(
-            step_analyses,
-            task_description,
-            chat_history,
-            previous_instructions=previous_instructions,
-            attempt_index=attempt_index
-        )
-        
-        # Call LLM for critical error identification
-        response = await self.call_llm(prompt)
-        
-        # Parse the result
-        critical_error = self._parse_critical_error(response)
-        
-        return critical_error
-    
     def _build_critical_error_prompt(
         self,
         step_analyses: List[Dict],
         task_description: str,
         chat_history: List[Dict],
-        previous_instructions: Optional[List[str]] = None,
         attempt_index: int = 1
-    ) -> str:
-        """Build prompt for critical error identification and iterative guidance."""
+    ) -> Tuple[str, str]:
+        """Build prompt for critical error identification and return trajectory summary."""
 
         # Format step analyses with errors
         step_summaries = []
@@ -168,11 +141,6 @@ Errors Detected:"""
 
         all_steps = "\n".join(step_summaries)
 
-        # Previous follow-up instruction context
-        previous_instruction_block = "None"
-        if previous_instructions:
-            previous_instruction_block = "\n".join(f"- {instruction}" for instruction in previous_instructions)
-
         # Get complete error definitions
         error_reference = self.error_loader.format_for_phase2_prompt()
 
@@ -185,7 +153,6 @@ TASK RESULT: FAILED
 DEBUG ITERATION CONTEXT:
 - Current debug attempt index: {attempt_index}
 - Previously issued follow-up instructions:
-{previous_instruction_block}
 
 STEP-BY-STEP ERROR ANALYSIS:
 {all_steps}
@@ -218,7 +185,7 @@ ANALYSIS GUIDELINES:
    - Others category captures unusual failures not covered by standard error types
 
 
-Identify the TRUE ROOT CAUSE that made the task unrecoverable and provide follow-up instructions that satisfy the requirements above.
+Identify the TRUE ROOT CAUSE that made the task unrecoverable.
 
 REQUIRED OUTPUT FORMAT (JSON):
 {{
@@ -228,11 +195,10 @@ REQUIRED OUTPUT FORMAT (JSON):
     "root_cause": "Concise description of the fundamental problem",
     "evidence": "Specific quote or observation from trajectory supporting this identification",
     "correction_guidance": "Actionable advice for the agent to avoid the same mistake in that step",
-    "cascading_effects": [{{ "step": <step_number>, "impact": "description" }}],
-    "follow_up_instruction": "Feedback for the agent to succeed in the future steps"
+    "cascading_effects": [{{ "step": <step_number>, "impact": "description" }}]
 }}
 """
-        return prompt
+        return prompt, all_steps
 
     def _parse_critical_error(self, response: str) -> CriticalError:
         """Parse LLM response for critical error."""
@@ -270,12 +236,40 @@ REQUIRED OUTPUT FORMAT (JSON):
             evidence=error_data.get('evidence', 'No evidence provided'),
             correction_guidance=error_data.get('correction_guidance', 'No guidance provided'),
             cascading_effects=error_data.get('cascading_effects', []),
-            follow_up_instruction=error_data.get('follow_up_instruction')
+            follow_up_instruction=None,
         )
-            
+
+    async def _generate_follow_up_instruction(
+        self,
+        trajectory_summary: str,
+        critical_error: CriticalError,
+        task_description: str,
+    ) -> str:
+        snippet = trajectory_summary.strip()
+        max_len = self.config.get('follow_up_summary_max_chars', 4000)
+        if len(snippet) > max_len:
+            snippet = snippet[: max_len - 3].rstrip() + "..."
+
+        prompt = FOLLOW_UP_PROMPT_TEMPLATE.format(
+            trajectory_summary=snippet,
+            critical_step=critical_error.critical_step,
+            critical_module=critical_error.critical_module,
+            error_type=critical_error.error_type,
+            root_cause=critical_error.root_cause,
+            task_description=task_description,
+        )
+
+        try:
+            response = await self.call_llm(prompt, response_format="text")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to generate follow-up instruction: {exc}")
+            return ""
+
+        return response.strip()
+
             
     
-    async def call_llm(self, prompt: str) -> str:
+    async def call_llm(self, prompt: str, response_format: str = "json") -> str:
         """Call LLM API"""
         payload = {
             "model": self.config['model'],
@@ -287,11 +281,15 @@ REQUIRED OUTPUT FORMAT (JSON):
                 {"role": "user", "content": prompt}
             ],
             "temperature": self.config.get('temperature', 0.0),
-            "response_format": {"type": "json_object"}
         }
-        
+
+        if response_format == "json":
+            payload["response_format"] = {"type": "json_object"}
+        elif response_format and response_format != "text":
+            payload["response_format"] = {"type": response_format}
+
         proxy = os.getenv('HTTPS_PROXY') or os.getenv('https_proxy')
-        
+
         async with aiohttp.ClientSession() as session:
             for attempt in range(self.config.get('max_retries', 3)):
                 try:
@@ -313,18 +311,17 @@ REQUIRED OUTPUT FORMAT (JSON):
         
         return ""
     
-    async def identify_critical_error(self, phase1_results: Dict, trajectory_data: Dict, previous_instructions: Optional[List[str]] = None, attempt_index: int = 1) -> Dict[str, Any]:
+    async def identify_critical_error(self, phase1_results: Dict, trajectory_data: Dict, attempt_index: int = 1) -> Dict[str, Any]:
         """Identify critical error from phase1 results and trajectory (for API use)"""
         task_description = phase1_results.get('task_description', 'Unknown task')
         step_analyses = phase1_results.get('step_analyses', [])
 
         # Build analysis prompt
         chat_history = trajectory_data.get('messages') or trajectory_data.get('chat_history') or []
-        prompt = self._build_critical_error_prompt(
+        prompt, trajectory_summary = self._build_critical_error_prompt(
             step_analyses,
             task_description,
             chat_history,
-            previous_instructions=previous_instructions,
             attempt_index=attempt_index
         )
 
@@ -333,6 +330,15 @@ REQUIRED OUTPUT FORMAT (JSON):
 
         # Parse response
         critical_error = self._parse_critical_error(response)
+
+        if critical_error is not None:
+            follow_up_instruction = await self._generate_follow_up_instruction(
+                trajectory_summary,
+                critical_error,
+                task_description,
+            )
+            if follow_up_instruction:
+                critical_error.follow_up_instruction = follow_up_instruction
 
         result = {
             'critical_error': asdict(critical_error),
@@ -359,15 +365,9 @@ REQUIRED OUTPUT FORMAT (JSON):
         original_trajectory_file: str,
         output_dir: str,
         *,
-        previous_instructions: Optional[List[str]] = None,
         attempt_index: int = 1,
     ) -> Dict[str, Any]:
-        """Process a trajectory to identify critical error.
-
-        Optional parameters allow iterative runs to pass in previously issued
-        follow-up instructions and the current attempt index so the analyzer
-        can refine and upgrade guidance based on prior rounds.
-        """
+        """Process a trajectory to identify the critical error for the current attempt."""
         
         try:
             # Load data
@@ -378,7 +378,6 @@ REQUIRED OUTPUT FORMAT (JSON):
             critical_error = await self.identify_critical_error(
                 phase1_results,
                 original_trajectory,
-                previous_instructions=previous_instructions,
                 attempt_index=attempt_index,
             )
             

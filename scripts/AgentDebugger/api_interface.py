@@ -87,7 +87,6 @@ class AgentErrorDetectorAPI:
         trajectory_json: Dict,
         *,
         previous_phase1: Optional[Dict[str, Any]] = None,
-        previous_instructions: Optional[List[str]] = None,
         attempt_index: int = 1,
         recompute_from_step: Optional[int] = None,
     ) -> Dict:
@@ -111,7 +110,6 @@ class AgentErrorDetectorAPI:
         phase2_results = await self.find_critical_error(
             phase1_results,
             trajectory_json,
-            previous_instructions=previous_instructions,
             attempt_index=attempt_index,
         )
 
@@ -154,14 +152,12 @@ class AgentErrorDetectorAPI:
         phase1_results: Dict,
         trajectory_json: Dict,
         *,
-        previous_instructions: Optional[List[str]] = None,
         attempt_index: int = 1,
     ) -> Dict:
         """Phase 2: Identify critical failure point."""
         critical_error = await self.phase2_analyzer.identify_critical_error(
             phase1_results,
             trajectory_json,
-            previous_instructions=previous_instructions,
             attempt_index=attempt_index,
         )
         return critical_error

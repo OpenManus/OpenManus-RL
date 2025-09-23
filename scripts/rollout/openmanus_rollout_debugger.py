@@ -631,7 +631,6 @@ class LLMDebugger:
         env_type: str,
         chat_history: Optional[List[Dict]] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        previous_instructions: Optional[List[str]] = None,
         generate_follow_up: bool = False,
         log_path: Optional[str] = None,
         attempt_index: int = 1,
@@ -658,7 +657,7 @@ class LLMDebugger:
             recompute_from_step = 1
 
         effective_attempt_index = max(1, int(attempt_index) if attempt_index is not None else 1)
-        instructions_context = previous_instructions if previous_instructions else None
+        instructions_context = None
 
         logging.info(
             "Advanced debugger starting analysis: steps=%s chat_messages=%s env=%s reuse_from_step=%s cached_phase1=%s",
@@ -679,7 +678,6 @@ class LLMDebugger:
                 self.detector.analyze_trajectory(
                     trajectory_json,
                     previous_phase1=cached_phase1,
-                    previous_instructions=instructions_context,
                     attempt_index=effective_attempt_index,
                     recompute_from_step=recompute_from_step,
                 )
@@ -1009,7 +1007,6 @@ class VanillaDebugger(LLMDebugger):
         env_type: str,
         chat_history: Optional[List[Dict]] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        previous_instructions: Optional[List[str]] = None,
         generate_follow_up: bool = False,
         log_path: Optional[str] = None,
         attempt_index: int = 1,
@@ -1113,7 +1110,6 @@ class SelfRefineDebugger(LLMDebugger):
         env_type: str,
         chat_history: Optional[List[Dict]] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        previous_instructions: Optional[List[str]] = None,
         generate_follow_up: bool = False,
         log_path: Optional[str] = None,
         attempt_index: int = 1,
@@ -1221,7 +1217,6 @@ class AdvancedDebugger(LLMDebugger):
         env_type: str,
         chat_history: Optional[List[Dict]] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        previous_instructions: Optional[List[str]] = None,
         generate_follow_up: bool = False,
         log_path: Optional[str] = None,
         attempt_index: int = 1,
@@ -1248,7 +1243,6 @@ class AdvancedDebugger(LLMDebugger):
             recompute_from_step = 1
 
         effective_attempt_index = max(1, int(attempt_index) if attempt_index is not None else 1)
-        instructions_context = previous_instructions if previous_instructions else None
 
         logging.info(
             "Advanced debugger starting analysis: steps=%s chat_messages=%s env=%s reuse_from_step=%s cached_phase1=%s",
@@ -1269,7 +1263,6 @@ class AdvancedDebugger(LLMDebugger):
                 self.detector.analyze_trajectory(
                     trajectory_json,
                     previous_phase1=cached_phase1,
-                    previous_instructions=instructions_context,
                     attempt_index=effective_attempt_index,
                     recompute_from_step=recompute_from_step,
                 )
@@ -1932,15 +1925,9 @@ def run_environment_with_retry(
         
         # If this is a retry, analyze the failed trajectory
         if retry_idx > 0 and debugger and last_trajectory and not won:
-            # Get previous instructions for continuous debugging
-            previous_instructions = []
-            generate_follow_up = False
-            if continuous_instruction_manager and debugger_type in ("continue", "advanced"):
-                previous_instructions = continuous_instruction_manager.get_instructions(env_id)
-                generate_follow_up = True
-            
+            generate_follow_up = bool(continuous_instruction_manager) and debugger_type in ("continue", "advanced")
+
             analysis_kwargs = {
-                'previous_instructions': previous_instructions,
                 'generate_follow_up': generate_follow_up,
                 'log_path': analysis_log_path,
             }
@@ -2047,15 +2034,6 @@ def run_environment_with_retry(
                 }
 
                 if continuous_instruction_manager and debugger_type in ("continue", "advanced"):
-                    # Preserve the guidance context used for this analysis (before adding the new follow-up)
-                    debug_record["previous_instructions"] = previous_instructions
-                    debug_record["previous_follow_up_instruction"] = (
-                        previous_instructions[-1] if previous_instructions else None
-                    )
-                    if previous_instructions:
-                        debug_record["previous_guidance_overlay"] = (
-                            "[CONTINUOUS DEBUGGER GUIDANCE] " + "; ".join(previous_instructions)
-                        )
                     debug_record["follow_up_instruction"] = follow_up_instruction
                     debug_record["continuous_guidance"] = guidance_list
                     debug_record["continuous_guidance_history"] = [
