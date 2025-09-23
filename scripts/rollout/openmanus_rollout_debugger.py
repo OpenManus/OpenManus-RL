@@ -1376,11 +1376,19 @@ class ContinuousInstructionManager:
             self.instructions[env_id] = []
         if env_id not in self.instruction_history:
             self.instruction_history[env_id] = []
-            
-        # Avoid duplicating similar instructions
-        if instruction and instruction not in self.instructions[env_id]:
-            self.instructions[env_id].append(instruction)
-            self.instruction_history[env_id].append((attempt_idx, instruction))
+
+        instruction = (instruction or "").strip()
+        if not instruction:
+            return
+
+        current_list = self.instructions[env_id]
+        if current_list and current_list[-1] == instruction:
+            return
+
+        current_list.append(instruction)
+        # Keep only the latest instruction for overlay purposes
+        self.instructions[env_id] = current_list[-1:]
+        self.instruction_history[env_id].append((attempt_idx, instruction))
     
     def get_instructions(self, env_id: int) -> List[str]:
         """Get all accumulated instructions for an environment"""
@@ -1395,8 +1403,8 @@ class ContinuousInstructionManager:
         instructions = self.get_instructions(env_id)
         if not instructions:
             return ""
-        # Keep overlay minimal: single line label + guidance items joined by '; '
-        return "[CONTINUOUS DEBUGGER GUIDANCE] " + "; ".join(instructions)
+        latest = instructions[-1]
+        return "[CONTINUOUS DEBUGGER GUIDANCE]\n" + latest
 
 
 class TrajectoryManager:
@@ -1796,7 +1804,7 @@ def extract_trajectory_from_memory(
 def generate_debugger_feedback_text(analysis: Dict[str, Any]) -> str:
     """
     Generate enhanced debugger feedback text based on comprehensive analysis results.
-    
+
     Args:
         analysis: Enhanced analysis dict with detailed error classification
         
@@ -1822,24 +1830,25 @@ def generate_debugger_feedback_text(analysis: Dict[str, Any]) -> str:
         evidence = analysis.get('evidence', '')
         failure_type = f"{critical_module}::{error_type}"
     
-    # Build comprehensive feedback with error type awareness
+    failure_step = analysis.get('failure_step')
+    if failure_step is None:
+        failure_step = raw_critical.get('critical_step') if raw_critical else analysis.get('critical_step')
+    step_display = failure_step if failure_step is not None else "unknown"
+
+    # Build concise feedback focused on context and caution
+    if correction_guidance:
+        caution_line = f"Key caution: {correction_guidance}"
+    else:
+        caution_line = "Key caution: stay vigilant against repeating the same failure pattern."
+
     feedback_parts = [
-        f"[DEBUGGER FEEDBACK - Critical Error Analysis]",
-        f"Previous Attempt Failed: {failure_type}",
-        f"Root Cause: {root_cause}",
-        f"Corrective Action: {correction_guidance}"
+        "[DEBUGGER FEEDBACK - Prior Replay Summary]",
+        f"This reminder comes from the previous rollout. Step {step_display} triggered {failure_type}.",
+        f"Root cause recap: {root_cause}",
+        caution_line,
+        "Use this reminder during the replay and actively avoid the earlier mistake.",
     ]
-    
-    if evidence and evidence.strip():
-        feedback_parts.append(f"Supporting Evidence: {evidence}")
-    
-    # Include proactive follow-up instruction if available
-    follow_up = analysis.get('follow_up_instruction')
-    if follow_up:
-        feedback_parts.append(f"Follow-up Instruction (apply to all future steps): {follow_up}")
-    
-    feedback_parts.append("This is a replay attempt - apply the corrective guidance to avoid the same mistake.")
-    
+
     return "\n".join(feedback_parts)
 
 
@@ -1974,11 +1983,23 @@ def run_environment_with_retry(
             )
             
             # Extract and store follow-up instruction for continuous debugging
+            follow_up_instruction_raw = analysis.get('follow_up_instruction')
+            normalized_follow_up = None
+            if follow_up_instruction_raw is not None:
+                if isinstance(follow_up_instruction_raw, (list, tuple, set)):
+                    joined = "\n".join(
+                        str(item).strip()
+                        for item in follow_up_instruction_raw
+                        if str(item).strip()
+                    )
+                    normalized_follow_up = joined.strip()
+                else:
+                    normalized_follow_up = str(follow_up_instruction_raw).strip()
+
             if continuous_instruction_manager and debugger_type in ("continue", "advanced"):
-                follow_up_instruction = analysis.get('follow_up_instruction')
-                if follow_up_instruction:
-                    continuous_instruction_manager.add_instruction(env_id, follow_up_instruction, retry_idx)
-                    logging.info(f"    Added follow-up instruction: {follow_up_instruction}")
+                if normalized_follow_up:
+                    continuous_instruction_manager.add_instruction(env_id, normalized_follow_up, retry_idx)
+                    logging.info(f"    Added follow-up instruction: {normalized_follow_up}")
 
                 guidance_list = continuous_instruction_manager.get_instructions(env_id)
                 instruction_overlay = continuous_instruction_manager.format_instructions_for_observation(env_id)
@@ -1995,6 +2016,10 @@ def run_environment_with_retry(
                 ]
                 if instruction_overlay:
                     analysis['continuous_guidance_overlay'] = instruction_overlay
+
+            if normalized_follow_up:
+                analysis['follow_up_instruction'] = normalized_follow_up
+            follow_up_instruction = normalized_follow_up
             
             # Save debug analysis to task dir if specified
             if task_dir:

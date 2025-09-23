@@ -217,13 +217,8 @@ ANALYSIS GUIDELINES:
    - For example, if the agent was performing correctly but hit step_limit, that IS the critical error
    - Others category captures unusual failures not covered by standard error types
 
-FOLLOW-UP INSTRUCTION REQUIREMENTS:
-- PURPOSE: This is feedback for following all steps to avoid the similar errors have been observed in the trajectory in future attempts.
-- COMPREHENSIVENESS: Encode preventative habits spanning Memory/Reflection/Planning/Action (e.g., recall goal/constraints, validate plan vs. observation, safe tool usage, post‑action verification).
-- ITERATION: If previous instructions exist, refine and upgrade them—merge, correct, or supersede as needed based on new errors; do NOT repeat verbatim or contradict prior guidance.
-- GENERALITY: Make it broadly applicable to future steps to avoid the similar errors have been observed in the trajectory in future attempts.
 
-Identify the TRUE ROOT CAUSE that made the task unrecoverable and provide the follow-up instruction for following all steps to avoid the similar errors have been observed in the trajectory in future attempts.
+Identify the TRUE ROOT CAUSE that made the task unrecoverable and provide follow-up instructions that satisfy the requirements above.
 
 REQUIRED OUTPUT FORMAT (JSON):
 {{
@@ -232,9 +227,9 @@ REQUIRED OUTPUT FORMAT (JSON):
     "error_type": "<specific_error_type_from_definitions>",
     "root_cause": "Concise description of the fundamental problem",
     "evidence": "Specific quote or observation from trajectory supporting this identification",
-    "correction_guidance": "Specific guidance on what the agent should have done differently",
+    "correction_guidance": "Actionable advice for the agent to avoid the same mistake in that step",
     "cascading_effects": [{{ "step": <step_number>, "impact": "description" }}],
-    "follow_up_instruction": "Instruction for following all steps to avoid the similar errors have been observed in the trajectory in future attempts."
+    "follow_up_instruction": "Feedback for the agent to succeed in the future steps"
 }}
 """
         return prompt
