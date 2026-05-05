@@ -1,5 +1,5 @@
 # Core dependencies for OpenManus-RL in AMD vllm Docker
-gymnasium==0.29.1
+gymnasium==1.1.1
 stable-baselines3==2.6.0
 alfworld
 pyyaml
