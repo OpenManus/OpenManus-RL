@@ -403,3 +403,77 @@ OpenManus-RL/
 - [Development Guide (Chinese)](docs/DEVELOPMENT_GUIDE_ZH.md)
 - [Training Process Overview (English)](docs/README.md)
 - [Training Process Overview (Chinese)](docs/README_ZH.md)
+
+## ❓ FAQ
+
+### What is OpenManus-RL?
+
+OpenManus-RL is an open-source initiative for **RL-based LLM agent tuning**. It explores new paradigms for training reasoning agents, building upon DeepSeek-R1 and QwQ-32B approaches. Led by **Ulab-UIUC** and **MetaGPT**.
+
+### How does OpenManus-RL compare to other agent tuning frameworks?
+
+| Framework | Focus | Method | Best For |
+|-----------|-------|--------|----------|
+| OpenManus-RL | RL agent tuning | RL reasoning + tools | Agent benchmarks |
+| DeepSeek-R1 | Reasoning | RL for reasoning | Math/coding |
+| Agent-R1 | End-to-end RL | Step-level MDP | Tool-augmented agents |
+| OpenManus | Agent framework | Original framework | General agents |
+
+**OpenManus-RL's focus**: Explore RL tuning paradigms specifically for agent reasoning and tool integration.
+
+### What is the training method?
+
+OpenManus-RL explores:
+- **Reasoning Models**: DeepSeek-R1/QwQ-32B style reasoning training
+- **Alternative Rollout Strategies**: Different trajectory collection methods
+- **Agent Reward Models**: Training reward models for agent tasks
+- **Test-time Scaling**: Scaling trajectories at inference
+- **Action Space Awareness**: Strategic exploration in action spaces
+
+### What benchmarks are used?
+
+- **GAIA**: General AI assistant benchmark
+- **AgentBench**: Comprehensive agent evaluation
+- **WebShop**: Web-based shopping agent benchmark
+- **OSWorld**: Operating system task benchmark
+
+### What dataset is available?
+
+OpenManus-RL dataset is available at [HuggingFace](https://huggingface.co/datasets/CharlieDreemur/OpenManus-RL):
+- Agent SFT (Supervised Fine-Tuning) dataset
+- Multi-step interaction data
+- Tool-using trajectories
+
+### How do I run OpenManus-RL?
+
+The project uses integrated `verl` submodule for RL training:
+1. Clone repository
+2. Initialize submodules: `git submodule update --init --recursive`
+3. Follow training scripts in examples
+
+### What models are supported?
+
+Supports RL tuning for:
+- Qwen series
+- DeepSeek models
+- Custom reasoning models via veRL
+
+### What is the roadmap?
+
+Key research directions:
+- Reasoning model exploration
+- Alternative rollout strategies
+- Environment & benchmark development
+- Post-training strategies
+- Integration with RL tuning frameworks
+
+### What license does OpenManus-RL use?
+
+Open-source (check repository for specific license).
+
+### Where can I find help?
+
+- 🐛 Issues: [GitHub Issues](https://github.com/OpenManus/OpenManus-RL/issues)
+- 📊 Dataset: [HuggingFace](https://huggingface.co/datasets/CharlieDreemur/OpenManus-RL)
+- 💬 Community: Check README for community groups
+
