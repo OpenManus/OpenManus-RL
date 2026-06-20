@@ -49,6 +49,9 @@ dependencies = [
 test = [
   "pytest", "yapf"
 ]
+litellm = [
+  "litellm>=1.80.0,<1.87.0"
+]
 
 # URLs
 [project.urls]
