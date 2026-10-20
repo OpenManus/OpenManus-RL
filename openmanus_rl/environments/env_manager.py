@@ -380,9 +380,13 @@ def make_envs(config):
             tasks_data = json.load(f)
         
         # Get available tools from config
-        available_tools = getattr(config.env, 'available_tools', [
-            'google_search', 'wikipedia_knowledge_searcher', 'arxiv_paper_searcher'
-        ])
+        from openmanus_rl.tools.search_defaults import default_search_tool
+        if hasattr(config.env, 'available_tools'):
+            available_tools = config.env.available_tools
+        else:
+            available_tools = [
+                default_search_tool(), 'wikipedia_knowledge_searcher', 'arxiv_paper_searcher'
+            ]
         
         # Build environments
         _envs = build_tool_use_envs(

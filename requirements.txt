@@ -1,4 +1,6 @@
 accelerate
+mcp>=1.26,<2; python_version >= '3.10'
+python-dotenv>=1,<2
 codetiming
 datasets
 dill

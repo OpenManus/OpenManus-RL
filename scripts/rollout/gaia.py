@@ -19,6 +19,7 @@ import sys
 from openmanus_rl.environments.env_manager import *
 from openai import OpenAI
 from together import Together
+from openmanus_rl.tools.search_defaults import default_search_tool
 
 
 def build_env(env_name, tasks_data, available_tools, env_num=1, seed=1, history_length=2, max_steps=30):
@@ -143,7 +144,7 @@ if __name__ == "__main__":
     parser.add_argument("--base_url", default=None, help="OpenAI-compatible base URL (e.g., vLLM http://127.0.0.1:8000/v1)")
     parser.add_argument("--chat_root", default=None, help="If set, save per-episode chat histories under this root")
     parser.add_argument("--data_path", default="data/gaia/val.json", help="Path to GAIA dataset")
-    parser.add_argument("--tools", nargs='+', default=['google_search', 'wikipedia_knowledge_searcher', 'python_code_generator'], 
+    parser.add_argument("--tools", nargs='+', default=[default_search_tool(), 'wikipedia_knowledge_searcher', 'python_code_generator'],
                        help="List of available tools")
     parser.add_argument("--dry_run", action="store_true", help="仅打印任务分配，不创建环境、不调用模型")
     args = parser.parse_args()

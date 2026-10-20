@@ -1,0 +1,3 @@
+# Optional GAIA/tool-use search dependencies (Python 3.10+).
+mcp>=1.26,<2
+python-dotenv>=1,<2

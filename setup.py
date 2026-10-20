@@ -24,6 +24,8 @@ with open(os.path.join(version_folder, "verl/version/version")) as f:
     __version__ = f.read().strip()
 
 install_requires = [
+    "mcp>=1.26,<2; python_version >= '3.10'",
+    "python-dotenv>=1,<2",
     "accelerate",
     "codetiming",
     "datasets",

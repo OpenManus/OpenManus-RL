@@ -27,6 +27,11 @@ This guide shows how to run rollouts for the three environments using a single u
 
 Data path default: `data/gaia/val.json`
 
+On Python 3.10+, unconfigured GAIA runs use free, keyless Parallel Search MCP.
+Configured Google credentials and explicit `--gaia_tools` lists keep their
+choices. See [GAIA web search](../openmanus_rl/tools/README.md#gaia-web-search)
+for installation, provider selection and page fetching.
+
 - Dry‑run (no model calls):
   - `python scripts/rollout/openmanus_rollout.py --env gaia --batch_size 2 --total_envs 4 --dry_run`
 

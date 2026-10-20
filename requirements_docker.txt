@@ -1,4 +1,5 @@
 # Core dependencies for OpenManus-RL in AMD vllm Docker
+mcp>=1.26,<2; python_version >= '3.10'
 gymnasium==0.29.1
 stable-baselines3==2.6.0
 alfworld
