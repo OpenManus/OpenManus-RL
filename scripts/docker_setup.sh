@@ -46,6 +46,7 @@ uv pip install -U openai
 uv pip install Ray
 uv pip install together
 uv pip install wikipedia python-dotenv requests
+uv pip install -r requirements-search.txt
 
 echo "Environment setup complete!"
 '
