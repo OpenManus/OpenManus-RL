@@ -32,6 +32,7 @@ class ToolUseEnv:
         elif self.current_task_idx >= len(self.tasks_data):
             self.current_task_idx = 0
         
+        self.tool_manager.start_session()
         task_data = self.tasks_data[self.current_task_idx]
         self.current_task_idx += 1
         
@@ -140,6 +141,7 @@ class ToolManager:
         # Map tool names to their module paths
         tool_mapping = {
             'google_search': 'openmanus_rl.tools.google_search.tool.Google_Search_Tool',
+            'parallel_search': 'openmanus_rl.tools.parallel_search.tool.ParallelSearchTool',
             'wikipedia_knowledge_searcher': 'openmanus_rl.tools.wikipedia_knowledge_searcher.tool.Wikipedia_Knowledge_Searcher_Tool',
             'arxiv_paper_searcher': 'openmanus_rl.tools.arxiv_paper_searcher.tool.ArXiv_Paper_Searcher_Tool',
             'pubmed_search': 'openmanus_rl.tools.pubmed_search.tool.Pubmed_Search_Tool',
@@ -168,6 +170,12 @@ class ToolManager:
         
         self.available_tools[tool_name] = tool_instance
     
+    def start_session(self):
+        """Start a research conversation for this environment's next task."""
+        tool = self.available_tools.get('parallel_search')
+        if tool is not None:
+            tool.start_session()
+
     def get_tools_metadata(self) -> str:
         """Generate formatted metadata for all available tools"""
         if not self.available_tools:

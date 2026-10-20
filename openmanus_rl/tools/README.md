@@ -1,4 +1,48 @@
 
+## GAIA web search
+
+On Python 3.10+, GAIA/tool-use runs use [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+when neither `GOOGLE_API_KEY` nor `GOOGLE_CX` is set. Search uses Fast mode and
+needs no account or API key. The anonymous service has usage limits; errors are
+returned to the agent without switching providers or retrying automatically.
+Existing Google credentials, including credentials loaded from `.env`, keep
+Google selected. Set both Google variables for a working Google configuration.
+
+Install the search dependencies in your existing rollout environment from the
+repository root (they are also declared in the main dependency manifests):
+
+```sh
+pip install -r requirements-search.txt
+```
+
+`scripts/rollout/gaia.py` and `scripts/rollout/openmanus_rollout.py --env gaia`
+select this default automatically. To select it explicitly, use
+`--tools parallel_search wikipedia_knowledge_searcher python_code_generator`
+with `gaia.py`, or `--gaia_tools` with `openmanus_rollout.py`. Explicit tool lists
+and `config.env.available_tools` are used as supplied. Omit search tools from
+those lists to disable web search; an empty configuration list disables all tools.
+`google_search` remains available explicitly, with no fallback after an error.
+Python versions before 3.10 retain the Google default.
+
+The agent can search or fetch page excerpts using the same tool:
+
+```text
+<tool_call>
+tool: parallel_search
+parameters: {"query": "2024 Nobel chemistry winners"}
+</tool_call>
+
+<tool_call>
+tool: parallel_search
+parameters: {"urls": ["https://www.nobelprize.org/prizes/chemistry/2024/summary/"], "query": "Who won?"}
+</tool_call>
+```
+
+Results include source URLs and excerpts in the next agent observation. Each
+environment reset creates a new research session; related searches and fetches
+within one task share it. Requests have a 30-second total timeout. This provider
+does not configure the separate modular-stage `search` wrapper.
+
 ## Testing the Tools
 
 To test the text detection tool, follow these steps:

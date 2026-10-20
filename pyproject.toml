@@ -31,6 +31,8 @@ authors = [
 
 # Dependencies corresponding to install_requires in setup.py
 dependencies = [
+    "mcp>=1.26,<2; python_version >= '3.10'",
+    "python-dotenv>=1,<2",
     "accelerate",
     "codetiming",
     "datasets",

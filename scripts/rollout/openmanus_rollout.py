@@ -21,6 +21,7 @@ import sys
 from openmanus_rl.environments.env_manager import *
 from openai import OpenAI
 from together import Together
+from openmanus_rl.tools.search_defaults import default_search_tool
 
 try:
     import dotenv
@@ -361,7 +362,7 @@ def main():
     parser.add_argument("--gaia_data_path", default="data/gaia/val.json",
                        help="Path to GAIA dataset")
     parser.add_argument("--gaia_tools", nargs='+', 
-                       default=['google_search', 'wikipedia_knowledge_searcher', 'python_code_generator'],
+                       default=[default_search_tool(), 'wikipedia_knowledge_searcher', 'python_code_generator'],
                        help="List of available tools for GAIA")
     parser.add_argument("--webshop_train", action="store_true",
                        help="Use WebShop training set instead of test set")
